@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install:*)",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(python3 -c \":*)",
+      "Bash(identify \"/Users/paul/Documents/Claude Code/Barn Board App/barn-board/public/Board background.jpg\")",
+      "Bash(python3 -c \"import PIL, numpy; print\\(''OK''\\)\")",
+      "Bash(pip3 install:*)",
+      "Bash(python3 scripts/detect_holds.py)",
+      "Bash(ipconfig getifaddr:*)"
+    ]
+  }
+}
