@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 import BoardView from './components/BoardView';
+import BoardSetupView from './components/BoardSetupView';
 import ModeSelector from './components/ModeSelector';
 import RouteForm from './components/RouteForm';
 import RouteList from './components/RouteList';
@@ -17,10 +18,10 @@ export default function App() {
   const [settings, setSettings] = useLocalStorage('barnboard_settings', { gradeSystem: 'V' });
 
   // Hold management (auto-detected + custom + overrides)
-  const { allHolds, addHold, updateHold, deleteHold } = useCustomHolds();
+  const { allHolds, addHold, updateHold, deleteHold, replaceAllHolds } = useCustomHolds();
 
   // UI state
-  // view: board | create | routes | settings | viewRoute | addHold | editHold
+  // view: board | create | routes | settings | viewRoute | addHold | editHold | setupBoard
   const [view, setView]                 = useState('board');
   const [selectionMode, setSelectionMode] = useState(SELECTION_MODES.HAND);
   const [holdSelection, setHoldSelection] = useState({});
@@ -138,6 +139,13 @@ export default function App() {
 
   const handleGoToHoldSelect = () => setView('holdSelect');
 
+  const handleSetupBoard = () => setView('setupBoard');
+  const handleSetupSave = (newHolds) => {
+    replaceAllHolds(newHolds);
+    setView('board');
+  };
+  const handleSetupCancel = () => setView('settings');
+
   const handleHoldEditorSave = (holdData) => {
     if (view === 'addHold') {
       addHold(holdData);
@@ -222,6 +230,7 @@ export default function App() {
           selection={holdSelection}
           onHoldTap={handleHoldTap}
           interactive={view === 'create'}
+          dimBoard={view === 'viewRoute'}
         >
           {/* Create mode: mode selector + hold counts */}
           {view === 'create' && (
@@ -302,22 +311,23 @@ export default function App() {
             </div>
           )}
 
-          {/* Board view CTA */}
-          {view === 'board' && (
-            <div style={{ textAlign: 'center' }}>
-              <button
-                onClick={() => { resetCreate(); setView('create'); }}
-                style={{
-                  padding: '12px 40px', borderRadius: '24px', border: 'none',
-                  background: 'var(--accent)', color: '#fff',
-                  fontSize: '14px', fontWeight: 700, cursor: 'pointer', letterSpacing: '0.5px',
-                }}
-              >
-                + CREATE ROUTE
-              </button>
-            </div>
-          )}
         </BoardView>
+      )}
+
+      {/* Board view CTA — below the board image */}
+      {view === 'board' && (
+        <div style={{ textAlign: 'center', padding: '16px 12px 24px' }}>
+          <button
+            onClick={() => { resetCreate(); setView('create'); }}
+            style={{
+              padding: '14px 48px', borderRadius: '24px', border: 'none',
+              background: 'var(--accent)', color: '#fff',
+              fontSize: '14px', fontWeight: 700, cursor: 'pointer', letterSpacing: '0.5px',
+            }}
+          >
+            + CREATE ROUTE
+          </button>
+        </div>
       )}
 
       {/* ── Route form (below board in create mode) ── */}
@@ -353,10 +363,7 @@ export default function App() {
           settings={settings}
           updateSettings={updateSettings}
           allHolds={allHolds}
-          onAddHold={handleAddHold}
-          onEditHold={handleEditHold}
-          onDeleteHold={deleteHold}
-          onSelectOnBoard={handleGoToHoldSelect}
+          onSetupBoard={handleSetupBoard}
         />
       )}
 
@@ -390,6 +397,15 @@ export default function App() {
             </button>
           </div>
         </BoardView>
+      )}
+
+      {/* ── Board Setup editor ── */}
+      {view === 'setupBoard' && (
+        <BoardSetupView
+          initialHolds={allHolds}
+          onSave={handleSetupSave}
+          onCancel={handleSetupCancel}
+        />
       )}
 
       {/* ── Hold editor (add / edit) ── */}

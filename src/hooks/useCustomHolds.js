@@ -50,5 +50,26 @@ export function useCustomHolds() {
     setCustomHolds([]);
   };
 
-  return { allHolds, customHolds, holdOverrides, addHold, updateHold, deleteHold, resetAllOverrides };
+  /**
+   * Replace all holds with a new set from the Board Setup editor.
+   * Clears overrides and custom holds, then stores everything as custom holds.
+   * This is a full replacement — the holds.json base data is effectively ignored.
+   */
+  const replaceAllHolds = (newHolds) => {
+    // Hide all base holds via overrides
+    const hideAll = {};
+    for (const h of holdsData.holds) {
+      hideAll[h.id] = { hidden: true };
+    }
+    setHoldOverrides(hideAll);
+    // Store all new holds as custom
+    const customs = newHolds.map(h => ({
+      ...h,
+      custom: true,
+      id: h.id.startsWith('custom_') ? h.id : `custom_${h.id}`,
+    }));
+    setCustomHolds(customs);
+  };
+
+  return { allHolds, customHolds, holdOverrides, addHold, updateHold, deleteHold, resetAllOverrides, replaceAllHolds };
 }

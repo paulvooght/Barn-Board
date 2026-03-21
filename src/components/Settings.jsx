@@ -5,11 +5,9 @@ import holdsData from '../data/holds.json';
  * Props:
  *   settings, updateSettings — grade system etc.
  *   allHolds                 — merged hold array from useCustomHolds
- *   onAddHold()              — navigate to add-hold editor
- *   onEditHold(hold)         — navigate to edit-hold editor
- *   onDeleteHold(holdId)     — delete / hide a hold
+ *   onSetupBoard()           — open the Hold Manager
  */
-export default function Settings({ settings, updateSettings, allHolds, onAddHold, onEditHold, onDeleteHold, onSelectOnBoard }) {
+export default function Settings({ settings, updateSettings, allHolds, onSetupBoard }) {
   const totalHolds    = allHolds.length;
   const customCount   = allHolds.filter(h => h.custom).length;
   const verifiedCount = allHolds.filter(h => h.verified).length;
@@ -48,6 +46,24 @@ export default function Settings({ settings, updateSettings, allHolds, onAddHold
         </div>
       </div>
 
+      {/* ── Hold Manager ── */}
+      <div style={{ marginBottom: '12px' }}>
+        <button
+          onClick={onSetupBoard}
+          style={{
+            width: '100%', padding: '12px', borderRadius: '10px', fontSize: '14px',
+            fontWeight: 700, cursor: 'pointer', border: 'none',
+            background: 'var(--accent)', color: '#fff',
+            letterSpacing: '0.5px',
+          }}
+        >
+          Hold Manager
+        </button>
+        <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '6px', fontFamily: 'var(--font-heading)', textAlign: 'center' }}>
+          {totalHolds} holds · Last detected: {holdsData.detectedAt}
+        </div>
+      </div>
+
       {/* ── Board Specs ── */}
       <div style={cardStyle}>
         <div style={sectionTitleStyle}>Board Specs</div>
@@ -61,72 +77,7 @@ export default function Settings({ settings, updateSettings, allHolds, onAddHold
         </div>
       </div>
 
-      {/* ── Hold Management ── */}
-      <div style={{ ...cardStyle, marginTop: '12px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-          <div style={sectionTitleStyle}>Hold Management</div>
-          <div style={{ display: 'flex', gap: '6px' }}>
-            <button
-              onClick={onSelectOnBoard}
-              style={{
-                padding: '6px 12px', borderRadius: '20px', fontSize: '12px',
-                fontWeight: 600, cursor: 'pointer',
-                border: '1.5px solid rgba(0,71,255,0.35)',
-                background: 'rgba(0,71,255,0.08)', color: 'var(--accent)',
-              }}
-            >
-              Select on board
-            </button>
-            <button
-              onClick={onAddHold}
-              style={{
-                padding: '6px 14px', borderRadius: '20px', fontSize: '12px',
-                fontWeight: 700, cursor: 'pointer', border: 'none',
-                background: 'var(--accent)', color: '#fff',
-              }}
-            >
-              + Add Hold
-            </button>
-          </div>
-        </div>
-
-        <div style={{ fontSize: '11px', color: 'var(--text-muted)', lineHeight: 1.6, marginBottom: '10px' }}>
-          Tap <strong style={{ color: 'var(--text-secondary)' }}>Edit</strong> to reposition or resize any hold boundary.
-          Custom holds (★) can be deleted; auto-detected holds are hidden instead.
-        </div>
-
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '5px', maxHeight: '38vh', overflowY: 'auto' }}>
-          {allHolds.map(hold => (
-            <HoldRow
-              key={hold.id}
-              hold={hold}
-              onEdit={() => onEditHold(hold)}
-              onDelete={() => onDeleteHold(hold.id)}
-            />
-          ))}
-        </div>
-      </div>
-
-      {/* ── Hold Detection Info ── */}
-      <div style={{ ...cardStyle, marginTop: '12px' }}>
-        <div style={sectionTitleStyle}>Hold Detection</div>
-        <div style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.7 }}>
-          Holds are auto-detected from the board photo using colour analysis.
-          After resetting holds, take a new straight-on photo and re-run detection.
-        </div>
-        <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '8px', fontFamily: 'var(--font-heading)' }}>
-          Last detected: {holdsData.detectedAt}
-        </div>
-      </div>
-
-      {/* ── About ── */}
-      <div style={{ ...cardStyle, marginTop: '12px', marginBottom: '32px' }}>
-        <div style={sectionTitleStyle}>About</div>
-        <div style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.7 }}>
-          Phase 1 — Interactive board with hold detection, route creation, and local storage.
-          Built for vibe coding with Claude.
-        </div>
-      </div>
+      <div style={{ marginBottom: '32px' }} />
     </div>
   );
 }

@@ -9,18 +9,20 @@ function clamp(val, min, max) {
   return Math.max(min, Math.min(max, val));
 }
 
-export default function BoardView({ holds, selection, onHoldTap, interactive, children }) {
+export default function BoardView({ holds, selection, onHoldTap, interactive, dimBoard, children }) {
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imgSize, setImgSize]         = useState({ w: 1200, h: 900 });
   const [scale, setScale]             = useState(1);
   const [pan, setPan]                 = useState({ x: 0, y: 0 });
 
-  const containerRef = useRef(null);
-  const scaleRef     = useRef(1);
-  const panRef       = useRef({ x: 0, y: 0 });
-  const pinchRef     = useRef({ active: false, lastDist: 0 });
-  const dragRef      = useRef({ active: false, startX: 0, startY: 0, basePanX: 0, basePanY: 0, moved: false });
-  const mouseRef     = useRef({ active: false, startX: 0, startY: 0, basePanX: 0, basePanY: 0, moved: false });
+  const containerRef    = useRef(null);
+  const scaleRef        = useRef(1);
+  const panRef          = useRef({ x: 0, y: 0 });
+  const pinchRef        = useRef({ active: false, lastDist: 0 });
+  const dragRef         = useRef({ active: false, startX: 0, startY: 0, basePanX: 0, basePanY: 0, moved: false });
+  const mouseRef        = useRef({ active: false, startX: 0, startY: 0, basePanX: 0, basePanY: 0, moved: false });
+  const lastTouchTimeRef = useRef(0);
+  const isSynthesizedMouse = () => Date.now() - lastTouchTimeRef.current < 500;
 
   const { boardRegion } = holdsData;
   const allHolds = holds ?? holdsData.holds;
@@ -59,7 +61,94 @@ export default function BoardView({ holds, selection, onHoldTap, interactive, ch
     return () => el.removeEventListener('wheel', onWheel);
   }, []);
 
+  // ─── Hit-test: find which hold (if any) is at a screen point ────────
+  const svgRef = useRef(null);
+
+  function findHoldAtPoint(clientX, clientY) {
+    const svg = svgRef.current;
+    if (!svg) return null;
+    const rect = svg.getBoundingClientRect();
+
+    // Convert screen coords → SVG natural coords (accounting for zoom/pan)
+    const svgX = ((clientX - rect.left) / rect.width)  * imgSize.w;
+    const svgY = ((clientY - rect.top)  / rect.height) * imgSize.h;
+
+    // Convert SVG coords → board-area percentages
+    const bLeft = imgSize.w * boardRegion.left  / 100;
+    const bTop  = imgSize.h * boardRegion.top   / 100;
+    const bW    = imgSize.w * boardRegion.width  / 100;
+    const bH    = imgSize.h * boardRegion.height / 100;
+    const bx = (svgX - bLeft) / bW * 100;
+    const by = (svgY - bTop)  / bH * 100;
+
+    // Min tap radius in board-area % (very generous for fat fingers on phone)
+    const tapRadius = 5;
+
+    // Check polygon containment first, then distance to center
+    let bestId = null;
+    let bestDist = Infinity;
+
+    for (const hold of allHolds) {
+      // Quick bounding-box check with tap radius margin
+      const hw = (hold.w_pct || 2) / 2 + tapRadius;
+      const hh = (hold.h_pct || 2) / 2 + tapRadius;
+      if (Math.abs(bx - hold.cx) > hw || Math.abs(by - hold.cy) > hh) continue;
+
+      // Point-in-polygon test
+      if (hold.polygon && hold.polygon.length >= 3) {
+        if (pointInPolygon(bx, by, hold.polygon, tapRadius)) {
+          // If inside polygon, use distance for priority (closest center wins)
+          const d = Math.hypot(bx - hold.cx, by - hold.cy);
+          if (d < bestDist) { bestDist = d; bestId = hold.id; }
+          continue;
+        }
+      }
+
+      // Distance to center fallback
+      const d = Math.hypot(bx - hold.cx, by - hold.cy);
+      if (d < tapRadius && d < bestDist) {
+        bestDist = d;
+        bestId = hold.id;
+      }
+    }
+    return bestId;
+  }
+
+  function pointInPolygon(px, py, polygon, margin) {
+    // Expand check: first try exact containment, then try within margin of any edge
+    if (raycast(px, py, polygon)) return true;
+    // Check distance to nearest edge
+    for (let i = 0; i < polygon.length; i++) {
+      const [ax, ay] = polygon[i];
+      const [bx, by] = polygon[(i + 1) % polygon.length];
+      if (distToSegment(px, py, ax, ay, bx, by) < margin) return true;
+    }
+    return false;
+  }
+
+  function raycast(px, py, polygon) {
+    let inside = false;
+    for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+      const [xi, yi] = polygon[i];
+      const [xj, yj] = polygon[j];
+      if ((yi > py) !== (yj > py) && px < (xj - xi) * (py - yi) / (yj - yi) + xi) {
+        inside = !inside;
+      }
+    }
+    return inside;
+  }
+
+  function distToSegment(px, py, ax, ay, bx, by) {
+    const dx = bx - ax, dy = by - ay;
+    const len2 = dx * dx + dy * dy;
+    if (len2 === 0) return Math.hypot(px - ax, py - ay);
+    let t = ((px - ax) * dx + (py - ay) * dy) / len2;
+    t = Math.max(0, Math.min(1, t));
+    return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+  }
+
   function handleTouchStart(e) {
+    lastTouchTimeRef.current = Date.now();
     if (e.touches.length === 2) {
       pinchRef.current.active = true;
       dragRef.current.active  = false;
@@ -92,7 +181,7 @@ export default function BoardView({ holds, selection, onHoldTap, interactive, ch
     } else if (dragRef.current.active && e.touches.length === 1) {
       const dx = e.touches[0].clientX - dragRef.current.startX;
       const dy = e.touches[0].clientY - dragRef.current.startY;
-      if (Math.abs(dx) > 4 || Math.abs(dy) > 4) dragRef.current.moved = true;
+      if (Math.abs(dx) > 12 || Math.abs(dy) > 12) dragRef.current.moved = true;
       if (scaleRef.current > 1 && dragRef.current.moved) {
         e.preventDefault();
         const el   = containerRef.current;
@@ -106,11 +195,22 @@ export default function BoardView({ holds, selection, onHoldTap, interactive, ch
     }
   }
 
-  function handleTouchEnd() { pinchRef.current.active = false; }
+  function handleTouchEnd(e) {
+    // If single-finger tap (no drag movement), check for hold hit
+    if (dragRef.current.active && !dragRef.current.moved && interactive && onHoldTap) {
+      const touch = e.changedTouches?.[0];
+      const clientX = touch ? touch.clientX : dragRef.current.startX;
+      const clientY = touch ? touch.clientY : dragRef.current.startY;
+      const hitId = findHoldAtPoint(clientX, clientY);
+      if (hitId) onHoldTap(hitId);
+    }
+    pinchRef.current.active = false;
+    dragRef.current.active  = false;
+  }
 
   // ─── Mouse drag-to-pan (desktop) ──────────────────────────────────────
   function handleMouseDown(e) {
-    if (e.button !== 0) return;
+    if (e.button !== 0 || isSynthesizedMouse()) return;
     mouseRef.current = {
       active: true,
       startX: e.clientX,
@@ -123,7 +223,7 @@ export default function BoardView({ holds, selection, onHoldTap, interactive, ch
   }
 
   function handleMouseMove(e) {
-    if (!mouseRef.current.active) return;
+    if (!mouseRef.current.active || isSynthesizedMouse()) return;
     const dx = e.clientX - mouseRef.current.startX;
     const dy = e.clientY - mouseRef.current.startY;
     if (Math.abs(dx) > 4 || Math.abs(dy) > 4) mouseRef.current.moved = true;
@@ -139,7 +239,16 @@ export default function BoardView({ holds, selection, onHoldTap, interactive, ch
     }
   }
 
-  function handleMouseUp() { mouseRef.current.active = false; setMouseDown(false); }
+  function handleMouseUp(e) {
+    if (isSynthesizedMouse()) { mouseRef.current.active = false; return; }
+    // If click (no drag movement), check for hold hit
+    if (mouseRef.current.active && !mouseRef.current.moved && interactive && onHoldTap) {
+      const hitId = findHoldAtPoint(e.clientX, e.clientY);
+      if (hitId) onHoldTap(hitId);
+    }
+    mouseRef.current.active = false;
+    setMouseDown(false);
+  }
 
   function resetZoom() {
     scaleRef.current = 1; panRef.current = { x: 0, y: 0 };
@@ -188,7 +297,7 @@ export default function BoardView({ holds, selection, onHoldTap, interactive, ch
           borderLeft: 'none',
           borderRight: 'none',
           background: 'rgba(0,0,0,0.05)',
-          touchAction: isZoomed ? 'none' : 'pan-y',
+          touchAction: (isZoomed || interactive) ? 'none' : 'pan-y',
           userSelect: 'none',
           cursor: isZoomed ? (mouseDown ? 'grabbing' : 'grab') : 'default',
         }}
@@ -216,8 +325,43 @@ export default function BoardView({ holds, selection, onHoldTap, interactive, ch
             draggable={false}
           />
 
+          {imageLoaded && dimBoard && (() => {
+            const bLeft = imgSize.w * boardRegion.left / 100;
+            const bTop  = imgSize.h * boardRegion.top / 100;
+            const bW    = imgSize.w * boardRegion.width / 100;
+            const bH    = imgSize.h * boardRegion.height / 100;
+            const toX = (x) => bLeft + (x / 100) * bW;
+            const toY = (y) => bTop  + (y / 100) * bH;
+            const selectedHolds = allHolds.filter(h => selection?.[h.id]);
+            return (
+              <svg
+                viewBox={`0 0 ${imgSize.w} ${imgSize.h}`}
+                width="100%" height="100%"
+                preserveAspectRatio="none"
+                style={{ position: 'absolute', top: 0, left: 0, pointerEvents: 'none' }}
+              >
+                <defs>
+                  <mask id="hold-cutout-mask">
+                    <rect width={imgSize.w} height={imgSize.h} fill="white" fillOpacity="0.6" />
+                    {selectedHolds.map(hold => {
+                      if (hold.polygon?.length >= 3) {
+                        const pts = hold.polygon.map(([x, y]) => `${toX(x)},${toY(y)}`).join(' ');
+                        return <polygon key={hold.id} points={pts} fill="black" stroke="black" strokeWidth={16} strokeLinejoin="round" />;
+                      }
+                      const w = hold.w_pct !== undefined ? hold.w_pct : hold.r * 2;
+                      const h = hold.h_pct !== undefined ? hold.h_pct : hold.r * 2;
+                      return <ellipse key={hold.id} cx={toX(hold.cx)} cy={toY(hold.cy)} rx={Math.max((w / 100) * bW / 2 + 8, 10)} ry={Math.max((h / 100) * bH / 2 + 8, 10)} fill="black" />;
+                    })}
+                  </mask>
+                </defs>
+                <rect width={imgSize.w} height={imgSize.h} fill="black" mask="url(#hold-cutout-mask)" />
+              </svg>
+            );
+          })()}
+
           {imageLoaded && (
             <svg
+              ref={svgRef}
               viewBox={`0 0 ${imgSize.w} ${imgSize.h}`}
               width="100%"
               height="100%"
