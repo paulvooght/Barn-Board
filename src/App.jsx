@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import BoardView from './components/BoardView';
 import BoardSetupView from './components/BoardSetupView';
 import ModeSelector from './components/ModeSelector';
@@ -9,9 +9,9 @@ import HoldEditorView from './components/HoldEditorView';
 import SessionSummary from './components/SessionSummary';
 import { useLocalStorage } from './hooks/useLocalStorage';
 import { useCustomHolds } from './hooks/useCustomHolds';
-import { V_GRADES, FONT_GRADES, SELECTION_MODES, MODE_COLORS, BOARD_SPECS, convertGrade, getYouTubeId, getYouTubeThumbnail } from './utils/constants';
+import { V_GRADES, FONT_GRADES, SELECTION_MODES, MODE_COLORS, MODE_LABELS, BOARD_SPECS, HOLD_COLOR_DOT, HOLD_TYPE_SINGULAR_TO_PLURAL, convertGrade, getYouTubeId, getYouTubeThumbnail } from './utils/constants';
 
-const IMG_SRC = '/Barn_Board_Reset_02_C.jpg';
+const DEFAULT_BOARD_IMAGE = '/Barn_Board_Reset_02_C.jpg';
 
 export default function App() {
   // Persistent state
@@ -67,6 +67,8 @@ export default function App() {
   const [editingHold, setEditingHold]     = useState(null);
   const [editingRouteId, setEditingRouteId] = useState(null);
   const [showRouteTags, setShowRouteTags]   = useState(false);
+  const [holdDataMode, setHoldDataMode]     = useState(false);  // route view: tap holds to see metadata
+  const [inspectedRouteHoldId, setInspectedRouteHoldId] = useState(null);
 
   // Route form state
   const [routeName, setRouteName]   = useState('');
@@ -79,6 +81,7 @@ export default function App() {
   const [youtubeUrl, setYoutubeUrl] = useState('');
 
   const grades = settings.gradeSystem === 'V' ? V_GRADES : FONT_GRADES;
+  const imgSrc = settings.boardImage || DEFAULT_BOARD_IMAGE;
 
   const resetCreate = useCallback(() => {
     setHoldSelection({});
@@ -182,12 +185,26 @@ export default function App() {
 
   const saveRoute = useCallback(() => {
     // Read holds from ref — immune to stale closures
-    const currentHolds = { ...holdSelectionRef.current };
+    const rawHolds = { ...holdSelectionRef.current };
+    // Strip holds that no longer exist on the board (ghost references from deleted holds)
+    const holdIdSetNow = new Set(allHolds.map(h => h.id));
+    const currentHolds = {};
+    for (const [id, type] of Object.entries(rawHolds)) {
+      if (holdIdSetNow.has(id)) currentHolds[id] = type;
+    }
     if (!routeName.trim() || Object.keys(currentHolds).length === 0) {
       console.warn('[saveRoute] Blocked: no holds selected', Object.keys(currentHolds).length);
       return;
     }
     console.log('[saveRoute] Saving with', Object.keys(currentHolds).length, 'holds:', currentHolds);
+    // Snapshot hold geometry so ghost outlines survive hold deletion
+    const holdSnapshots = {};
+    for (const holdId of Object.keys(currentHolds)) {
+      const h = allHolds.find(hh => hh.id === holdId);
+      if (h) {
+        holdSnapshots[holdId] = { cx: h.cx, cy: h.cy, polygon: h.polygon || null, w_pct: h.w_pct, h_pct: h.h_pct, r: h.r, color: h.color, holdTypes: h.holdTypes };
+      }
+    }
     if (editingRouteId) {
       setRoutes(prev => prev.map(r => r.id === editingRouteId ? {
         ...r,
@@ -197,6 +214,7 @@ export default function App() {
         setter: setter.trim(),
         youtubeUrl: youtubeUrl.trim() || undefined,
         holds: currentHolds,
+        holdSnapshots,
         holdTypes, techniques, styles,
         updatedAt: new Date().toISOString(),
       } : r));
@@ -209,6 +227,7 @@ export default function App() {
         setter: setter.trim(),
         youtubeUrl: youtubeUrl.trim() || undefined,
         holds: currentHolds,
+        holdSnapshots,
         holdTypes, techniques, styles,
         createdAt: new Date().toISOString(),
       };
@@ -217,7 +236,7 @@ export default function App() {
     }
     resetCreate();
     setView('routes');
-  }, [routeName, routeGrade, routeAngle, setter, holdTypes, techniques, styles, setRoutes, resetCreate, editingRouteId, logRouteCreated]);
+  }, [routeName, routeGrade, routeAngle, setter, holdTypes, techniques, styles, setRoutes, resetCreate, editingRouteId, logRouteCreated, allHolds]);
 
   const viewRoute = useCallback((route) => {
     // Defensive: always read the latest version of this route from localStorage
@@ -228,16 +247,35 @@ export default function App() {
       const holds = routeToView.holds && Object.keys(routeToView.holds).length > 0
         ? routeToView.holds
         : route.holds || {};
-      setViewingRoute(routeToView);
+
+      // Backfill holdSnapshots for routes created before the snapshot feature
+      let updated = routeToView;
+      let didBackfill = false;
+      if (!routeToView.holdSnapshots && Object.keys(holds).length > 0) {
+        const holdSnapshots = {};
+        for (const holdId of Object.keys(holds)) {
+          const h = allHolds.find(hh => hh.id === holdId);
+          if (h) {
+            holdSnapshots[holdId] = { cx: h.cx, cy: h.cy, polygon: h.polygon || null, w_pct: h.w_pct, h_pct: h.h_pct, r: h.r, color: h.color, holdTypes: h.holdTypes };
+          }
+        }
+        if (Object.keys(holdSnapshots).length > 0) {
+          updated = { ...routeToView, holdSnapshots };
+          didBackfill = true;
+        }
+      }
+
+      setViewingRoute(updated);
       setHoldSelection(holds);
       if (Object.keys(holds).length === 0) {
         console.warn('[viewRoute] Route has no holds:', routeToView.name, routeToView.id);
       }
-      return prev; // no mutation
+      // Persist the backfill so ghost outlines survive future sessions
+      return didBackfill ? prev.map(r => r.id === updated.id ? updated : r) : prev;
     });
     setView('viewRoute');
     logRouteAttempted(route.id);
-  }, [logRouteAttempted, setRoutes]);
+  }, [logRouteAttempted, setRoutes, allHolds]);
 
   const startEditRoute = useCallback((route) => {
     // Read fresh route from state to ensure holds are current
@@ -481,6 +519,7 @@ export default function App() {
   // ─── Hold editor callbacks ───────────────────────────────────────────
   // Track where to return after editing (settings list or board select)
   const [holdEditorSource, setHoldEditorSource] = useState('settings');
+  const [holdManagerMode, setHoldManagerMode] = useState('boundaries'); // persists across edit round-trips
 
   const handleAddHold = () => {
     setEditingHold(null);
@@ -545,11 +584,33 @@ export default function App() {
   };
 
   // ─── Derived counts ──────────────────────────────────────────────────
+  const holdIdSet      = new Set(allHolds.map(h => h.id));
   const selectedCount  = Object.keys(holdSelection).length;
   const startCount     = Object.values(holdSelection).filter(t => t === 'start').length;
   const finishCount    = Object.values(holdSelection).filter(t => t === 'finish').length;
   const footCount      = Object.values(holdSelection).filter(t => t === 'foot').length;
   const handOnlyCount  = Object.values(holdSelection).filter(t => t === 'handOnly').length;
+  // Missing holds in current selection (deleted from board but still referenced)
+  const editingRoute = editingRouteId ? routes.find(r => r.id === editingRouteId) : null;
+  const editSnapshots = editingRoute?.holdSnapshots || {};
+  const missingHoldsInEdit = Object.entries(holdSelection)
+    .filter(([id]) => !holdIdSet.has(id))
+    .map(([id, type]) => ({ id, type, color: editSnapshots[id]?.color }));
+
+  // Auto-collect hold types from selected holds' metadata
+  const autoHoldTypes = useMemo(() => {
+    const types = new Set();
+    for (const holdId of Object.keys(holdSelection)) {
+      const hold = allHolds.find(h => h.id === holdId);
+      if (hold?.holdTypes) {
+        for (const ht of hold.holdTypes) {
+          const plural = HOLD_TYPE_SINGULAR_TO_PLURAL[ht];
+          if (plural) types.add(plural);
+        }
+      }
+    }
+    return [...types];
+  }, [holdSelection, allHolds]);
 
   const isBoard      = view === 'board' || view === 'create' || view === 'viewRoute';
   const isHoldEditor = view === 'addHold' || view === 'editHold' || view === 'holdSelect';
@@ -655,13 +716,80 @@ export default function App() {
         <BoardView
           holds={allHolds}
           selection={holdSelection}
-          onHoldTap={handleHoldTap}
-          interactive={view === 'create'}
+          onHoldTap={view === 'create' ? handleHoldTap : (holdDataMode && view === 'viewRoute') ? (id) => {
+            // Only allow tapping holds that are in the route
+            if (viewingRoute?.holds?.[id]) setInspectedRouteHoldId(prev => prev === id ? null : id);
+          } : undefined}
+          interactive={view === 'create' || (view === 'viewRoute' && holdDataMode)}
           dimBoard={view === 'viewRoute'}
+          imgSrc={imgSrc}
+          holdSnapshots={view === 'viewRoute' && viewingRoute ? viewingRoute.holdSnapshots : null}
         >
           {/* Create mode: mode selector + hold counts */}
           {view === 'create' && (
             <div style={{ marginBottom: '10px' }}>
+              {/* Missing holds banner — shown when editing a route with deleted holds */}
+              {missingHoldsInEdit.length > 0 && (
+                <div style={{
+                  padding: '8px 10px', borderRadius: '8px', marginBottom: '10px',
+                  background: 'rgba(255,20,147,0.08)', border: '1.5px solid rgba(255,20,147,0.4)',
+                }}>
+                  <div style={{
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    marginBottom: '6px',
+                  }}>
+                    <span style={{ fontSize: '11px', fontWeight: 800, color: '#FF1493' }}>
+                      ⚠ {missingHoldsInEdit.length} deleted hold{missingHoldsInEdit.length > 1 ? 's' : ''} in route
+                    </span>
+                    <button
+                      onClick={() => {
+                        setHoldSelection(prev => {
+                          const next = { ...prev };
+                          missingHoldsInEdit.forEach(({ id }) => delete next[id]);
+                          return next;
+                        });
+                      }}
+                      style={{
+                        padding: '3px 8px', borderRadius: '5px', fontSize: '10px', fontWeight: 700,
+                        cursor: 'pointer', border: '1px solid #FF1493',
+                        background: '#FF1493', color: '#fff',
+                      }}
+                    >
+                      Remove all
+                    </button>
+                  </div>
+                  {missingHoldsInEdit.map(({ id, type, color }) => (
+                    <div key={id} style={{
+                      display: 'flex', alignItems: 'center', gap: '6px',
+                      padding: '3px 0',
+                    }}>
+                      <span style={{
+                        width: '8px', height: '8px', borderRadius: '50%', flexShrink: 0,
+                        background: color ? (HOLD_COLOR_DOT[color] || '#888') : (MODE_COLORS[type] || '#999'),
+                      }} />
+                      <span style={{ fontSize: '11px', fontWeight: 600, color: '#FF1493', flex: 1 }}>
+                        {MODE_LABELS[type] || type} hold{color ? ` (${color})` : ''} — no longer on board
+                      </span>
+                      <button
+                        onClick={() => {
+                          setHoldSelection(prev => {
+                            const next = { ...prev };
+                            delete next[id];
+                            return next;
+                          });
+                        }}
+                        style={{
+                          padding: '2px 6px', borderRadius: '4px', fontSize: '9px', fontWeight: 700,
+                          cursor: 'pointer', border: '1px solid rgba(255,20,147,0.4)',
+                          background: 'transparent', color: '#FF1493',
+                        }}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
               <div style={{
                 fontSize: '11px', color: 'var(--text-muted)', marginBottom: '6px',
                 letterSpacing: '1px', textTransform: 'uppercase',
@@ -689,8 +817,9 @@ export default function App() {
               gradeSystem={settings.gradeSystem}
               playlists={playlists}
               settings={settings}
+              allHolds={allHolds}
               onEdit={() => startEditRoute(viewingRoute)}
-              onClose={() => { setHoldSelection({}); setViewingRoute(null); setShowRouteTags(false); setView('routes'); }}
+              onClose={() => { setHoldSelection({}); setViewingRoute(null); setShowRouteTags(false); setHoldDataMode(false); setInspectedRouteHoldId(null); setView('routes'); }}
               onDelete={() => deleteRoute(viewingRoute.id)}
               onToggleSent={() => toggleSent(viewingRoute.id)}
               onAddAngleGrade={(angle, grade) => addAngleGrade(viewingRoute.id, angle, grade)}
@@ -705,6 +834,84 @@ export default function App() {
 
         </BoardView>
       )}
+
+      {/* Hold Data toggle + info card — below board when viewing a route */}
+      {view === 'viewRoute' && viewingRoute && (() => {
+        const routeHoldIds = Object.keys(viewingRoute.holds || {});
+        const inspectedHold = inspectedRouteHoldId ? allHolds.find(h => h.id === inspectedRouteHoldId) : null;
+        return (
+          <div style={{ padding: '0 12px 4px' }}>
+            {/* Toggle row — right-aligned */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: inspectedHold ? '8px' : '0' }}>
+              <button
+                onClick={() => { setHoldDataMode(prev => !prev); setInspectedRouteHoldId(null); }}
+                style={{
+                  padding: '4px 12px', borderRadius: '6px', fontSize: '10px', fontWeight: 600,
+                  letterSpacing: '0.5px', textTransform: 'uppercase', cursor: 'pointer',
+                  border: holdDataMode ? '1.5px solid var(--accent)' : '1.5px solid rgba(26,10,0,0.12)',
+                  background: holdDataMode ? 'var(--accent-dim)' : 'transparent',
+                  color: holdDataMode ? 'var(--accent)' : 'var(--text-muted)',
+                  transition: 'all 0.15s',
+                }}
+              >
+                Hold Data
+              </button>
+            </div>
+            {/* Info card when a hold is tapped */}
+            {holdDataMode && inspectedHold && (() => {
+              const holdColor = HOLD_COLOR_DOT[inspectedHold.color] || '#888';
+              const types = inspectedHold.holdTypes?.length > 0 ? inspectedHold.holdTypes.join(' · ') : 'No types set';
+              const pos = inspectedHold.positivity || 0;
+              const posLabel = pos === 0 ? 'Neutral' : pos > 0 ? `+${pos} Positive` : `${pos} Slopey`;
+              return (
+                <div style={{
+                  padding: '10px 12px', borderRadius: '10px', marginBottom: '4px',
+                  background: 'var(--bg-card)', border: '1px solid var(--border)',
+                  boxShadow: '0 2px 8px rgba(26,10,0,0.06)',
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                    <span style={{
+                      width: '12px', height: '12px', borderRadius: '50%', flexShrink: 0,
+                      background: holdColor, border: '1.5px solid rgba(26,10,0,0.15)',
+                    }} />
+                    <span style={{ fontWeight: 700, fontSize: '13px', flex: 1 }}>
+                      {inspectedHold.name || `Hold ${inspectedHold.id}`}
+                    </span>
+                    <button onClick={() => setInspectedRouteHoldId(null)} style={{
+                      background: 'none', border: 'none', cursor: 'pointer',
+                      color: 'var(--text-muted)', fontSize: '16px', padding: '0 2px', lineHeight: 1,
+                    }}>✕</button>
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '8px' }}>
+                    <span>{types}</span>
+                    <span style={{ color: 'var(--accent)', fontWeight: 600 }}>{posLabel}</span>
+                    {inspectedHold.color && <span style={{ textTransform: 'capitalize' }}>{inspectedHold.color}</span>}
+                    {inspectedHold.material && <span>{inspectedHold.material}</span>}
+                  </div>
+                  <button
+                    onClick={() => {
+                      setHoldEditorSource('viewRoute');
+                      handleEditHold(inspectedHold, 'viewRoute');
+                    }}
+                    style={{
+                      padding: '5px 14px', borderRadius: '6px', fontSize: '11px', fontWeight: 700,
+                      cursor: 'pointer', border: 'none',
+                      background: 'var(--accent)', color: '#fff',
+                    }}
+                  >
+                    Edit Hold
+                  </button>
+                </div>
+              );
+            })()}
+            {holdDataMode && !inspectedHold && (
+              <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontStyle: 'italic', padding: '2px 0 4px' }}>
+                Tap a hold to view its data
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Show more tags — below board photo when viewing a route */}
       {view === 'viewRoute' && viewingRoute && (viewingRoute.holdTypes?.length > 0 || viewingRoute.techniques?.length > 0 || viewingRoute.styles?.length > 0) && (
@@ -865,6 +1072,7 @@ export default function App() {
           setter={setter} setSetter={setSetter}
           youtubeUrl={youtubeUrl} setYoutubeUrl={setYoutubeUrl}
           holdTypes={holdTypes} setHoldTypes={setHoldTypes}
+          autoHoldTypes={autoHoldTypes}
           techniques={techniques} setTechniques={setTechniques}
           styles={styles} setStyles={setStyles}
           grades={grades}
@@ -882,6 +1090,7 @@ export default function App() {
           grades={grades}
           gradeSystem={settings.gradeSystem}
           playlists={playlists}
+          allHolds={allHolds}
           onViewRoute={viewRoute}
           onCreateNew={() => { resetCreate(); setView('create'); }}
           onRateRoute={rateRoute}
@@ -922,6 +1131,7 @@ export default function App() {
         <BoardView
           holds={allHolds}
           selection={{}}
+          imgSrc={imgSrc}
           onHoldTap={(holdId) => {
             const h = allHolds.find(h => h.id === holdId);
             if (h) handleEditHold(h, 'holdSelect');
@@ -955,6 +1165,10 @@ export default function App() {
           initialHolds={allHolds}
           onSave={handleSetupSave}
           onCancel={handleSetupCancel}
+          imgSrc={imgSrc}
+          initialManagerMode={holdManagerMode}
+          onManagerModeChange={setHoldManagerMode}
+          onEditHold={(hold) => handleEditHold(hold, 'setupBoard')}
         />
       )}
 
@@ -964,13 +1178,13 @@ export default function App() {
           mode={view === 'addHold' ? 'add' : 'edit'}
           hold={editingHold}
           allHolds={allHolds}
-          imgSrc={IMG_SRC}
+          imgSrc={imgSrc}
           onSave={handleHoldEditorSave}
           onCancel={handleHoldEditorCancel}
           onDelete={view === 'editHold' ? () => {
             deleteHold(editingHold.id);
             setEditingHold(null);
-            setView('settings');
+            setView(holdEditorSource);
           } : undefined}
         />
       )}
@@ -979,7 +1193,7 @@ export default function App() {
 }
 
 // ─── View Route Header with Angle-Grade Management ──────────────────
-function ViewRouteHeader({ route, grades, gradeSystem, playlists, settings, onEdit, onClose, onDelete, onToggleSent, onAddAngleGrade, onRemoveAngleGrade, onSetHeadline, onToggleAngleSent, onAddToPlaylist, onCreatePlaylist }) {
+function ViewRouteHeader({ route, grades, gradeSystem, playlists, settings, allHolds, onEdit, onClose, onDelete, onToggleSent, onAddAngleGrade, onRemoveAngleGrade, onSetHeadline, onToggleAngleSent, onAddToPlaylist, onCreatePlaylist }) {
   const [showAnglePanel, setShowAnglePanel] = useState(false);
   const [showPlaylistPanel, setShowPlaylistPanel] = useState(false);
   const [newPlaylistName, setNewPlaylistName] = useState('');
@@ -989,6 +1203,11 @@ function ViewRouteHeader({ route, grades, gradeSystem, playlists, settings, onEd
   const angleGrades = route.angleGrades || [];
   const hasVideo = !!getYouTubeId(route.youtubeUrl);
   const showVideoThumbnail = settings?.betaVideoThumbnail;
+
+  // Missing hold detection
+  const holdIdSet = new Set((allHolds || []).map(h => h.id));
+  const missingHoldIds = Object.keys(route.holds || {}).filter(id => !holdIdSet.has(id));
+  const missingCount = missingHoldIds.length;
 
   // Small action button style
   const actionBtn = (active) => ({
@@ -1068,6 +1287,57 @@ function ViewRouteHeader({ route, grades, gradeSystem, playlists, settings, onEd
         </span>
         {route.setter && <span>by {route.setter}</span>}
       </div>
+
+      {/* ── Missing holds warning ── */}
+      {missingCount > 0 && (
+        <div style={{
+          padding: '8px 10px', borderRadius: '8px', marginBottom: '8px',
+          background: 'rgba(255,20,147,0.08)', border: '1.5px solid rgba(255,20,147,0.4)',
+        }}>
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px',
+          }}>
+            <span style={{ fontSize: '13px', color: '#FF1493', fontWeight: 900 }}>⚠</span>
+            <span style={{ fontSize: '11px', fontWeight: 800, color: '#FF1493', flex: 1 }}>
+              {missingCount} hold{missingCount > 1 ? 's' : ''} removed
+            </span>
+            <button
+              onClick={onEdit}
+              style={{
+                padding: '4px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: 800,
+                cursor: 'pointer', border: '1.5px solid #FF1493',
+                background: '#FF1493', color: '#fff', flexShrink: 0,
+              }}
+            >
+              Fix Route
+            </button>
+          </div>
+          {missingHoldIds.map(id => {
+            const type = route.holds[id];
+            const snap = route.holdSnapshots?.[id];
+            const dotColor = snap?.color ? (HOLD_COLOR_DOT[snap.color] || '#888') : (MODE_COLORS[type] || '#999');
+            return (
+              <div key={id} style={{
+                display: 'flex', alignItems: 'center', gap: '6px', padding: '2px 0',
+              }}>
+                <span style={{
+                  width: '8px', height: '8px', borderRadius: '50%', flexShrink: 0,
+                  background: dotColor,
+                }} />
+                <span style={{ fontSize: '10px', fontWeight: 600, color: '#FF1493' }}>
+                  {MODE_LABELS[type] || type}
+                  {snap?.color && <span style={{ fontWeight: 400, fontStyle: 'italic' }}> ({snap.color})</span>}
+                </span>
+                {!snap && (
+                  <span style={{ fontSize: '9px', color: 'rgba(255,20,147,0.6)', fontStyle: 'italic' }}>
+                    — position unknown
+                  </span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {/* ── Row 3: Action buttons — all same weight ── */}
       <div style={{

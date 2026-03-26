@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import RouteCard from './RouteCard';
 import { HOLD_TYPES, STYLES } from '../utils/constants';
 
@@ -8,8 +8,12 @@ const SORT_OPTIONS = [
   { key: 'rating', label: 'Rating' },
 ];
 
+function getMissingHoldCount(route, holdIdSet) {
+  return Object.keys(route.holds || {}).filter(id => !holdIdSet.has(id)).length;
+}
+
 export default function RouteList({
-  routes, grades, gradeSystem, playlists,
+  routes, grades, gradeSystem, playlists, allHolds,
   onViewRoute, onCreateNew, onRateRoute, onToggleSent,
   onCreatePlaylist, onDeletePlaylist, onRenamePlaylist, onRemoveRouteFromPlaylist,
 }) {
@@ -26,6 +30,9 @@ export default function RouteList({
   // Sort state — key + ascending flag. Tap same key to flip direction.
   const [sortKey, setSortKey] = useState('date');
   const [sortAsc, setSortAsc] = useState(false); // date defaults newest-first
+
+  // Hold ID set for missing hold detection
+  const holdIdSet = useMemo(() => new Set((allHolds || []).map(h => h.id)), [allHolds]);
 
   // Hide sends toggle (top-level, not inside filter panel)
   const [hideSent, setHideSent] = useState(false);
@@ -235,14 +242,27 @@ export default function RouteList({
         <button
           onClick={() => setHideSent(prev => !prev)}
           style={{
-            padding: '6px 12px', borderRadius: '16px', fontSize: '11px',
-            fontWeight: 700, cursor: 'pointer',
-            border: hideSent ? '1.5px solid #D4705A' : '1.5px solid rgba(26,10,0,0.15)',
-            background: hideSent ? 'rgba(212,112,90,0.12)' : 'transparent',
-            color: hideSent ? '#B85A48' : 'var(--text-secondary)',
+            padding: '5px 10px', borderRadius: '16px', fontSize: '11px',
+            fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px',
+            border: hideSent ? '1.5px solid #7DD3E8' : '1.5px solid rgba(26,10,0,0.15)',
+            background: hideSent ? 'rgba(125,211,232,0.12)' : 'transparent',
+            color: hideSent ? '#3BA8C4' : 'var(--text-secondary)',
           }}
         >
-          {hideSent ? '✓ Hiding sent' : `✓ ${sentCount} sent`}
+          <div style={{
+            width: '28px', height: '16px', borderRadius: '8px', position: 'relative',
+            background: hideSent ? '#7DD3E8' : 'rgba(26,10,0,0.15)',
+            transition: 'background 0.2s', flexShrink: 0,
+          }}>
+            <div style={{
+              width: '12px', height: '12px', borderRadius: '50%', background: '#fff',
+              position: 'absolute', top: '2px',
+              left: hideSent ? '14px' : '2px',
+              transition: 'left 0.2s',
+              boxShadow: '0 1px 2px rgba(26,10,0,0.2)',
+            }} />
+          </div>
+          {hideSent ? 'Show sent' : 'Hide sent'}
         </button>
       </div>
 
@@ -658,6 +678,7 @@ export default function RouteList({
             onView={() => onViewRoute(route)}
             onRate={(rating) => onRateRoute(route.id, rating)}
             onToggleSent={() => onToggleSent(route.id)}
+            missingHoldCount={getMissingHoldCount(route, holdIdSet)}
           />
         ))
       )}

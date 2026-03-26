@@ -1,4 +1,4 @@
-export default function TagPicker({ label, options, selected, onToggle }) {
+export default function TagPicker({ label, options, selected, onToggle, highlighted }) {
   return (
     <div style={{ marginBottom: '14px' }}>
       <div style={{
@@ -14,6 +14,7 @@ export default function TagPicker({ label, options, selected, onToggle }) {
       <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
         {options.map(opt => {
           const on = selected.includes(opt);
+          const isAuto = on && highlighted?.includes(opt);
           return (
             <button
               key={opt}
@@ -25,13 +26,13 @@ export default function TagPicker({ label, options, selected, onToggle }) {
                 background: on ? 'var(--accent-dim)' : 'rgba(255,255,255,0.6)',
                 color: on ? 'var(--accent)' : 'var(--text-secondary)',
                 fontSize: '11px',
-                fontWeight: 500,
+                fontWeight: isAuto ? 700 : 500,
                 cursor: 'pointer',
                 transition: 'all 0.12s',
                 whiteSpace: 'nowrap',
               }}
             >
-              {opt}
+              {opt}{isAuto ? ' ✦' : ''}
             </button>
           );
         })}

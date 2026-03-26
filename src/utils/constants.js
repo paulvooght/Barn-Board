@@ -15,6 +15,22 @@ export const HOLD_TYPES = [
   'Pockets', 'Edges', 'Volumes', 'Jibs', 'Macro',
 ];
 
+// Physical hold color name → display hex (for dots/indicators)
+export const HOLD_COLOR_DOT = {
+  black: '#444', blue: '#0047FF', purple: '#c084fc', green: '#22a870',
+  orange: '#FF8C00', yellow: '#D4A000', pink: '#FF69B4', red: '#FF5252', white: '#888',
+  cyan: '#22d3ee', grey: '#999', wood: '#b08860',
+};
+
+export const MATERIALS = ['Wood', 'PU', 'Fibreglass', 'Dual-tex'];
+
+// Map hold-level singular types → route-level plural types
+export const HOLD_TYPE_SINGULAR_TO_PLURAL = {
+  'Jug': 'Jugs', 'Mini Jug': 'Mini jug', 'Crimp': 'Crimps', 'Half Crimp': 'Crimps',
+  'Pinch': 'Pinches', 'Sloper': 'Slopers', 'Edge': 'Edges',
+  'Pocket': 'Pockets', 'Volume': 'Volumes', 'Macro': 'Macro',
+};
+
 export const TECHNIQUES = [
   'Heel hooks', 'Toe hooks', 'Compression', 'Dynos',
   'Body tension', 'Flagging', 'Drop knee', 'Bat hang', 'Campus',

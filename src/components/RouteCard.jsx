@@ -1,40 +1,56 @@
 import { getYouTubeId } from '../utils/constants';
 
-export default function RouteCard({ route, onView, onRate, onToggleSent }) {
+export default function RouteCard({ route, onView, onRate, onToggleSent, missingHoldCount }) {
   const rating    = route.rating || 0;
   const sent      = !!route.sent;
   const hasVideo  = !!getYouTubeId(route.youtubeUrl);
   const hasAngleGrades = (route.angleGrades || []).length > 0;
+  const hasMissing = (missingHoldCount || 0) > 0;
+
+  // Border color priority: missing (hot pink) > sent (cyan) > default
+  const borderColor = hasMissing ? '#FF1493' : sent ? '#7DD3E8' : 'var(--border)';
+  const borderWidth = hasMissing ? '2px' : sent ? '1.5px' : '1px';
 
   return (
     <div
       onClick={onView}
       style={{
         background: 'var(--bg-card)',
-        border: sent ? '1.5px solid #7DD3E8' : '1px solid var(--border)',
+        border: `${borderWidth} solid ${borderColor}`,
         borderRadius: '12px',
         padding: '12px 14px',
         cursor: 'pointer',
         transition: 'border-color 0.15s, box-shadow 0.15s',
         marginBottom: '8px',
-        boxShadow: '0 2px 6px rgba(26,10,0,0.06)',
+        boxShadow: hasMissing ? '0 2px 8px rgba(255,20,147,0.12)' : '0 2px 6px rgba(26,10,0,0.06)',
         display: 'flex',
         gap: '12px',
+        position: 'relative',
       }}
-      onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(0,71,255,0.4)'; e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,71,255,0.12)'; }}
-      onMouseLeave={e => { e.currentTarget.style.borderColor = sent ? '#7DD3E8' : 'var(--border)'; e.currentTarget.style.boxShadow = '0 2px 6px rgba(26,10,0,0.06)'; }}
+      onMouseEnter={e => { if (!hasMissing) { e.currentTarget.style.borderColor = 'rgba(0,71,255,0.4)'; e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,71,255,0.12)'; } }}
+      onMouseLeave={e => { e.currentTarget.style.borderColor = borderColor; e.currentTarget.style.boxShadow = hasMissing ? '0 2px 8px rgba(255,20,147,0.12)' : '0 2px 6px rgba(26,10,0,0.06)'; }}
     >
-      {/* ── LEFT: Grade + Name (prominent) ── */}
+      {/* ── LEFT: Grade pill + angle + Name ── */}
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '4px' }}>
-          <span style={{
-            background: 'var(--yellow)', color: 'var(--text-primary)',
-            padding: '5px 14px', borderRadius: '10px',
-            fontSize: '15px', fontWeight: 800, fontFamily: 'var(--font-heading)',
-            flexShrink: 0, lineHeight: 1.1,
-          }}>
-            {route.grade}
-          </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '2px' }}>
+          <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+            <span style={{
+              background: 'var(--yellow)', color: 'var(--text-primary)',
+              padding: '5px 14px', borderRadius: '10px',
+              fontSize: '15px', fontWeight: 800, fontFamily: 'var(--font-heading)',
+              lineHeight: 1.1,
+            }}>
+              {route.grade}
+            </span>
+            {route.angle && (
+              <span style={{
+                fontSize: '10px', fontWeight: 700, fontFamily: 'var(--font-heading)',
+                color: 'var(--accent)', marginTop: '3px',
+              }}>
+                {route.angle}°
+              </span>
+            )}
+          </div>
           <span style={{
             fontWeight: 700, color: 'var(--text-primary)', fontSize: '16px',
             whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
@@ -52,6 +68,20 @@ export default function RouteCard({ route, onView, onRate, onToggleSent }) {
       }}>
         {/* Top-right: indicators + sent */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          {hasMissing && (
+            <span
+              title={`${missingHoldCount} hold${missingHoldCount > 1 ? 's' : ''} no longer on the board`}
+              style={{
+                fontSize: '10px', fontWeight: 800,
+                background: 'rgba(255,20,147,0.12)', color: '#FF1493',
+                padding: '2px 6px', borderRadius: '6px',
+                fontFamily: 'var(--font-heading)',
+                border: '1px solid rgba(255,20,147,0.3)',
+              }}
+            >
+              ⚠ {missingHoldCount}
+            </span>
+          )}
           {hasVideo && (
             <span title="Has beta video" style={{ fontSize: '12px', opacity: 0.45 }}>🎥</span>
           )}

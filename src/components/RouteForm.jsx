@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import TagPicker from './TagPicker';
 import { HOLD_TYPES, TECHNIQUES, STYLES, BOARD_SPECS, getYouTubeId, getYouTubeThumbnail } from '../utils/constants';
 
@@ -8,6 +9,7 @@ export default function RouteForm({
   setter, setSetter,
   youtubeUrl, setYoutubeUrl,
   holdTypes, setHoldTypes,
+  autoHoldTypes,
   techniques, setTechniques,
   styles, setStyles,
   grades,
@@ -19,6 +21,21 @@ export default function RouteForm({
   const toggleTag = (list, setter, tag) => {
     setter(prev => prev.includes(tag) ? prev.filter(t => t !== tag) : [...prev, tag]);
   };
+
+  // Auto-merge hold types from hold metadata into route hold types
+  const prevAutoRef = useRef([]);
+  useEffect(() => {
+    if (!autoHoldTypes || autoHoldTypes.length === 0) return;
+    const prev = prevAutoRef.current;
+    const newAuto = autoHoldTypes.filter(t => !prev.includes(t));
+    if (newAuto.length > 0) {
+      setHoldTypes(current => {
+        const merged = new Set([...current, ...newAuto]);
+        return [...merged];
+      });
+    }
+    prevAutoRef.current = autoHoldTypes;
+  }, [autoHoldTypes, setHoldTypes]);
 
   const canSave = name.trim() && selectedCount > 0;
 
@@ -120,7 +137,8 @@ export default function RouteForm({
 
       {/* Metadata Tags */}
       <TagPicker label="Hold Types" options={HOLD_TYPES} selected={holdTypes}
-        onToggle={t => toggleTag(holdTypes, setHoldTypes, t)} />
+        onToggle={t => toggleTag(holdTypes, setHoldTypes, t)}
+        highlighted={autoHoldTypes} />
       <TagPicker label="Techniques" options={TECHNIQUES} selected={techniques}
         onToggle={t => toggleTag(techniques, setTechniques, t)} />
       <TagPicker label="Style" options={STYLES} selected={styles}

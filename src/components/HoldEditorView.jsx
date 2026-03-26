@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import holdsData from '../data/holds.json';
+import { MATERIALS } from '../utils/constants';
 
 const { boardRegion } = holdsData;
 const HANDLE_R  = 10;
@@ -46,6 +47,9 @@ const COLOR_OPTIONS = [
   { val: 'pink',   label: 'Pink',   dot: '#FF69B4' },
   { val: 'red',    label: 'Red',    dot: '#FF5252' },
   { val: 'white',  label: 'White',  dot: '#888' },
+  { val: 'cyan',   label: 'Cyan',   dot: '#22d3ee' },
+  { val: 'grey',   label: 'Grey',   dot: '#999' },
+  { val: 'wood',   label: 'Wood',   dot: '#b08860' },
 ];
 
 const HOLD_TYPE_OPTIONS = ['Jug', 'Mini Jug', 'Crimp', 'Half Crimp', 'Pinch', 'Sloper', 'Edge', 'Pocket', 'Volume', 'Macro'];
@@ -53,7 +57,7 @@ const HOLD_TYPE_OPTIONS = ['Jug', 'Mini Jug', 'Crimp', 'Half Crimp', 'Pinch', 'S
 export default function HoldEditorView({ mode, hold, allHolds, imgSrc, onSave, onCancel, onDelete }) {
   const defaultMeta = {
     color: 'black', size: 'medium', area: 0, notes: '',
-    verified: true, name: '', holdTypes: [], positivity: 0,
+    verified: true, name: '', holdTypes: [], positivity: 0, material: '',
   };
   const [meta, setMeta]               = useState(hold ? { ...defaultMeta, ...hold } : defaultMeta);
   const [imageLoaded, setImageLoaded] = useState(false);
@@ -722,6 +726,27 @@ export default function HoldEditorView({ mode, hold, allHolds, imgSrc, onSave, o
           />
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'var(--text-dim)' }}>
             <span>−5 Very slopey</span><span>0 Flat</span><span>+5 Very juggy</span>
+          </div>
+        </div>
+
+        {/* Material */}
+        <div>
+          <label style={metaLabel}>Material</label>
+          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+            {MATERIALS.map(m => {
+              const on = meta.material === m;
+              return (
+                <button key={m} onClick={() => setMeta(prev => ({ ...prev, material: prev.material === m ? '' : m }))} style={{
+                  padding: '5px 12px', borderRadius: '20px', fontSize: '11px', cursor: 'pointer',
+                  border: on ? '2px solid var(--accent)' : '2px solid rgba(26,10,0,0.12)',
+                  background: on ? 'rgba(0,71,255,0.1)' : 'rgba(26,10,0,0.04)',
+                  color: on ? 'var(--accent)' : 'var(--text-secondary)',
+                  fontWeight: on ? 700 : 400,
+                }}>
+                  {m}
+                </button>
+              );
+            })}
           </div>
         </div>
       </div>

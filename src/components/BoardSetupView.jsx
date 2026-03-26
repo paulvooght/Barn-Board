@@ -5,11 +5,10 @@ import {
   rotatePolygon, scalePolygon, translatePolygon,
   simplifyPath, findHoldAtPoint, holdFromPolygon,
 } from '../utils/polygonUtils';
+import { HOLD_COLOR_DOT } from '../utils/constants';
 import holdsData from '../data/holds.json';
 
 const { boardRegion } = holdsData;
-const IMG_SRC = '/Barn_Board_Reset_02_C.jpg';
-
 const TOOLS = {
   SELECT: 'select',
   DRAW: 'draw',
@@ -27,8 +26,21 @@ const MAX_SCALE = 8;
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 function r1(v) { return Math.round(v * 10) / 10; }
 
-export default function BoardSetupView({ initialHolds, onSave, onCancel }) {
+function positivityLabel(val) {
+  if (val <= -4) return 'Very slopey';
+  if (val <= -2) return 'Slopey';
+  if (val === -1) return 'Slightly slopey';
+  if (val === 0) return 'Neutral';
+  if (val === 1) return 'Slightly positive';
+  if (val <= 3) return 'Positive';
+  return 'Very juggy';
+}
+
+export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc, initialManagerMode, onManagerModeChange, onEditHold }) {
   const { state: holds, setState: setHolds, undo, redo, canUndo, canRedo } = useUndoRedo(initialHolds);
+
+  const [managerMode, setManagerMode] = useState(initialManagerMode || 'boundaries'); // 'boundaries' | 'metadata'
+  const [inspectedHoldId, setInspectedHoldId] = useState(null);
 
   const [activeTool, setActiveTool] = useState(TOOLS.SELECT);
   const [selectedIds, setSelectedIds] = useState([]);       // multi-select: array of hold IDs
@@ -406,6 +418,16 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel }) {
 
   function handleMouseDown(e) {
     if (e.button !== 0 || isSynthesizedMouse()) return;
+    // Metadata mode — just pan/zoom
+    if (managerMode === 'metadata') {
+      panDragRef.current = {
+        active: true,
+        startX: e.clientX, startY: e.clientY,
+        basePanX: panRef.current.x, basePanY: panRef.current.y,
+        moved: false,
+      };
+      return;
+    }
     // Lasso draw — start freehand path
     if (activeTool === TOOLS.DRAW && drawMode === 'lasso') {
       const pct = clientToBoardPct(e.clientX, e.clientY);
@@ -488,6 +510,13 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel }) {
   }
 
   function handleClick(pct) {
+    // Metadata mode — tap to inspect hold
+    if (managerMode === 'metadata') {
+      const hitId = findHoldAtPoint(pct.x, pct.y, holds, 3);
+      setInspectedHoldId(hitId || null);
+      return;
+    }
+
     // Copy mode — click to place
     if (activeTool === TOOLS.COPY) {
       if (clipboard) {
@@ -537,6 +566,16 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel }) {
     if (e.touches.length === 1) {
       pinchRef.current.active = false;
       const touch = e.touches[0];
+      // Metadata mode — just allow pan/zoom, tap handled in handleClick
+      if (managerMode === 'metadata') {
+        panDragRef.current = {
+          active: true,
+          startX: touch.clientX, startY: touch.clientY,
+          basePanX: panRef.current.x, basePanY: panRef.current.y,
+          moved: false,
+        };
+        return;
+      }
       // Lasso draw — start freehand path
       if (activeTool === TOOLS.DRAW && drawMode === 'lasso') {
         const pct = clientToBoardPct(touch.clientX, touch.clientY);
@@ -658,7 +697,8 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel }) {
 
   // ─── Derived values ─────────────────────────────────────────────────
   const isZoomed = scale > 1;
-  const cursorStyle = activeTool === TOOLS.DRAW ? 'crosshair'
+  const cursorStyle = managerMode === 'metadata' ? (isZoomed ? 'grab' : 'pointer')
+    : activeTool === TOOLS.DRAW ? 'crosshair'
     : activeTool === TOOLS.COPY ? 'copy'
     : isZoomed ? 'grab' : 'default';
 
@@ -666,17 +706,24 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel }) {
 
   function renderHoldOutline(hold) {
     const isSel = isHoldSelected(hold.id);
-    // Only show vertex handles on first selected hold (single select)
-    const showVertices = hold.id === selectedId && selectedIds.length === 1;
+    const isInspected = managerMode === 'metadata' && inspectedHoldId === hold.id;
+    // Only show vertex handles on first selected hold (single select) in boundaries mode
+    const showVertices = managerMode === 'boundaries' && hold.id === selectedId && selectedIds.length === 1;
     const hasPoly = hold.polygon?.length >= 3;
     const confidence = hold.confidence || 'high';
     const isHigh = confidence === 'high';
 
-    const outlineColor = isHigh ? '#22c55e' : '#ef4444';
-    const fillColor = isHigh ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.06)';
-    const selectedColor = '#0047FF';
+    // In metadata mode, use brand blue for all outlines (easier to see)
+    const outlineColor = managerMode === 'metadata'
+      ? '#0047FF'
+      : isHigh ? '#22c55e' : '#ef4444';
+    const fillColor = managerMode === 'metadata'
+      ? 'rgba(0,71,255,0.06)'
+      : isHigh ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.06)';
+    const holdDotColor = HOLD_COLOR_DOT[hold.color] || '#888';
+    const selectedColor = isInspected ? holdDotColor : '#0047FF';
     // Thicker lines for confirmed (high) holds
-    const lineWidth = isSel ? 10 : isHigh ? 10 : 4;
+    const lineWidth = (isSel || isInspected) ? 10 : isHigh ? 10 : 4;
 
     if (!hasPoly) {
       const cx = toSvgX(hold.cx);
@@ -685,13 +732,14 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel }) {
       const h = hold.h_pct || hold.r * 2 || 4;
       const rx = Math.max((w / 100) * bW / 2, 4);
       const ry = Math.max((h / 100) * bH / 2, 4);
+      const highlighted = isSel || isInspected;
       return (
         <g key={hold.id}>
           <ellipse cx={cx} cy={cy} rx={rx} ry={ry}
-            fill={isSel ? 'rgba(0,71,255,0.15)' : fillColor}
-            stroke={isSel ? selectedColor : outlineColor}
+            fill={highlighted ? `${selectedColor}25` : fillColor}
+            stroke={highlighted ? selectedColor : outlineColor}
             strokeWidth={lineWidth}
-            strokeDasharray={!isSel && !isHigh ? '8 5' : 'none'}
+            strokeDasharray={!highlighted && !isHigh ? '8 5' : 'none'}
             style={{ pointerEvents: 'none' }}
           />
         </g>
@@ -699,21 +747,22 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel }) {
     }
 
     const pts = hold.polygon.map(([x, y]) => `${toSvgX(x)},${toSvgY(y)}`).join(' ');
+    const highlighted = isSel || isInspected;
 
     return (
       <g key={hold.id}>
-        {isSel && (
+        {highlighted && (
           <polygon points={pts}
-            fill="none" stroke="rgba(0,71,255,0.25)" strokeWidth={10}
+            fill="none" stroke={`${selectedColor}40`} strokeWidth={10}
             strokeLinejoin="round" style={{ pointerEvents: 'none' }}
           />
         )}
         <polygon points={pts}
-          fill={isSel ? 'rgba(0,71,255,0.15)' : showAllOutlines ? fillColor : 'transparent'}
-          stroke={isSel ? selectedColor : outlineColor}
+          fill={highlighted ? `${selectedColor}25` : showAllOutlines ? fillColor : 'transparent'}
+          stroke={highlighted ? selectedColor : outlineColor}
           strokeWidth={lineWidth}
           strokeLinejoin="round"
-          strokeDasharray={!isSel && !isHigh ? '8 5' : 'none'}
+          strokeDasharray={!highlighted && !isHigh ? '8 5' : 'none'}
           style={{ pointerEvents: 'none' }}
         />
         {showVertices && activeTool === TOOLS.SELECT && hold.polygon.map(([x, y], idx) => {
@@ -796,8 +845,33 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel }) {
         </div>
       </div>
 
-      {/* Toolbar */}
+      {/* Mode toggle: Boundaries / Metadata */}
       <div style={{
+        padding: '4px 12px', borderBottom: '1px solid var(--border)',
+        background: 'rgba(255,255,255,0.3)', display: 'flex', justifyContent: 'center',
+        flexShrink: 0,
+      }}>
+        <div style={{ display: 'inline-flex', borderRadius: '6px', overflow: 'hidden', border: '1px solid var(--border)' }}>
+          {[{ key: 'boundaries', label: 'Boundaries' }, { key: 'metadata', label: 'Metadata' }].map(m => (
+            <button key={m.key}
+              onClick={() => { setManagerMode(m.key); onManagerModeChange?.(m.key); if (m.key === 'metadata') { setSelectedIds([]); setInspectedHoldId(null); } }}
+              style={{
+                padding: '4px 14px', fontSize: '10px', fontWeight: 600,
+                letterSpacing: '0.5px', textTransform: 'uppercase',
+                cursor: 'pointer', border: 'none',
+                background: managerMode === m.key ? 'var(--accent)' : 'transparent',
+                color: managerMode === m.key ? '#fff' : 'var(--text-muted)',
+                transition: 'background 0.15s, color 0.15s',
+              }}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Toolbar — only in boundaries mode */}
+      {managerMode === 'boundaries' && <div style={{
         padding: '6px 12px',
         borderBottom: '1px solid var(--border)',
         background: 'rgba(255,255,255,0.4)',
@@ -844,10 +918,81 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel }) {
             {Math.round(scale * 100)}% ↺
           </button>
         )}
-      </div>
+      </div>}
+
+      {/* Metadata mode toolbar */}
+      {managerMode === 'metadata' && (
+        <div style={{
+          padding: '6px 12px', borderBottom: '1px solid var(--border)',
+          background: 'rgba(255,255,255,0.4)', flexShrink: 0,
+          fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600,
+        }}>
+          {inspectedHoldId ? 'Hold selected — see details below' : 'Tap a hold to view its metadata'}
+        </div>
+      )}
+
+      {/* Metadata info card */}
+      {managerMode === 'metadata' && inspectedHoldId && (() => {
+        const hold = holds.find(h => h.id === inspectedHoldId);
+        if (!hold) return null;
+        const dotColor = HOLD_COLOR_DOT[hold.color] || '#888';
+        const types = (hold.holdTypes || []).join(' · ') || 'No types set';
+        const posVal = hold.positivity ?? 0;
+        return (
+          <div style={{
+            padding: '10px 12px', borderBottom: '1px solid var(--border)',
+            background: 'var(--bg-card)', flexShrink: 0,
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+              <span style={{
+                width: '14px', height: '14px', borderRadius: '50%', flexShrink: 0,
+                background: dotColor, border: '2px solid rgba(26,10,0,0.15)',
+              }} />
+              <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)', flex: 1 }}>
+                {hold.name || `Hold ${hold.id.replace('custom_', '#')}`}
+              </span>
+              <button
+                onClick={() => setInspectedHoldId(null)}
+                style={{
+                  padding: '3px 8px', borderRadius: '6px', border: '1px solid var(--border)',
+                  background: 'transparent', color: 'var(--text-muted)', fontSize: '12px', cursor: 'pointer',
+                }}
+              >✕</button>
+            </div>
+            <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '8px' }}>
+              <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{types}</span>
+              <span style={{ fontSize: '11px', color: 'var(--accent)', fontWeight: 600 }}>
+                {posVal > 0 ? '+' : ''}{posVal} ({positivityLabel(posVal)})
+              </span>
+              {hold.material && (
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontStyle: 'italic' }}>{hold.material}</span>
+              )}
+              {hold.color && (
+                <span style={{
+                  fontSize: '10px', fontWeight: 600, color: dotColor,
+                  padding: '1px 6px', borderRadius: '4px', background: `${dotColor}15`,
+                  textTransform: 'capitalize',
+                }}>{hold.color}</span>
+              )}
+            </div>
+            {onEditHold && (
+              <button
+                onClick={() => onEditHold(hold)}
+                style={{
+                  padding: '6px 14px', borderRadius: '8px', fontSize: '12px', fontWeight: 700,
+                  cursor: 'pointer', border: '1.5px solid var(--accent)',
+                  background: 'var(--accent)', color: '#fff',
+                }}
+              >
+                Edit Hold
+              </button>
+            )}
+          </div>
+        );
+      })()}
 
       {/* ── Secondary toolbar: contextual actions ── */}
-      {(
+      {managerMode === 'boundaries' && (
         (activeTool === TOOLS.SELECT && selectedIds.length > 0) ||
         (activeTool === TOOLS.DRAW) ||
         (activeTool === TOOLS.COPY && clipboard)
@@ -975,7 +1120,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel }) {
       )}
 
       {/* Canvas */}
-      <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
+      <div style={{ flex: 1, overflow: 'hidden', position: 'relative', padding: '6px' }}>
         <div
           ref={containerRef}
           onTouchStart={handleTouchStart}
@@ -999,18 +1144,52 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel }) {
             display: 'flex', justifyContent: 'center',
           }}>
             <img
-              src={IMG_SRC}
+              src={imgSrc || '/Barn_Board_Reset_02_C.jpg'}
               alt="Climbing board"
               onLoad={(e) => {
                 setImgSize({ w: e.target.naturalWidth, h: e.target.naturalHeight });
                 setImageLoaded(true);
               }}
               style={{
-                maxWidth: '100%', maxHeight: 'calc(100vh - 120px)',
+                maxWidth: 'calc(100% - 12px)', maxHeight: 'calc(100vh - 160px)',
                 display: 'block', opacity: imageLoaded ? 1 : 0.3,
+                borderRadius: '6px',
               }}
               draggable={false}
             />
+            {/* Dimming overlay — metadata mode with inspected hold */}
+            {imageLoaded && managerMode === 'metadata' && inspectedHoldId && (() => {
+              const inspected = holds.find(h => h.id === inspectedHoldId);
+              if (!inspected) return null;
+              return (
+                <svg
+                  viewBox={`0 0 ${imgSize.w} ${imgSize.h}`}
+                  width="100%" height="100%"
+                  preserveAspectRatio="xMidYMid meet"
+                  style={{ position: 'absolute', top: 0, left: 0, pointerEvents: 'none' }}
+                >
+                  <defs>
+                    <mask id="metadata-hold-mask">
+                      <rect width={imgSize.w} height={imgSize.h} fill="white" fillOpacity="0.6" />
+                      {inspected.polygon?.length >= 3 ? (
+                        <polygon
+                          points={inspected.polygon.map(([x, y]) => `${toSvgX(x)},${toSvgY(y)}`).join(' ')}
+                          fill="black" stroke="black" strokeWidth={16} strokeLinejoin="round"
+                        />
+                      ) : (
+                        <ellipse
+                          cx={toSvgX(inspected.cx)} cy={toSvgY(inspected.cy)}
+                          rx={Math.max(((inspected.w_pct || inspected.r * 2 || 4) / 100) * bW / 2 + 8, 10)}
+                          ry={Math.max(((inspected.h_pct || inspected.r * 2 || 4) / 100) * bH / 2 + 8, 10)}
+                          fill="black"
+                        />
+                      )}
+                    </mask>
+                  </defs>
+                  <rect width={imgSize.w} height={imgSize.h} fill="white" mask="url(#metadata-hold-mask)" />
+                </svg>
+              );
+            })()}
             {imageLoaded && (
               <svg
                 ref={svgRef}

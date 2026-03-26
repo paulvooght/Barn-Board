@@ -9,7 +9,7 @@ function clamp(val, min, max) {
   return Math.max(min, Math.min(max, val));
 }
 
-export default function BoardView({ holds, selection, onHoldTap, interactive, dimBoard, children }) {
+export default function BoardView({ holds, selection, onHoldTap, interactive, dimBoard, imgSrc, holdSnapshots, children }) {
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imgSize, setImgSize]         = useState({ w: 1200, h: 900 });
   const [scale, setScale]             = useState(1);
@@ -316,7 +316,7 @@ export default function BoardView({ holds, selection, onHoldTap, interactive, di
             lineHeight: 0,
           }}>
           <img
-            src="/Barn_Board_Reset_02_C.jpg"
+            src={imgSrc || '/Barn_Board_Reset_02_C.jpg'}
             alt="Climbing board"
             onLoad={(e) => {
               setImgSize({ w: e.target.naturalWidth, h: e.target.naturalHeight });
@@ -391,6 +391,45 @@ export default function BoardView({ holds, selection, onHoldTap, interactive, di
                   interactive={interactive}
                 />
               ))}
+              {/* Ghost outlines for missing/deleted holds */}
+              {dimBoard && holdSnapshots && (() => {
+                const holdIdSet = new Set(allHolds.map(h => h.id));
+                const bL = imgSize.w * boardRegion.left / 100;
+                const bT = imgSize.h * boardRegion.top / 100;
+                const bWidth = imgSize.w * boardRegion.width / 100;
+                const bHeight = imgSize.h * boardRegion.height / 100;
+                const gX = (x) => bL + (x / 100) * bWidth;
+                const gY = (y) => bT + (y / 100) * bHeight;
+                return Object.entries(selection || {}).filter(([id]) => !holdIdSet.has(id)).map(([id]) => {
+                  const snap = holdSnapshots[id];
+                  if (!snap) return null;
+                  if (snap.polygon?.length >= 3) {
+                    const pts = snap.polygon.map(([x, y]) => `${gX(x)},${gY(y)}`).join(' ');
+                    return (
+                      <g key={`ghost-${id}`} style={{ pointerEvents: 'none' }}>
+                        <polygon points={pts} fill="none" stroke="#FF1493" strokeWidth={6} strokeDasharray="10 6" strokeLinejoin="round" opacity={0.8} />
+                        <text x={gX(snap.cx)} y={gY(snap.cy)} textAnchor="middle" dominantBaseline="central"
+                          fontSize={Math.max(bWidth * 0.018, 14)} fontWeight="900" fill="#FF1493"
+                          style={{ pointerEvents: 'none' }}
+                        >✕</text>
+                      </g>
+                    );
+                  }
+                  const w = snap.w_pct !== undefined ? snap.w_pct : (snap.r || 2) * 2;
+                  const h = snap.h_pct !== undefined ? snap.h_pct : (snap.r || 2) * 2;
+                  const rx = Math.max((w / 100) * bWidth / 2, 4);
+                  const ry = Math.max((h / 100) * bHeight / 2, 4);
+                  return (
+                    <g key={`ghost-${id}`} style={{ pointerEvents: 'none' }}>
+                      <ellipse cx={gX(snap.cx)} cy={gY(snap.cy)} rx={rx} ry={ry} fill="none" stroke="#FF1493" strokeWidth={6} strokeDasharray="10 6" opacity={0.8} />
+                      <text x={gX(snap.cx)} y={gY(snap.cy)} textAnchor="middle" dominantBaseline="central"
+                        fontSize={Math.max(bWidth * 0.018, 14)} fontWeight="900" fill="#FF1493"
+                        style={{ pointerEvents: 'none' }}
+                      >✕</text>
+                    </g>
+                  );
+                });
+              })()}
             </svg>
           )}
           </div>{/* end yellow border wrapper */}
