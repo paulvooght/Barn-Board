@@ -154,16 +154,17 @@ export default function App() {
     for (const routeId of sessionRouteIds) {
       const route = routes.find(r => r.id === routeId);
       if (!route) continue;
-      if (route.sent) {
+      // Prefer angle-grade sends (more specific); fall back to main route.sent.
+      // Never add both — that caused the same route appearing twice.
+      const agSends = (route.angleGrades || []).filter(ag => ag.sent);
+      if (agSends.length > 0) {
+        for (const ag of agSends) {
+          finalSends.push({ routeId, angle: ag.angle, grade: ag.grade || route.grade, time: new Date().toISOString() });
+        }
+        if (!finalRoutesSent.includes(routeId)) finalRoutesSent.push(routeId);
+      } else if (route.sent) {
         finalRoutesSent.push(routeId);
         finalSends.push({ routeId, angle: route.angle || null, grade: route.grade || null, time: new Date().toISOString() });
-      }
-      // Also capture any angle-grade sends
-      for (const ag of route.angleGrades || []) {
-        if (ag.sent) {
-          finalSends.push({ routeId, angle: ag.angle, grade: ag.grade || route.grade, time: new Date().toISOString() });
-          if (!finalRoutesSent.includes(routeId)) finalRoutesSent.push(routeId);
-        }
       }
     }
     const finished = {
@@ -860,7 +861,7 @@ export default function App() {
         </BoardView>
       )}
 
-      {/* Hold Data toggle + info card — below board when viewing a route */}
+      {/* Hold Info toggle + info card — below board when viewing a route */}
       {view === 'viewRoute' && viewingRoute && (() => {
         const routeHoldIds = Object.keys(viewingRoute.holds || {});
         const inspectedHold = inspectedRouteHoldId ? allHolds.find(h => h.id === inspectedRouteHoldId) : null;
@@ -879,7 +880,7 @@ export default function App() {
                   transition: 'all 0.15s',
                 }}
               >
-                Hold Data
+                Hold Info
               </button>
             </div>
             {/* Info card when a hold is tapped */}
@@ -944,12 +945,14 @@ export default function App() {
           <button
             onClick={() => setShowRouteTags(prev => !prev)}
             style={{
-              background: 'none', border: 'none', cursor: 'pointer',
-              fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)',
-              padding: '6px 0', display: 'flex', alignItems: 'center', gap: '4px',
+              padding: '5px 10px', borderRadius: '8px', fontSize: '11px', fontWeight: 700,
+              cursor: 'pointer', lineHeight: 1, whiteSpace: 'nowrap',
+              border: showRouteTags ? '1.5px solid var(--accent)' : '1.5px solid rgba(26,10,0,0.12)',
+              background: showRouteTags ? 'var(--accent-dim)' : 'rgba(255,255,255,0.6)',
+              color: showRouteTags ? 'var(--accent)' : 'var(--text-secondary)',
             }}
           >
-            {showRouteTags ? '▾' : '▸'} {showRouteTags ? 'Show less' : 'Show more'}
+            {showRouteTags ? '▾ Show less' : '▸ Show more'}
           </button>
           {showRouteTags && (
             <div style={{ paddingTop: '4px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -1034,20 +1037,20 @@ export default function App() {
               <span style={{ fontSize: '14px' }}>▶</span>
             </button>
           )}
-          {/* Pause/stop button — same position as play button */}
+          {/* Stop session button */}
           {activeSession && (
             <button
               onClick={endSession}
               style={{
-                padding: '14px 28px', borderRadius: '24px',
-                border: 'none',
-                background: '#7DD3E8', color: '#fff',
-                fontSize: '16px', fontWeight: 800, cursor: 'pointer',
-                boxShadow: '0 3px 10px rgba(125,211,232,0.4)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                padding: '12px 24px', borderRadius: '24px',
+                border: '2px solid rgba(255,82,82,0.4)',
+                background: 'rgba(255,82,82,0.1)', color: '#FF5252',
+                fontSize: '13px', fontWeight: 800, cursor: 'pointer',
+                letterSpacing: '0.5px',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
               }}
             >
-              <span style={{ fontSize: '13px', letterSpacing: '2px' }}>❚❚</span>
+              <span style={{ fontSize: '10px' }}>■</span> Stop Session
             </button>
           )}
           {/* Board angle slider — beta feature, controlled by settings.betaAngleLogger */}

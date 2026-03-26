@@ -170,9 +170,9 @@ export default function SessionSummary({ session, routes, grades, allSessions, o
         </div>
       )}
 
-      {/* Stats cards row */}
+      {/* Stats cards row — use unique route count for "Sent" to match PB calculation */}
       <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
-        <StatCard label="Sent" value={sendDisplayList.length} color="#D4705A" />
+        <StatCard label="Sent" value={sentRoutes.length} color="#D4705A" />
         <StatCard label="Created" value={newRoutes.length} color="var(--accent)" />
       </div>
 
