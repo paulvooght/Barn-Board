@@ -8,8 +8,8 @@ export default function RouteCard({ route, onView, onRate, onToggleSent, missing
   const hasMissing = (missingHoldCount || 0) > 0;
 
   // Border color priority: missing (hot pink) > sent (cyan) > default
-  const borderColor = hasMissing ? '#FF1493' : sent ? '#7DD3E8' : 'var(--border)';
-  const borderWidth = hasMissing ? '2px' : sent ? '1.5px' : '1px';
+  const borderColor = hasMissing ? '#FF1493' : sent ? '#22d3ee' : 'var(--border)';
+  const borderWidth = hasMissing || sent ? '2px' : '1px';
 
   return (
     <div
@@ -22,13 +22,13 @@ export default function RouteCard({ route, onView, onRate, onToggleSent, missing
         cursor: 'pointer',
         transition: 'border-color 0.15s, box-shadow 0.15s',
         marginBottom: '8px',
-        boxShadow: hasMissing ? '0 2px 8px rgba(255,20,147,0.12)' : '0 2px 6px rgba(26,10,0,0.06)',
+        boxShadow: hasMissing ? '0 2px 8px rgba(255,20,147,0.12)' : sent ? '0 2px 8px rgba(34,211,238,0.15)' : '0 2px 6px rgba(26,10,0,0.06)',
         display: 'flex',
         gap: '12px',
         position: 'relative',
       }}
       onMouseEnter={e => { if (!hasMissing) { e.currentTarget.style.borderColor = 'rgba(0,71,255,0.4)'; e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,71,255,0.12)'; } }}
-      onMouseLeave={e => { e.currentTarget.style.borderColor = borderColor; e.currentTarget.style.boxShadow = hasMissing ? '0 2px 8px rgba(255,20,147,0.12)' : '0 2px 6px rgba(26,10,0,0.06)'; }}
+      onMouseLeave={e => { e.currentTarget.style.borderColor = borderColor; e.currentTarget.style.boxShadow = hasMissing ? '0 2px 8px rgba(255,20,147,0.12)' : sent ? '0 2px 8px rgba(34,211,238,0.15)' : '0 2px 6px rgba(26,10,0,0.06)'; }}
     >
       {/* ── LEFT: Grade pill + angle + Name ── */}
       <div style={{ flex: 1, minWidth: 0 }}>

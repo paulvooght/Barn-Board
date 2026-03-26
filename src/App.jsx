@@ -143,15 +143,40 @@ export default function App() {
 
   const endSession = useCallback(() => {
     if (!activeSession) return;
+    // Snapshot actual sent state at session end — avoids double-counting if user un-sent then re-sent.
+    // Only routes currently marked sent (route.sent or angleGrade.sent) count.
+    const sessionRouteIds = new Set([
+      ...activeSession.routesSent,
+      ...activeSession.routesAttempted,
+    ]);
+    const finalRoutesSent = [];
+    const finalSends = [];
+    for (const routeId of sessionRouteIds) {
+      const route = routes.find(r => r.id === routeId);
+      if (!route) continue;
+      if (route.sent) {
+        finalRoutesSent.push(routeId);
+        finalSends.push({ routeId, angle: route.angle || null, grade: route.grade || null, time: new Date().toISOString() });
+      }
+      // Also capture any angle-grade sends
+      for (const ag of route.angleGrades || []) {
+        if (ag.sent) {
+          finalSends.push({ routeId, angle: ag.angle, grade: ag.grade || route.grade, time: new Date().toISOString() });
+          if (!finalRoutesSent.includes(routeId)) finalRoutesSent.push(routeId);
+        }
+      }
+    }
     const finished = {
       ...activeSession,
       endTime: new Date().toISOString(),
+      routesSent: finalRoutesSent,
+      sends: finalSends,
     };
     setSessions(prev => [finished, ...prev]);
     setCompletedSession(finished);
     setActiveSession(null);
     setView('sessionSummary');
-  }, [activeSession, setSessions, setActiveSession]);
+  }, [activeSession, routes, setSessions, setActiveSession]);
 
   const logRouteAttempted = useCallback((routeId) => {
     if (!activeSession) return;

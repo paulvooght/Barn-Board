@@ -61,7 +61,8 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
   const [draggingVertex, setDraggingVertex] = useState(null);
 
   // Whole-hold drag state (for pasted hold repositioning)
-  const [draggingHold, setDraggingHold] = useState(null); // { holdId, startPct }
+  // offsetX/Y: cursor distance from hold centroid at drag-start — keeps cursor relative to hold
+  const [draggingHold, setDraggingHold] = useState(null); // { holdId, isMulti, offsetX, offsetY }
 
   // Image / zoom / pan
   const [imageLoaded, setImageLoaded] = useState(false);
@@ -445,7 +446,12 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
         const hitId = findHoldAtPoint(pct.x, pct.y, holds, 3);
         if (hitId && selectedIds.includes(hitId)) {
           const multi = selectedIds.length > 1;
-          setDraggingHold({ holdId: hitId, startPct: pct, isMulti: multi });
+          // Record offset from cursor to hold centroid so cursor stays in same spot on hold
+          const holdObj = holds.find(h => h.id === hitId);
+          const [hcx, hcy] = holdObj?.polygon ? centroid(holdObj.polygon) : [holdObj?.cx ?? pct.x, holdObj?.cy ?? pct.y];
+          const offsetX = pct.x - hcx;
+          const offsetY = pct.y - hcy;
+          setDraggingHold({ holdId: hitId, isMulti: multi, offsetX, offsetY });
           if (multi) moveMultiLastRef.current = pct;
           return;
         }
@@ -467,12 +473,12 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
       setDrawPoints(prev => [...prev, [r1(pct.x), r1(pct.y)]]);
       return;
     }
-    // Drag-move hold
+    // Drag-move hold — subtract cursor-to-centroid offset so hold doesn't jump to cursor centre
     if (draggingHold && pct) {
       if (draggingHold.isMulti) {
         moveMultipleHolds(pct);
       } else {
-        moveHoldTo(draggingHold.holdId, pct);
+        moveHoldTo(draggingHold.holdId, { x: pct.x - draggingHold.offsetX, y: pct.y - draggingHold.offsetY });
       }
       return;
     }
@@ -593,7 +599,11 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
           const hitId = findHoldAtPoint(pct.x, pct.y, holds, 3);
           if (hitId && selectedIds.includes(hitId)) {
             const multi = selectedIds.length > 1;
-            setDraggingHold({ holdId: hitId, startPct: pct, isMulti: multi });
+            const holdObj = holds.find(h => h.id === hitId);
+            const [hcx, hcy] = holdObj?.polygon ? centroid(holdObj.polygon) : [holdObj?.cx ?? pct.x, holdObj?.cy ?? pct.y];
+            const offsetX = pct.x - hcx;
+            const offsetY = pct.y - hcy;
+            setDraggingHold({ holdId: hitId, isMulti: multi, offsetX, offsetY });
             if (multi) moveMultiLastRef.current = pct;
             return;
           }
@@ -635,7 +645,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
         if (draggingHold.isMulti) {
           moveMultipleHolds(pct);
         } else {
-          moveHoldTo(draggingHold.holdId, pct);
+          moveHoldTo(draggingHold.holdId, { x: pct.x - draggingHold.offsetX, y: pct.y - draggingHold.offsetY });
         }
         return;
       }
@@ -991,19 +1001,15 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
         );
       })()}
 
-      {/* ── Secondary toolbar: contextual actions ── */}
+      {/* ── Secondary toolbar: contextual actions — always present in boundaries to avoid layout shift ── */}
       {managerMode === 'boundaries' && (
-        (activeTool === TOOLS.SELECT && selectedIds.length > 0) ||
-        (activeTool === TOOLS.DRAW) ||
-        (activeTool === TOOLS.COPY && clipboard)
-      ) && (
         <div style={{
           padding: '6px 12px',
           borderBottom: '1px solid var(--border)',
-          background: 'rgba(0,71,255,0.06)',
+          background: 'rgba(0,71,255,0.04)',
           flexShrink: 0,
           display: 'flex', gap: '6px', alignItems: 'center',
-          flexWrap: 'wrap', minHeight: '38px',
+          flexWrap: 'wrap', minHeight: '40px',
         }}>
           {/* Draw tool actions */}
           {activeTool === TOOLS.DRAW && (<>
@@ -1059,12 +1065,13 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
             </>
           )}
 
-          {/* Select tool actions */}
+          {/* Select tool actions — order: Select All · Copy · +Vertex · Rotate · Scale · Delete */}
           {activeTool === TOOLS.SELECT && selectedIds.length > 0 && (<>
+          <button onClick={selectAllHolds} style={secBtnStyle}>Select All</button>
           {selectedIds.length === 1 && (
             <>
-              <button onClick={addVertexToSelected} style={secBtnStyle} disabled={!selectedHold?.polygon}>+ Vertex</button>
               <button onClick={copySelected} style={secBtnStyle} disabled={!selectedHold?.polygon}>Copy</button>
+              <button onClick={addVertexToSelected} style={secBtnStyle} disabled={!selectedHold?.polygon}>+ Vertex</button>
               {selectedHold?.confidence === 'medium' && (
                 <button
                   onClick={() => setHolds(prev => prev.map(h => h.id === selectedId ? { ...h, confidence: 'high' } : h))}
@@ -1073,15 +1080,9 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
               )}
             </>
           )}
-          <button onClick={selectAllHolds} style={secBtnStyle}>Select All ({holds.length})</button>
-          <button onClick={deleteSelected} style={{ ...secBtnStyle, color: '#FF5252', borderColor: 'rgba(255,82,82,0.3)' }}>
-            Delete{selectedIds.length > 1 ? ` (${selectedIds.length})` : ''}
-          </button>
-
-          <div style={{ width: '1px', height: '20px', background: 'rgba(0,71,255,0.15)', margin: '0 2px' }} />
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-            <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 700 }}>Rotate</span>
+            <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600 }}>Rotate</span>
             <input type="range" min="-180" max="180" step="5"
               value={selectRotation}
               onMouseDown={snapshotOrigPolys}
@@ -1091,15 +1092,15 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
                 setSelectRotation(rot);
                 applyRotationToSelected(rot);
               }}
-              style={{ width: '70px', accentColor: 'var(--accent)' }}
+              style={{ width: '60px', accentColor: 'var(--accent)' }}
             />
-            <span style={{ fontSize: '11px', color: 'var(--text-primary)', fontWeight: 700, minWidth: '28px' }}>
+            <span style={{ fontSize: '10px', color: 'var(--text-primary)', fontWeight: 700, minWidth: '26px' }}>
               {selectRotation}°
             </span>
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-            <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 700 }}>Scale</span>
+            <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600 }}>Scale</span>
             <input type="range" min="25" max="300" step="5"
               value={selectScale}
               onMouseDown={snapshotOrigPolys}
@@ -1109,12 +1110,17 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
                 setSelectScale(s);
                 applyScaleToSelected(s);
               }}
-              style={{ width: '70px', accentColor: 'var(--accent)' }}
+              style={{ width: '60px', accentColor: 'var(--accent)' }}
             />
-            <span style={{ fontSize: '11px', color: 'var(--text-primary)', fontWeight: 700, minWidth: '32px' }}>
+            <span style={{ fontSize: '10px', color: 'var(--text-primary)', fontWeight: 700, minWidth: '30px' }}>
               {selectScale}%
             </span>
           </div>
+
+          <button onClick={deleteSelected}
+            style={{ ...secBtnStyle, marginLeft: 'auto', color: '#FF5252', borderColor: 'rgba(255,82,82,0.3)', background: 'rgba(255,82,82,0.06)' }}>
+            Delete{selectedIds.length > 1 ? ` (${selectedIds.length})` : ''}
+          </button>
           </>)}
         </div>
       )}
@@ -1229,7 +1235,7 @@ const iconBtnStyle = {
 
 const secBtnStyle = {
   padding: '5px 12px', borderRadius: '6px', fontSize: '11px', fontWeight: 700,
-  cursor: 'pointer', border: '1.5px solid rgba(0,71,255,0.2)', background: 'rgba(0,71,255,0.06)',
+  cursor: 'pointer', border: '1px solid rgba(255,171,148,0.55)', background: 'rgba(255,171,148,0.18)',
   color: 'var(--accent)',
 };
 
