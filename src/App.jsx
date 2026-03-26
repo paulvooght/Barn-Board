@@ -861,24 +861,30 @@ export default function App() {
         </BoardView>
       )}
 
-      {/* Hold Info toggle + info card — below board when viewing a route */}
+      {/* Hold Info toggle + Show more row + info card — below board when viewing a route */}
       {view === 'viewRoute' && viewingRoute && (() => {
         const routeHoldIds = Object.keys(viewingRoute.holds || {});
         const inspectedHold = inspectedRouteHoldId ? allHolds.find(h => h.id === inspectedRouteHoldId) : null;
+        const hasTagData = viewingRoute.holdTypes?.length > 0 || viewingRoute.techniques?.length > 0 || viewingRoute.styles?.length > 0;
+        const toggleBtnStyle = (active) => ({
+          padding: '5px 10px', borderRadius: '8px', fontSize: '11px', fontWeight: 700,
+          cursor: 'pointer', lineHeight: 1, whiteSpace: 'nowrap',
+          border: active ? '1.5px solid var(--accent)' : '1.5px solid rgba(26,10,0,0.12)',
+          background: active ? 'var(--accent-dim)' : 'rgba(255,255,255,0.6)',
+          color: active ? 'var(--accent)' : 'var(--text-secondary)',
+        });
         return (
           <div style={{ padding: '0 12px 4px' }}>
-            {/* Toggle row — right-aligned */}
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: inspectedHold ? '8px' : '0' }}>
+            {/* Toggle row — Show more (left) + Hold Info (right) */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: inspectedHold ? '8px' : '0' }}>
+              {hasTagData ? (
+                <button onClick={() => setShowRouteTags(prev => !prev)} style={toggleBtnStyle(showRouteTags)}>
+                  {showRouteTags ? '▾ Show less' : '▸ Show more'}
+                </button>
+              ) : <div />}
               <button
                 onClick={() => { setHoldDataMode(prev => !prev); setInspectedRouteHoldId(null); }}
-                style={{
-                  padding: '4px 12px', borderRadius: '6px', fontSize: '10px', fontWeight: 600,
-                  letterSpacing: '0.5px', textTransform: 'uppercase', cursor: 'pointer',
-                  border: holdDataMode ? '1.5px solid var(--accent)' : '1.5px solid rgba(26,10,0,0.12)',
-                  background: holdDataMode ? 'var(--accent-dim)' : 'transparent',
-                  color: holdDataMode ? 'var(--accent)' : 'var(--text-muted)',
-                  transition: 'all 0.15s',
-                }}
+                style={toggleBtnStyle(holdDataMode)}
               >
                 Hold Info
               </button>
@@ -935,79 +941,44 @@ export default function App() {
                 Tap a hold to view its data
               </div>
             )}
+            {/* Expandable tag data — shown when Show more is active */}
+            {hasTagData && showRouteTags && (
+              <div style={{ paddingTop: '6px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {viewingRoute.holdTypes?.length > 0 && (
+                  <div>
+                    <div style={{ fontSize: '9px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px' }}>Hold Types</div>
+                    <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
+                      {viewingRoute.holdTypes.map(tag => (
+                        <span key={tag} style={{ padding: '3px 10px', borderRadius: '8px', background: 'rgba(26,10,0,0.06)', border: '1px solid rgba(26,10,0,0.08)', fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 500 }}>{tag}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {viewingRoute.techniques?.length > 0 && (
+                  <div>
+                    <div style={{ fontSize: '9px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px' }}>Techniques</div>
+                    <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
+                      {viewingRoute.techniques.map(tag => (
+                        <span key={tag} style={{ padding: '3px 10px', borderRadius: '8px', background: 'rgba(26,10,0,0.06)', border: '1px solid rgba(26,10,0,0.08)', fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 500 }}>{tag}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {viewingRoute.styles?.length > 0 && (
+                  <div>
+                    <div style={{ fontSize: '9px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px' }}>Style</div>
+                    <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
+                      {viewingRoute.styles.map(tag => (
+                        <span key={tag} style={{ padding: '3px 10px', borderRadius: '8px', background: 'rgba(26,10,0,0.06)', border: '1px solid rgba(26,10,0,0.08)', fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 500 }}>{tag}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         );
       })()}
-
-      {/* Show more tags — below board photo when viewing a route */}
-      {view === 'viewRoute' && viewingRoute && (viewingRoute.holdTypes?.length > 0 || viewingRoute.techniques?.length > 0 || viewingRoute.styles?.length > 0) && (
-        <div style={{ padding: '0 12px 8px' }}>
-          <button
-            onClick={() => setShowRouteTags(prev => !prev)}
-            style={{
-              padding: '5px 10px', borderRadius: '8px', fontSize: '11px', fontWeight: 700,
-              cursor: 'pointer', lineHeight: 1, whiteSpace: 'nowrap',
-              border: showRouteTags ? '1.5px solid var(--accent)' : '1.5px solid rgba(26,10,0,0.12)',
-              background: showRouteTags ? 'var(--accent-dim)' : 'rgba(255,255,255,0.6)',
-              color: showRouteTags ? 'var(--accent)' : 'var(--text-secondary)',
-            }}
-          >
-            {showRouteTags ? '▾ Show less' : '▸ Show more'}
-          </button>
-          {showRouteTags && (
-            <div style={{ paddingTop: '4px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {viewingRoute.holdTypes?.length > 0 && (
-                <div>
-                  <div style={{ fontSize: '9px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px' }}>Hold Types</div>
-                  <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
-                    {viewingRoute.holdTypes.map(tag => (
-                      <span key={tag} style={{
-                        padding: '3px 10px', borderRadius: '8px',
-                        background: 'rgba(26,10,0,0.06)', border: '1px solid rgba(26,10,0,0.08)',
-                        fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 500,
-                      }}>
-                        {tag}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {viewingRoute.techniques?.length > 0 && (
-                <div>
-                  <div style={{ fontSize: '9px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px' }}>Techniques</div>
-                  <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
-                    {viewingRoute.techniques.map(tag => (
-                      <span key={tag} style={{
-                        padding: '3px 10px', borderRadius: '8px',
-                        background: 'rgba(26,10,0,0.06)', border: '1px solid rgba(26,10,0,0.08)',
-                        fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 500,
-                      }}>
-                        {tag}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {viewingRoute.styles?.length > 0 && (
-                <div>
-                  <div style={{ fontSize: '9px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px' }}>Style</div>
-                  <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
-                    {viewingRoute.styles.map(tag => (
-                      <span key={tag} style={{
-                        padding: '3px 10px', borderRadius: '8px',
-                        background: 'rgba(26,10,0,0.06)', border: '1px solid rgba(26,10,0,0.08)',
-                        fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 500,
-                      }}>
-                        {tag}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      )}
 
       {/* Board view CTA — below the board image */}
       {view === 'board' && (

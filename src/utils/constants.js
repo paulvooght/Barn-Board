@@ -32,13 +32,12 @@ export const HOLD_TYPE_SINGULAR_TO_PLURAL = {
 };
 
 export const TECHNIQUES = [
-  'Heel hooks', 'Toe hooks', 'Compression', 'Dynos',
-  'Body tension', 'Flagging', 'Drop knee', 'Bat hang', 'Campus',
+  'Heel hooks', 'Toe hooks', 'Dynos',
+  'Drop knee', 'Bat hang', 'Campus',
 ];
 
 export const STYLES = [
-  'Powerful', 'Technical', 'Endurance', 'Dynamic',
-  'Static', 'Balancey', 'Reachy', 'Morpho',
+  'Power', 'Technical', 'Endurance',
 ];
 
 export const SELECTION_MODES = {
