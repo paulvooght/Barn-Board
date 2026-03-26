@@ -2,12 +2,12 @@
   --bg-primary: #FFAB94;
   --bg-card: rgba(255, 255, 255, 0.65);
   --bg-input: rgba(255, 255, 255, 0.9);
-  --border: rgba(0, 0, 0, 0.12);
-  --border-hover: rgba(0, 0, 0, 0.25);
-  --text-primary: #1A0A00;
-  --text-secondary: #4A3020;
-  --text-muted: #7A5A4A;
-  --text-dim: #AA8A7A;
+  --border: rgba(26, 10, 0, 0.12);
+  --border-hover: rgba(26, 10, 0, 0.25);
+  --text-primary: #4A2520;
+  --text-secondary: #6B3D30;
+  --text-muted: #8B6050;
+  --text-dim: #B08878;
   --accent: #0047FF;
   --accent-dim: rgba(0, 71, 255, 0.10);
   --yellow: #FFE800;
@@ -64,10 +64,10 @@ input:focus, select:focus {
   width: 4px;
 }
 ::-webkit-scrollbar-track {
-  background: rgba(0,0,0,0.05);
+  background: rgba(26,10,0,0.05);
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(0,0,0,0.2);
+  background: rgba(26,10,0,0.2);
   border-radius: 2px;
 }
 
@@ -76,7 +76,7 @@ input[type="range"] {
   -webkit-appearance: none;
   appearance: none;
   height: 4px;
-  background: rgba(0,0,0,0.15);
+  background: rgba(26,10,0,0.15);
   border-radius: 2px;
   outline: none;
 }
@@ -88,4 +88,10 @@ input[type="range"]::-webkit-slider-thumb {
   background: var(--accent);
   cursor: pointer;
   border: 2px solid #fff;
+}
+
+/* Session timer pulse animation */
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
 }

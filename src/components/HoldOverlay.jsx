@@ -92,7 +92,7 @@ export default function HoldOverlay({ hold, boardRegion, imgSize, selection, onT
             width={pillW} height={pillH}
             rx={pillH / 2} ry={pillH / 2}
             fill={color}
-            style={{ filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.5))' }}
+            style={{ filter: 'drop-shadow(0 2px 4px rgba(26,10,0,0.5))' }}
           />
           <text
             x={cx} y={labelY}
@@ -118,7 +118,7 @@ export default function HoldOverlay({ hold, boardRegion, imgSize, selection, onT
           fill="#fff"
           stroke={color}
           strokeWidth={2}
-          style={{ filter: 'drop-shadow(0 1px 3px rgba(0,0,0,0.7))' }}
+          style={{ filter: 'drop-shadow(0 1px 3px rgba(26,10,0,0.7))' }}
         />
       )}
     </g>

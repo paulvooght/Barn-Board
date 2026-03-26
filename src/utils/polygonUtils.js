@@ -104,6 +104,15 @@ export function rotatePolygon(polygon, centerX, centerY, angleDeg) {
   });
 }
 
+// ─── Scale polygon around its centroid ──────────────────────────
+
+export function scalePolygon(polygon, factor, centerX, centerY) {
+  return polygon.map(([x, y]) => [
+    Math.round((centerX + (x - centerX) * factor) * 100) / 100,
+    Math.round((centerY + (y - centerY) * factor) * 100) / 100,
+  ]);
+}
+
 // ─── Translate polygon ──────────────────────────────────────────────
 
 export function translatePolygon(polygon, dx, dy) {

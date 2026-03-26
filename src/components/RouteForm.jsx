@@ -1,10 +1,12 @@
 import TagPicker from './TagPicker';
-import { HOLD_TYPES, TECHNIQUES, STYLES, BOARD_SPECS } from '../utils/constants';
+import { HOLD_TYPES, TECHNIQUES, STYLES, BOARD_SPECS, getYouTubeId, getYouTubeThumbnail } from '../utils/constants';
 
 export default function RouteForm({
   name, setName,
   grade, setGrade,
   angle, setAngle,
+  setter, setSetter,
+  youtubeUrl, setYoutubeUrl,
   holdTypes, setHoldTypes,
   techniques, setTechniques,
   styles, setStyles,
@@ -32,6 +34,55 @@ export default function RouteForm({
           placeholder="e.g. Barn Burner"
           style={inputStyle}
         />
+      </div>
+
+      {/* Setter */}
+      <div style={{ marginBottom: '14px' }}>
+        <label style={labelStyle}>Setter</label>
+        <input
+          type="text"
+          value={setter}
+          onChange={e => setSetter(e.target.value)}
+          placeholder="e.g. Paul"
+          style={inputStyle}
+        />
+      </div>
+
+      {/* YouTube Beta */}
+      <div style={{ marginBottom: '14px' }}>
+        <label style={labelStyle}>
+          Beta Video
+          <span style={{
+            marginLeft: '6px', fontSize: '8px', fontWeight: 800,
+            background: '#FF2D78', color: '#fff', padding: '1px 5px',
+            borderRadius: '4px', letterSpacing: '0.5px', verticalAlign: 'middle',
+          }}>BETA</span>
+        </label>
+        <input
+          type="url"
+          value={youtubeUrl}
+          onChange={e => setYoutubeUrl(e.target.value)}
+          placeholder="Paste YouTube link..."
+          style={inputStyle}
+        />
+        {getYouTubeThumbnail(youtubeUrl) && (
+          <div style={{ marginTop: '8px', borderRadius: '8px', overflow: 'hidden', position: 'relative' }}>
+            <img
+              src={getYouTubeThumbnail(youtubeUrl)}
+              alt="Video thumbnail"
+              style={{ width: '100%', display: 'block', borderRadius: '8px' }}
+            />
+            <div style={{
+              position: 'absolute', top: '50%', left: '50%',
+              transform: 'translate(-50%, -50%)',
+              width: '36px', height: '36px', borderRadius: '50%',
+              background: 'rgba(26,10,0,0.6)', display: 'flex',
+              alignItems: 'center', justifyContent: 'center',
+            }}>
+              <span style={{ color: '#fff', fontSize: '14px', marginLeft: '2px' }}>▶</span>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Grade + Angle */}
@@ -85,8 +136,8 @@ export default function RouteForm({
           disabled={!canSave}
           style={{
             ...saveBtnStyle,
-            background: canSave ? 'var(--accent)' : '#333',
-            color: canSave ? '#000' : '#666',
+            background: canSave ? 'var(--accent)' : 'var(--text-muted)',
+            color: canSave ? 'var(--text-primary)' : 'var(--text-dim)',
             cursor: canSave ? 'pointer' : 'not-allowed',
           }}
         >
@@ -111,7 +162,7 @@ const inputStyle = {
   width: '100%',
   padding: '10px 12px',
   borderRadius: '8px',
-  border: '1.5px solid rgba(0,0,0,0.15)',
+  border: '1.5px solid rgba(26,10,0,0.15)',
   background: 'var(--bg-input)',
   color: 'var(--text-primary)',
   fontSize: '14px',
@@ -122,8 +173,8 @@ const cancelBtnStyle = {
   flex: 1,
   padding: '12px',
   borderRadius: '10px',
-  border: '1px solid rgba(0,0,0,0.15)',
-  background: 'rgba(0,0,0,0.06)',
+  border: '1px solid rgba(26,10,0,0.15)',
+  background: 'rgba(26,10,0,0.06)',
   color: 'var(--text-secondary)',
   fontSize: '14px',
   fontWeight: 600,

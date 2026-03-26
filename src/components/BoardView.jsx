@@ -261,14 +261,14 @@ export default function BoardView({ holds, selection, onHoldTap, interactive, di
   const zoomBtnStyle = {
     width: '32px', height: '32px',
     borderRadius: '8px',
-    border: '1px solid rgba(0,0,0,0.18)',
+    border: '1px solid rgba(26,10,0,0.18)',
     background: 'rgba(255,255,255,0.88)',
     color: 'var(--text-secondary)',
     fontSize: '18px', lineHeight: 1,
     fontWeight: 700,
     cursor: 'pointer',
     display: 'flex', alignItems: 'center', justifyContent: 'center',
-    boxShadow: '0 1px 4px rgba(0,0,0,0.12)',
+    boxShadow: '0 1px 4px rgba(26,10,0,0.12)',
   };
 
   return (
@@ -296,7 +296,7 @@ export default function BoardView({ holds, selection, onHoldTap, interactive, di
           border: '1px solid var(--border)',
           borderLeft: 'none',
           borderRight: 'none',
-          background: 'rgba(0,0,0,0.05)',
+          background: 'rgba(26,10,0,0.05)',
           touchAction: (isZoomed || interactive) ? 'none' : 'pan-y',
           userSelect: 'none',
           cursor: isZoomed ? (mouseDown ? 'grabbing' : 'grab') : 'default',
@@ -309,8 +309,14 @@ export default function BoardView({ holds, selection, onHoldTap, interactive, di
             willChange: 'transform',
           }}
         >
+          <div style={{
+            position: 'relative',
+            border: '12px solid #FFE227',
+            borderRadius: '2px',
+            lineHeight: 0,
+          }}>
           <img
-            src="/Board background.jpg"
+            src="/Barn_Board_Reset_02_C.jpg"
             alt="Climbing board"
             onLoad={(e) => {
               setImgSize({ w: e.target.naturalWidth, h: e.target.naturalHeight });
@@ -354,7 +360,7 @@ export default function BoardView({ holds, selection, onHoldTap, interactive, di
                     })}
                   </mask>
                 </defs>
-                <rect width={imgSize.w} height={imgSize.h} fill="black" mask="url(#hold-cutout-mask)" />
+                <rect width={imgSize.w} height={imgSize.h} fill="white" mask="url(#hold-cutout-mask)" />
               </svg>
             );
           })()}
@@ -387,6 +393,7 @@ export default function BoardView({ holds, selection, onHoldTap, interactive, di
               ))}
             </svg>
           )}
+          </div>{/* end yellow border wrapper */}
         </div>
 
         {/* Zoom controls — always render all 3 so layout never shifts on first zoom */}

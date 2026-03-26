@@ -2,24 +2,23 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { useUndoRedo } from '../hooks/useUndoRedo';
 import {
   centroid, boundingBox,
-  rotatePolygon, translatePolygon,
-  findHoldAtPoint, holdFromPolygon,
+  rotatePolygon, scalePolygon, translatePolygon,
+  simplifyPath, findHoldAtPoint, holdFromPolygon,
 } from '../utils/polygonUtils';
 import holdsData from '../data/holds.json';
 
 const { boardRegion } = holdsData;
-const IMG_SRC = '/Board background.jpg';
+const IMG_SRC = '/Barn_Board_Reset_02_C.jpg';
 
 const TOOLS = {
   SELECT: 'select',
   DRAW: 'draw',
-  COPY: 'copy',
+  COPY: 'copy',   // internal state for paste placement
 };
 
 const TOOL_LABELS = {
-  [TOOLS.SELECT]: { icon: '↖', label: 'Select', tip: 'Click a hold to select it' },
+  [TOOLS.SELECT]: { icon: '↖', label: 'Select', tip: 'Click holds to select · drag to move' },
   [TOOLS.DRAW]:   { icon: '⬠', label: 'Draw', tip: 'Click to place vertices, click first vertex to close' },
-  [TOOLS.COPY]:   { icon: '⧉', label: 'Copy', tip: 'Select a hold, click Copy, then click to place' },
 };
 
 const MIN_SCALE = 1;
@@ -32,17 +31,19 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel }) {
   const { state: holds, setState: setHolds, undo, redo, canUndo, canRedo } = useUndoRedo(initialHolds);
 
   const [activeTool, setActiveTool] = useState(TOOLS.SELECT);
-  const [selectedId, setSelectedId] = useState(null);
+  const [selectedIds, setSelectedIds] = useState([]);       // multi-select: array of hold IDs
   const [showAllOutlines, setShowAllOutlines] = useState(true);
+  const [selectRotation, setSelectRotation] = useState(0);  // rotation for selected holds
+  const [selectScale, setSelectScale] = useState(100);       // scale % for selected holds
 
   // Drawing state
+  const [drawMode, setDrawMode] = useState('polygon');  // 'polygon' or 'lasso'
   const [drawPoints, setDrawPoints] = useState([]);
   const [drawClosed, setDrawClosed] = useState(false);
+  const lassoActiveRef = useRef(false);
 
-  // Copy/paste state — place first, then rotate, click off to finish
+  // Copy/paste state — copy selected, click to place
   const [clipboard, setClipboard] = useState(null);     // source hold shape
-  const [pastedHoldId, setPastedHoldId] = useState(null); // ID of just-pasted hold (rotate phase)
-  const [pasteRotation, setPasteRotation] = useState(0);
 
   // Vertex drag state
   const [draggingVertex, setDraggingVertex] = useState(null);
@@ -160,6 +161,13 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel }) {
     return () => el.removeEventListener('wheel', onWheel);
   }, []);
 
+  // ─── Tool actions ───────────────────────────────────────────────────
+
+  // Derived: first selected hold (for single-selection actions like vertex editing)
+  const selectedId = selectedIds.length > 0 ? selectedIds[0] : null;
+  const selectedHold = selectedId ? holds.find(h => h.id === selectedId) : null;
+  const isHoldSelected = (id) => selectedIds.includes(id);
+
   // ─── Keyboard shortcuts ─────────────────────────────────────────────
   useEffect(() => {
     const handler = (e) => {
@@ -177,39 +185,54 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel }) {
         copySelected();
         return;
       }
+      if (isMeta && e.key === 'a' && !e.target.closest('input')) {
+        e.preventDefault();
+        selectAllHolds();
+        return;
+      }
       if (e.key === 'Escape') {
-        if (pastedHoldId) { setPastedHoldId(null); setPasteRotation(0); setActiveTool(TOOLS.SELECT); return; }
-        if (clipboard) { setClipboard(null); setPasteRotation(0); setActiveTool(TOOLS.SELECT); return; }
+        if (clipboard) { setClipboard(null); setActiveTool(TOOLS.SELECT); return; }
         if (drawPoints.length > 0) { setDrawPoints([]); setDrawClosed(false); return; }
-        if (selectedId) { setSelectedId(null); return; }
+        if (selectedId) { clearSelection(); return; }
       }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [selectedId, clipboard, pastedHoldId, drawPoints, undo, redo]);
+  }, [selectedId, selectedIds, clipboard, drawPoints, undo, redo]);
 
-  // ─── Tool actions ───────────────────────────────────────────────────
+  // Store original polygons for rotation from base position
+  const selectOrigPolysRef = useRef({});
 
-  const selectedHold = selectedId ? holds.find(h => h.id === selectedId) : null;
+  function clearSelection() {
+    setSelectedIds([]);
+    setSelectRotation(0);
+    setSelectScale(100);
+    selectOrigPolysRef.current = {};
+  }
+
+  function selectAllHolds() {
+    setSelectedIds(holds.map(h => h.id));
+  }
 
   function deleteSelected() {
-    if (!selectedId) return;
-    setHolds(prev => prev.filter(h => h.id !== selectedId));
-    setSelectedId(null);
+    if (selectedIds.length === 0) return;
+    setHolds(prev => prev.filter(h => !selectedIds.includes(h.id)));
+    clearSelection();
   }
 
   function copySelected() {
-    if (!selectedHold?.polygon) return;
-    setClipboard({ ...selectedHold });
-    setPasteRotation(0);
-    setPastedHoldId(null);
+    if (selectedIds.length === 0) return;
+    // Copy first selected hold (single copy)
+    const hold = holds.find(h => h.id === selectedIds[0]);
+    if (!hold?.polygon) return;
+    setClipboard({ ...hold });
     setActiveTool(TOOLS.COPY);
-    setSelectedId(null);
+    clearSelection();
   }
 
   function doPaste(pct) {
     if (!clipboard?.polygon) return;
-    const srcPoly = clipboard.polygon.map(([x, y]) => [x, y]); // deep copy
+    const srcPoly = clipboard.polygon.map(([x, y]) => [x, y]);
     const [ocx, ocy] = centroid(srcPoly);
     const dx = pct.x - ocx;
     const dy = pct.y - ocy;
@@ -220,25 +243,62 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel }) {
     newHold.holdTypes = clipboard.holdTypes || [];
     newHold.positivity = clipboard.positivity || 0;
     newHold.confidence = 'high';
-    // Store the original unrotated polygon + paste center for rotation
-    newHold._pasteCx = pct.x;
-    newHold._pasteCy = pct.y;
-    newHold._origPoly = newPoly.map(([x, y]) => [x, y]); // unrotated copy
     setHolds(prev => [...prev, newHold]);
-    // Enter rotate phase — hold is placed, now user can rotate
-    setPastedHoldId(id);
-    setPasteRotation(0);
-    setSelectedId(id);
+    // Select the new hold and return to Select tool — user can rotate/scale/move from toolbar
+    setClipboard(null);
+    setActiveTool(TOOLS.SELECT);
+    setSelectedIds([id]);
   }
 
-  function applyRotationToPasted(rotation) {
-    if (!pastedHoldId) return;
+  function moveHoldTo(holdId, newCenterPct) {
     setHolds(prev => prev.map(h => {
-      if (h.id !== pastedHoldId || !h._origPoly || !h._pasteCx) return h;
-      // Always rotate from the original unrotated polygon
-      let newPoly = h._origPoly.map(([x, y]) => [x, y]);
+      if (h.id !== holdId || !h.polygon) return h;
+      const [oldCx, oldCy] = centroid(h.polygon);
+      const dx = newCenterPct.x - oldCx;
+      const dy = newCenterPct.y - oldCy;
+      const newPoly = translatePolygon(h.polygon, dx, dy);
+      const [cx, cy] = centroid(newPoly);
+      const bb = boundingBox(newPoly);
+      return { ...h, polygon: newPoly, cx: r1(cx), cy: r1(cy), w_pct: r1(bb.w), h_pct: r1(bb.h) };
+    }));
+  }
+
+  // Move multiple selected holds together (delta from drag anchor)
+  const moveMultiLastRef = useRef(null);
+  function moveMultipleHolds(newPct) {
+    const last = moveMultiLastRef.current || newPct;
+    const dx = newPct.x - last.x;
+    const dy = newPct.y - last.y;
+    moveMultiLastRef.current = newPct;
+    if (Math.abs(dx) < 0.01 && Math.abs(dy) < 0.01) return;
+    setHolds(prev => prev.map(h => {
+      if (!selectedIds.includes(h.id) || !h.polygon) return h;
+      const newPoly = translatePolygon(h.polygon, dx, dy);
+      const [cx, cy] = centroid(newPoly);
+      const bb = boundingBox(newPoly);
+      return { ...h, polygon: newPoly, cx: r1(cx), cy: r1(cy), w_pct: r1(bb.w), h_pct: r1(bb.h) };
+    }));
+  }
+
+  // Rotate selected holds — single hold rotates around own centroid, multi rotates around board center
+  function applyRotationToSelected(rotation) {
+    if (selectedIds.length === 0) return;
+    const origPolys = selectOrigPolysRef.current;
+    const useGroupCenter = selectedIds.length > 1;
+    setHolds(prev => prev.map(h => {
+      if (!selectedIds.includes(h.id) || !h.polygon) return h;
+      const orig = origPolys[h.id];
+      if (!orig) return h;
+      let newPoly = orig.map(([x, y]) => [x, y]);
       if (rotation !== 0) {
-        newPoly = rotatePolygon(newPoly, h._pasteCx, h._pasteCy, rotation);
+        if (useGroupCenter) {
+          // Multi-select: rotate around board center (50, 50)
+          newPoly = rotatePolygon(newPoly, 50, 50, rotation);
+        } else {
+          // Single: rotate around hold's own centroid
+          const [ocx, ocy] = centroid(orig);
+          newPoly = rotatePolygon(newPoly, ocx, ocy, rotation);
+        }
       }
       const [cx, cy] = centroid(newPoly);
       const bb = boundingBox(newPoly);
@@ -246,43 +306,39 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel }) {
     }));
   }
 
-  function movePastedHold(newCenterPct) {
-    if (!pastedHoldId) return;
+  // Scale selected holds — single scales around own centroid, multi around board center
+  function applyScaleToSelected(scalePct) {
+    if (selectedIds.length === 0) return;
+    const origPolys = selectOrigPolysRef.current;
+    const factor = scalePct / 100;
+    const useGroupCenter = selectedIds.length > 1;
     setHolds(prev => prev.map(h => {
-      if (h.id !== pastedHoldId || !h.polygon) return h;
-      const [oldCx, oldCy] = centroid(h.polygon);
-      const dx = newCenterPct.x - oldCx;
-      const dy = newCenterPct.y - oldCy;
-      const newPoly = translatePolygon(h.polygon, dx, dy);
+      if (!selectedIds.includes(h.id) || !h.polygon) return h;
+      const orig = origPolys[h.id];
+      if (!orig) return h;
+      let newPoly;
+      if (useGroupCenter) {
+        newPoly = scalePolygon(orig, factor, 50, 50);
+      } else {
+        const [ocx, ocy] = centroid(orig);
+        newPoly = scalePolygon(orig, factor, ocx, ocy);
+      }
       const [cx, cy] = centroid(newPoly);
       const bb = boundingBox(newPoly);
-      // Also update _origPoly and _pasteCx/_pasteCy so rotation still works from new position
-      const newOrigPoly = h._origPoly
-        ? translatePolygon(h._origPoly, dx, dy)
-        : newPoly.map(([x, y]) => [x, y]);
-      return {
-        ...h, polygon: newPoly,
-        cx: r1(cx), cy: r1(cy), w_pct: r1(bb.w), h_pct: r1(bb.h),
-        _pasteCx: r1(newCenterPct.x), _pasteCy: r1(newCenterPct.y),
-        _origPoly: newOrigPoly,
-      };
+      return { ...h, polygon: newPoly, cx: r1(cx), cy: r1(cy), w_pct: r1(bb.w), h_pct: r1(bb.h) };
     }));
   }
 
-  function finishPaste() {
-    // Clean up internal _paste fields from the hold
-    if (pastedHoldId) {
-      setHolds(prev => prev.map(h => {
-        if (h.id !== pastedHoldId) return h;
-        const { _pasteCx, _pasteCy, _origPoly, ...clean } = h;
-        return clean;
-      }));
+  // Snapshot original polygons when rotation/scale interaction starts
+  function snapshotOrigPolys() {
+    const origPolys = {};
+    for (const id of selectedIds) {
+      const h = holds.find(hh => hh.id === id);
+      if (h?.polygon) origPolys[id] = h.polygon.map(([x, y]) => [x, y]);
     }
-    setPastedHoldId(null);
-    setPasteRotation(0);
-    setClipboard(null);
-    setActiveTool(TOOLS.SELECT);
-    setSelectedId(null);
+    selectOrigPolysRef.current = origPolys;
+    setSelectRotation(0);
+    setSelectScale(100);
   }
 
   function finishDraw() {
@@ -292,7 +348,23 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel }) {
     setHolds(prev => [...prev, newHold]);
     setDrawPoints([]);
     setDrawClosed(false);
-    setSelectedId(newHold.id);
+    lassoActiveRef.current = false;
+    setSelectedIds([newHold.id]);
+    setActiveTool(TOOLS.SELECT);
+  }
+
+  function finishLasso() {
+    if (drawPoints.length < 5) { setDrawPoints([]); lassoActiveRef.current = false; return; }
+    // Simplify with low tolerance for high detail (3x more vertices than default 0.5)
+    const simplified = simplifyPath(drawPoints, 0.15);
+    if (simplified.length < 3) { setDrawPoints([]); lassoActiveRef.current = false; return; }
+    const newHold = holdFromPolygon(simplified, `custom_${Date.now()}`);
+    newHold.confidence = 'high';
+    setHolds(prev => [...prev, newHold]);
+    setDrawPoints([]);
+    setDrawClosed(false);
+    lassoActiveRef.current = false;
+    setSelectedIds([newHold.id]);
     setActiveTool(TOOLS.SELECT);
   }
 
@@ -334,13 +406,25 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel }) {
 
   function handleMouseDown(e) {
     if (e.button !== 0 || isSynthesizedMouse()) return;
-    // If pasted hold exists, check if click is on it to start drag-move
-    if (pastedHoldId) {
+    // Lasso draw — start freehand path
+    if (activeTool === TOOLS.DRAW && drawMode === 'lasso') {
+      const pct = clientToBoardPct(e.clientX, e.clientY);
+      if (pct) {
+        lassoActiveRef.current = true;
+        setDrawPoints([[r1(pct.x), r1(pct.y)]]);
+        setDrawClosed(false);
+        return;
+      }
+    }
+    // Select tool — drag selected hold(s) to move
+    if (activeTool === TOOLS.SELECT) {
       const pct = clientToBoardPct(e.clientX, e.clientY);
       if (pct) {
         const hitId = findHoldAtPoint(pct.x, pct.y, holds, 3);
-        if (hitId === pastedHoldId) {
-          setDraggingHold({ holdId: pastedHoldId, startPct: pct });
+        if (hitId && selectedIds.includes(hitId)) {
+          const multi = selectedIds.length > 1;
+          setDraggingHold({ holdId: hitId, startPct: pct, isMulti: multi });
+          if (multi) moveMultiLastRef.current = pct;
           return;
         }
       }
@@ -356,9 +440,18 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel }) {
   function handleMouseMove(e) {
     if (isSynthesizedMouse()) return;
     const pct = clientToBoardPct(e.clientX, e.clientY);
-    // Drag-move pasted hold
+    // Lasso draw — collect freehand points
+    if (lassoActiveRef.current && pct) {
+      setDrawPoints(prev => [...prev, [r1(pct.x), r1(pct.y)]]);
+      return;
+    }
+    // Drag-move hold
     if (draggingHold && pct) {
-      movePastedHold(pct);
+      if (draggingHold.isMulti) {
+        moveMultipleHolds(pct);
+      } else {
+        moveHoldTo(draggingHold.holdId, pct);
+      }
       return;
     }
     if (draggingVertex && pct) {
@@ -384,7 +477,8 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel }) {
 
   function handleMouseUp(e) {
     if (isSynthesizedMouse()) { panDragRef.current.active = false; return; }
-    if (draggingHold) { setDraggingHold(null); return; }
+    if (lassoActiveRef.current) { lassoActiveRef.current = false; finishLasso(); return; }
+    if (draggingHold) { setDraggingHold(null); moveMultiLastRef.current = null; return; }
     if (draggingVertex) { setDraggingVertex(null); return; }
     if (panDragRef.current.active && !panDragRef.current.moved) {
       const pct = clientToBoardPct(e.clientX, e.clientY);
@@ -394,39 +488,30 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel }) {
   }
 
   function handleClick(pct) {
-    // Paste rotate phase — clicking away from pasted hold finishes
-    if (pastedHoldId) {
-      const hitId = findHoldAtPoint(pct.x, pct.y, holds, 3);
-      if (hitId !== pastedHoldId) {
-        finishPaste();
-      }
-      return;
-    }
-
-    // Copy mode
+    // Copy mode — click to place
     if (activeTool === TOOLS.COPY) {
       if (clipboard) {
-        // Have clipboard — click to paste
         doPaste(pct);
-      } else {
-        // No clipboard yet — click a hold to copy it
-        const hitId = findHoldAtPoint(pct.x, pct.y, holds, 3);
-        if (hitId) {
-          const hold = holds.find(h => h.id === hitId);
-          if (hold?.polygon) {
-            setClipboard({ ...hold });
-            setPasteRotation(0);
-            setSelectedId(null);
-          }
-        }
       }
       return;
     }
 
     if (activeTool === TOOLS.SELECT) {
       const hitId = findHoldAtPoint(pct.x, pct.y, holds, 3);
-      setSelectedId(hitId);
-    } else if (activeTool === TOOLS.DRAW) {
+      if (!hitId) {
+        // Tap empty space → deselect all
+        clearSelection();
+      } else if (selectedIds.length > 0 && selectedIds.includes(hitId)) {
+        // Tap already-selected hold → remove from selection
+        setSelectedIds(prev => prev.filter(id => id !== hitId));
+      } else if (selectedIds.length > 0) {
+        // Tap unselected hold while others selected → add to selection (multi-select)
+        setSelectedIds(prev => [...prev, hitId]);
+      } else {
+        // Tap hold with nothing selected → single select
+        setSelectedIds([hitId]);
+      }
+    } else if (activeTool === TOOLS.DRAW && drawMode === 'polygon') {
       if (drawClosed) {
         finishDraw();
       } else if (drawPoints.length >= 3 && isOnFirstVertex(pct)) {
@@ -452,13 +537,25 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel }) {
     if (e.touches.length === 1) {
       pinchRef.current.active = false;
       const touch = e.touches[0];
-      // If pasted hold exists, check if touch is on it to start drag-move
-      if (pastedHoldId) {
+      // Lasso draw — start freehand path
+      if (activeTool === TOOLS.DRAW && drawMode === 'lasso') {
+        const pct = clientToBoardPct(touch.clientX, touch.clientY);
+        if (pct) {
+          lassoActiveRef.current = true;
+          setDrawPoints([[r1(pct.x), r1(pct.y)]]);
+          setDrawClosed(false);
+          return;
+        }
+      }
+      // Select tool — drag selected hold(s) to move
+      if (activeTool === TOOLS.SELECT) {
         const pct = clientToBoardPct(touch.clientX, touch.clientY);
         if (pct) {
           const hitId = findHoldAtPoint(pct.x, pct.y, holds, 3);
-          if (hitId === pastedHoldId) {
-            setDraggingHold({ holdId: pastedHoldId, startPct: pct });
+          if (hitId && selectedIds.includes(hitId)) {
+            const multi = selectedIds.length > 1;
+            setDraggingHold({ holdId: hitId, startPct: pct, isMulti: multi });
+            if (multi) moveMultiLastRef.current = pct;
             return;
           }
         }
@@ -488,9 +585,19 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel }) {
     if (e.touches.length === 1) {
       const touch = e.touches[0];
       const pct = clientToBoardPct(touch.clientX, touch.clientY);
+      // Lasso draw — collect freehand points
+      if (lassoActiveRef.current && pct) {
+        e.preventDefault();
+        setDrawPoints(prev => [...prev, [r1(pct.x), r1(pct.y)]]);
+        return;
+      }
       if (draggingHold && pct) {
         e.preventDefault();
-        movePastedHold(pct);
+        if (draggingHold.isMulti) {
+          moveMultipleHolds(pct);
+        } else {
+          moveHoldTo(draggingHold.holdId, pct);
+        }
         return;
       }
       if (draggingVertex && pct) {
@@ -518,7 +625,8 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel }) {
   }
 
   function handleTouchEnd(e) {
-    if (draggingHold) { setDraggingHold(null); pinchRef.current.active = false; panDragRef.current.active = false; return; }
+    if (lassoActiveRef.current) { lassoActiveRef.current = false; finishLasso(); pinchRef.current.active = false; panDragRef.current.active = false; return; }
+    if (draggingHold) { setDraggingHold(null); moveMultiLastRef.current = null; pinchRef.current.active = false; panDragRef.current.active = false; return; }
     if (draggingVertex) { setDraggingVertex(null); pinchRef.current.active = false; panDragRef.current.active = false; return; }
     if (panDragRef.current.active && !panDragRef.current.moved) {
       const touch = e.changedTouches?.[0];
@@ -540,10 +648,10 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel }) {
   function switchTool(tool) {
     setDrawPoints([]);
     setDrawClosed(false);
+    lassoActiveRef.current = false;
+    setDrawMode('polygon');
     if (tool !== TOOLS.COPY) {
       setClipboard(null);
-      setPasteRotation(0);
-      setPastedHoldId(null);
     }
     setActiveTool(tool);
   }
@@ -551,13 +659,15 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel }) {
   // ─── Derived values ─────────────────────────────────────────────────
   const isZoomed = scale > 1;
   const cursorStyle = activeTool === TOOLS.DRAW ? 'crosshair'
-    : activeTool === TOOLS.COPY && clipboard ? 'copy'
+    : activeTool === TOOLS.COPY ? 'copy'
     : isZoomed ? 'grab' : 'default';
 
   // ─── SVG rendering helpers ──────────────────────────────────────────
 
   function renderHoldOutline(hold) {
-    const isSelected = hold.id === selectedId;
+    const isSel = isHoldSelected(hold.id);
+    // Only show vertex handles on first selected hold (single select)
+    const showVertices = hold.id === selectedId && selectedIds.length === 1;
     const hasPoly = hold.polygon?.length >= 3;
     const confidence = hold.confidence || 'high';
     const isHigh = confidence === 'high';
@@ -566,7 +676,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel }) {
     const fillColor = isHigh ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.06)';
     const selectedColor = '#0047FF';
     // Thicker lines for confirmed (high) holds
-    const lineWidth = isSelected ? 10 : isHigh ? 10 : 4;
+    const lineWidth = isSel ? 10 : isHigh ? 10 : 4;
 
     if (!hasPoly) {
       const cx = toSvgX(hold.cx);
@@ -578,10 +688,10 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel }) {
       return (
         <g key={hold.id}>
           <ellipse cx={cx} cy={cy} rx={rx} ry={ry}
-            fill={isSelected ? 'rgba(0,71,255,0.15)' : fillColor}
-            stroke={isSelected ? selectedColor : outlineColor}
+            fill={isSel ? 'rgba(0,71,255,0.15)' : fillColor}
+            stroke={isSel ? selectedColor : outlineColor}
             strokeWidth={lineWidth}
-            strokeDasharray={!isSelected && !isHigh ? '8 5' : 'none'}
+            strokeDasharray={!isSel && !isHigh ? '8 5' : 'none'}
             style={{ pointerEvents: 'none' }}
           />
         </g>
@@ -592,21 +702,21 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel }) {
 
     return (
       <g key={hold.id}>
-        {isSelected && (
+        {isSel && (
           <polygon points={pts}
             fill="none" stroke="rgba(0,71,255,0.25)" strokeWidth={10}
             strokeLinejoin="round" style={{ pointerEvents: 'none' }}
           />
         )}
         <polygon points={pts}
-          fill={isSelected ? 'rgba(0,71,255,0.15)' : showAllOutlines ? fillColor : 'transparent'}
-          stroke={isSelected ? selectedColor : outlineColor}
+          fill={isSel ? 'rgba(0,71,255,0.15)' : showAllOutlines ? fillColor : 'transparent'}
+          stroke={isSel ? selectedColor : outlineColor}
           strokeWidth={lineWidth}
           strokeLinejoin="round"
-          strokeDasharray={!isSelected && !isHigh ? '8 5' : 'none'}
+          strokeDasharray={!isSel && !isHigh ? '8 5' : 'none'}
           style={{ pointerEvents: 'none' }}
         />
-        {isSelected && activeTool === TOOLS.SELECT && hold.polygon.map(([x, y], idx) => {
+        {showVertices && activeTool === TOOLS.SELECT && hold.polygon.map(([x, y], idx) => {
           const sx = toSvgX(x), sy = toSvgY(y);
           return (
             <circle key={idx} cx={sx} cy={sy} r={8}
@@ -639,7 +749,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel }) {
             strokeWidth={2} strokeDasharray="5 3"
           />
         ) : null}
-        {drawPoints.map(([x, y], idx) => (
+        {drawMode === 'polygon' && drawPoints.map(([x, y], idx) => (
           <circle key={idx}
             cx={toSvgX(x)} cy={toSvgY(y)}
             r={idx === 0 ? 12 : 6}
@@ -654,8 +764,6 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel }) {
 
   // ─── Render ─────────────────────────────────────────────────────────
 
-  const highCount = holds.filter(h => h.confidence === 'high').length;
-  const medCount = holds.filter(h => h.confidence === 'medium').length;
 
   return (
     <div style={{
@@ -703,7 +811,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel }) {
               padding: '5px 10px', borderRadius: '6px', fontSize: '12px',
               cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px',
               border: activeTool === tool ? '2px solid var(--accent)' : '2px solid transparent',
-              background: activeTool === tool ? 'rgba(0,71,255,0.1)' : 'rgba(0,0,0,0.05)',
+              background: activeTool === tool ? 'rgba(0,71,255,0.1)' : 'rgba(26,10,0,0.05)',
               color: activeTool === tool ? 'var(--accent)' : 'var(--text-secondary)',
               fontWeight: activeTool === tool ? 700 : 400,
             }}
@@ -726,13 +834,8 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel }) {
 
         <div style={{ width: '1px', height: '24px', background: 'var(--border)', margin: '0 4px' }} />
 
-        <button onClick={deleteSelected} disabled={!selectedId}
-          style={{ ...iconBtnStyle, opacity: selectedId ? 1 : 0.3, color: selectedId ? '#FF5252' : 'var(--text-dim)' }}
-          title="Delete selected (Del)"
-        >🗑</button>
-
         <button onClick={() => setShowAllOutlines(prev => !prev)}
-          style={{ ...iconBtnStyle, background: showAllOutlines ? 'rgba(0,71,255,0.1)' : 'rgba(0,0,0,0.05)' }}
+          style={{ ...iconBtnStyle, background: showAllOutlines ? 'rgba(0,71,255,0.1)' : 'rgba(26,10,0,0.05)' }}
           title="Toggle all outlines"
         >◻</button>
 
@@ -742,6 +845,134 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel }) {
           </button>
         )}
       </div>
+
+      {/* ── Secondary toolbar: contextual actions ── */}
+      {(
+        (activeTool === TOOLS.SELECT && selectedIds.length > 0) ||
+        (activeTool === TOOLS.DRAW) ||
+        (activeTool === TOOLS.COPY && clipboard)
+      ) && (
+        <div style={{
+          padding: '6px 12px',
+          borderBottom: '1px solid var(--border)',
+          background: 'rgba(0,71,255,0.06)',
+          flexShrink: 0,
+          display: 'flex', gap: '6px', alignItems: 'center',
+          flexWrap: 'wrap', minHeight: '38px',
+        }}>
+          {/* Draw tool actions */}
+          {activeTool === TOOLS.DRAW && (<>
+            {/* Polygon / Lasso toggle — always shown in draw mode */}
+            <div style={{ display: 'flex', borderRadius: '6px', overflow: 'hidden', border: '1.5px solid rgba(0,71,255,0.2)' }}>
+              <button
+                onClick={() => { setDrawMode('polygon'); setDrawPoints([]); setDrawClosed(false); lassoActiveRef.current = false; }}
+                style={{
+                  padding: '4px 10px', fontSize: '11px', fontWeight: 700, cursor: 'pointer', border: 'none',
+                  background: drawMode === 'polygon' ? 'var(--accent)' : 'rgba(0,71,255,0.06)',
+                  color: drawMode === 'polygon' ? '#fff' : 'var(--accent)',
+                }}
+              >Polygon</button>
+              <button
+                onClick={() => { setDrawMode('lasso'); setDrawPoints([]); setDrawClosed(false); lassoActiveRef.current = false; }}
+                style={{
+                  padding: '4px 10px', fontSize: '11px', fontWeight: 700, cursor: 'pointer', border: 'none',
+                  borderLeft: '1px solid rgba(0,71,255,0.2)',
+                  background: drawMode === 'lasso' ? 'var(--accent)' : 'rgba(0,71,255,0.06)',
+                  color: drawMode === 'lasso' ? '#fff' : 'var(--accent)',
+                }}
+              >Lasso</button>
+            </div>
+            <div style={{ width: '1px', height: '20px', background: 'rgba(0,71,255,0.15)', margin: '0 2px' }} />
+            {/* Contextual draw actions */}
+            {drawMode === 'polygon' && drawPoints.length > 0 && !drawClosed && (
+              <>
+                <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 700 }}>{drawPoints.length} vertices — click first to close</span>
+                <button onClick={() => setDrawPoints(prev => prev.slice(0, -1))} style={secBtnStyle}>Undo point</button>
+                <button onClick={() => { setDrawPoints([]); setDrawClosed(false); }} style={secBtnStyle}>Reset</button>
+              </>
+            )}
+            {drawMode === 'polygon' && drawClosed && (
+              <>
+                <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 700 }}>Polygon closed ({drawPoints.length} pts)</span>
+                <button onClick={finishDraw} style={{ ...secBtnStyle, background: 'var(--accent)', color: '#fff', borderColor: 'var(--accent)' }}>Create Hold</button>
+                <button onClick={() => { setDrawPoints([]); setDrawClosed(false); }} style={secBtnStyle}>Redraw</button>
+              </>
+            )}
+            {drawMode === 'lasso' && drawPoints.length === 0 && (
+              <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 700 }}>Click and drag to trace hold shape</span>
+            )}
+            {drawMode === 'lasso' && drawPoints.length > 0 && (
+              <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 700 }}>Drawing... {drawPoints.length} points</span>
+            )}
+          </>)}
+
+          {/* Copy mode actions */}
+          {activeTool === TOOLS.COPY && clipboard && (
+            <>
+              <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 700 }}>Click board to place copy</span>
+              <button onClick={() => { setClipboard(null); switchTool(TOOLS.SELECT); }} style={secBtnStyle}>Cancel</button>
+            </>
+          )}
+
+          {/* Select tool actions */}
+          {activeTool === TOOLS.SELECT && selectedIds.length > 0 && (<>
+          {selectedIds.length === 1 && (
+            <>
+              <button onClick={addVertexToSelected} style={secBtnStyle} disabled={!selectedHold?.polygon}>+ Vertex</button>
+              <button onClick={copySelected} style={secBtnStyle} disabled={!selectedHold?.polygon}>Copy</button>
+              {selectedHold?.confidence === 'medium' && (
+                <button
+                  onClick={() => setHolds(prev => prev.map(h => h.id === selectedId ? { ...h, confidence: 'high' } : h))}
+                  style={{ ...secBtnStyle, background: '#22c55e', color: '#fff', borderColor: '#22c55e' }}
+                >Confirm</button>
+              )}
+            </>
+          )}
+          <button onClick={selectAllHolds} style={secBtnStyle}>Select All ({holds.length})</button>
+          <button onClick={deleteSelected} style={{ ...secBtnStyle, color: '#FF5252', borderColor: 'rgba(255,82,82,0.3)' }}>
+            Delete{selectedIds.length > 1 ? ` (${selectedIds.length})` : ''}
+          </button>
+
+          <div style={{ width: '1px', height: '20px', background: 'rgba(0,71,255,0.15)', margin: '0 2px' }} />
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 700 }}>Rotate</span>
+            <input type="range" min="-180" max="180" step="5"
+              value={selectRotation}
+              onMouseDown={snapshotOrigPolys}
+              onTouchStart={snapshotOrigPolys}
+              onChange={(e) => {
+                const rot = parseInt(e.target.value);
+                setSelectRotation(rot);
+                applyRotationToSelected(rot);
+              }}
+              style={{ width: '70px', accentColor: 'var(--accent)' }}
+            />
+            <span style={{ fontSize: '11px', color: 'var(--text-primary)', fontWeight: 700, minWidth: '28px' }}>
+              {selectRotation}°
+            </span>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 700 }}>Scale</span>
+            <input type="range" min="25" max="300" step="5"
+              value={selectScale}
+              onMouseDown={snapshotOrigPolys}
+              onTouchStart={snapshotOrigPolys}
+              onChange={(e) => {
+                const s = parseInt(e.target.value);
+                setSelectScale(s);
+                applyScaleToSelected(s);
+              }}
+              style={{ width: '70px', accentColor: 'var(--accent)' }}
+            />
+            <span style={{ fontSize: '11px', color: 'var(--text-primary)', fontWeight: 700, minWidth: '32px' }}>
+              {selectScale}%
+            </span>
+          </div>
+          </>)}
+        </div>
+      )}
 
       {/* Canvas */}
       <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
@@ -792,7 +1023,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel }) {
                 }}
               >
                 {showAllOutlines && holds.map(hold => renderHoldOutline(hold))}
-                {!showAllOutlines && selectedId && selectedHold && renderHoldOutline(selectedHold)}
+                {!showAllOutlines && selectedIds.length > 0 && holds.filter(h => selectedIds.includes(h.id)).map(h => renderHoldOutline(h))}
                 {renderDrawingState()}
               </svg>
             )}
@@ -800,132 +1031,26 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel }) {
         </div>
       </div>
 
-      {/* Bottom panel */}
-      <div style={{
-        padding: '8px 12px',
-        borderTop: '1px solid var(--border)',
-        background: 'rgba(255,255,255,0.5)',
-        flexShrink: 0,
-        display: 'flex', gap: '6px', alignItems: 'center',
-        flexWrap: 'wrap', minHeight: '44px',
-      }}>
-        {/* Draw tool */}
-        {activeTool === TOOLS.DRAW && drawPoints.length > 0 && !drawClosed && (
-          <>
-            <span style={statusStyle}>{drawPoints.length} vertices — click first vertex to close</span>
-            <button onClick={() => setDrawPoints(prev => prev.slice(0, -1))} style={actionBtnStyle}>Undo point</button>
-            <button onClick={() => { setDrawPoints([]); setDrawClosed(false); }} style={actionBtnStyle}>Reset</button>
-          </>
-        )}
-        {activeTool === TOOLS.DRAW && drawClosed && (
-          <>
-            <span style={statusStyle}>Polygon closed ({drawPoints.length} pts)</span>
-            <button onClick={finishDraw} style={{ ...actionBtnStyle, background: 'var(--accent)', color: '#fff', fontWeight: 700 }}>Create Hold</button>
-            <button onClick={() => { setDrawPoints([]); setDrawClosed(false); }} style={actionBtnStyle}>Redraw</button>
-          </>
-        )}
-
-        {/* Select tool: selected hold */}
-        {activeTool === TOOLS.SELECT && selectedHold && !pastedHoldId && (
-          <>
-            <span style={statusStyle}>
-              {selectedHold.name || selectedHold.id} · {selectedHold.color}
-              {selectedHold.polygon ? ` · ${selectedHold.polygon.length} pts` : ''}
-              {selectedHold.confidence === 'medium' ? ' · ⚠ medium' : ' · ✓ high'}
-            </span>
-            {selectedHold.confidence === 'medium' && (
-              <button
-                onClick={() => setHolds(prev => prev.map(h => h.id === selectedId ? { ...h, confidence: 'high' } : h))}
-                style={{ ...actionBtnStyle, background: '#22c55e', color: '#fff', fontWeight: 700, border: 'none' }}
-              >Confirm</button>
-            )}
-            <button onClick={addVertexToSelected} style={actionBtnStyle} disabled={!selectedHold.polygon}>+ Vertex</button>
-            <button onClick={copySelected} style={actionBtnStyle} disabled={!selectedHold.polygon}>Copy</button>
-            <button onClick={deleteSelected} style={{ ...actionBtnStyle, color: '#FF5252' }}>Delete</button>
-          </>
-        )}
-
-        {/* Copy mode — no clipboard yet, click a hold to copy */}
-        {activeTool === TOOLS.COPY && !clipboard && !pastedHoldId && (
-          <>
-            <span style={statusStyle}>Click a hold to copy it</span>
-            <button onClick={() => switchTool(TOOLS.SELECT)} style={actionBtnStyle}>Cancel</button>
-          </>
-        )}
-
-        {/* Copy mode — clipboard ready, click to place */}
-        {activeTool === TOOLS.COPY && clipboard && !pastedHoldId && (
-          <>
-            <span style={statusStyle}>Click on the board to place the copy</span>
-            <button onClick={() => { setClipboard(null); setPasteRotation(0); switchTool(TOOLS.SELECT); }} style={actionBtnStyle}>Cancel</button>
-          </>
-        )}
-
-        {/* Paste phase — placed, drag to move, rotate, then Done */}
-        {pastedHoldId && (
-          <>
-            <span style={statusStyle}>Drag hold to move · Rotate · Done</span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-              <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Rotate:</span>
-              <input type="range" min="-180" max="180" step="5"
-                value={pasteRotation}
-                onChange={(e) => {
-                  const rot = parseInt(e.target.value);
-                  setPasteRotation(rot);
-                  applyRotationToPasted(rot);
-                }}
-                style={{ width: '100px', accentColor: 'var(--accent)' }}
-              />
-              <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600, minWidth: '32px' }}>
-                {pasteRotation}°
-              </span>
-            </div>
-            <button onClick={finishPaste} style={{ ...actionBtnStyle, background: 'var(--accent)', color: '#fff', fontWeight: 700 }}>Done</button>
-          </>
-        )}
-
-        {/* Default: hold count */}
-        {activeTool === TOOLS.SELECT && !selectedHold && !clipboard && !pastedHoldId && (
-          <>
-            <span style={statusStyle}>
-              {holds.length} holds · {highCount} high{medCount > 0 ? ` · ${medCount} medium` : ''}
-            </span>
-            {medCount > 0 && (
-              <button
-                onClick={() => {
-                  if (window.confirm(`Delete all ${medCount} medium-confidence holds?`)) {
-                    setHolds(prev => prev.filter(h => h.confidence !== 'medium'));
-                  }
-                }}
-                style={{ ...actionBtnStyle, color: '#FF5252', borderColor: 'rgba(255,82,82,0.3)' }}
-              >Delete all medium</button>
-            )}
-          </>
-        )}
-      </div>
     </div>
   );
 }
 
 const headerBtnStyle = {
   padding: '6px 14px', borderRadius: '8px', fontSize: '12px', cursor: 'pointer',
-  border: '1px solid rgba(0,0,0,0.15)', background: 'rgba(0,0,0,0.06)',
+  border: '1px solid rgba(26,10,0,0.15)', background: 'rgba(26,10,0,0.06)',
   color: 'var(--text-secondary)',
 };
 
 const iconBtnStyle = {
   width: '32px', height: '32px', borderRadius: '6px',
-  border: '1px solid rgba(0,0,0,0.1)', background: 'rgba(0,0,0,0.05)',
+  border: '1px solid rgba(26,10,0,0.1)', background: 'rgba(26,10,0,0.05)',
   color: 'var(--text-secondary)', fontSize: '16px',
   cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
 };
 
-const actionBtnStyle = {
-  padding: '5px 12px', borderRadius: '6px', fontSize: '11px', cursor: 'pointer',
-  border: '1px solid rgba(0,0,0,0.15)', background: 'rgba(0,0,0,0.06)',
-  color: 'var(--text-secondary)',
+const secBtnStyle = {
+  padding: '5px 12px', borderRadius: '6px', fontSize: '11px', fontWeight: 700,
+  cursor: 'pointer', border: '1.5px solid rgba(0,71,255,0.2)', background: 'rgba(0,71,255,0.06)',
+  color: 'var(--accent)',
 };
 
-const statusStyle = {
-  fontSize: '11px', color: 'var(--text-muted)', letterSpacing: '0.5px',
-};

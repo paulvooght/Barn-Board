@@ -41,14 +41,15 @@ except ImportError as e:
 
 # ─── Configuration ────────────────────────────────────────────────────
 
-DISPLAY_IMAGE = 'Board background.jpg'
+DISPLAY_IMAGE = 'Barn_Board_Reset_02_C.jpg'
 WHITE_BG_IMAGE = 'Barn_Board_reset_01_A_holds.jpg'
 
 # Board crop region (percentage of image dimensions)
-BOARD_LEFT_PCT = 3.4
-BOARD_TOP_PCT = 2.9
-BOARD_RIGHT_PCT = 95.7
-BOARD_BOTTOM_PCT = 97.3
+# Updated for cropped image without yellow/white border
+BOARD_LEFT_PCT = 1.0
+BOARD_TOP_PCT = 0.5
+BOARD_RIGHT_PCT = 99.0
+BOARD_BOTTOM_PCT = 97.5
 
 # Size filters — raised to reject small plywood artifacts
 MIN_HOLD_AREA = 800        # px — minimum area for a valid hold
@@ -347,9 +348,9 @@ def classify_contour_colour(hsv_board, mask):
 
 # ─── Polygon Generation ───────────────────────────────────────────────
 
-def contour_to_polygon(contour, board_w, board_h, max_points=20):
+def contour_to_polygon(contour, board_w, board_h, max_points=40):
     """Convert an OpenCV contour to a polygon in board-area percentages."""
-    epsilon = 0.02 * cv2.arcLength(contour, True)
+    epsilon = 0.01 * cv2.arcLength(contour, True)
     approx = cv2.approxPolyDP(contour, epsilon, True)
 
     while len(approx) > max_points and epsilon < 0.1 * cv2.arcLength(contour, True):

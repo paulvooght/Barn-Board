@@ -10,7 +10,7 @@ export default function ModeSelector({ mode, setMode }) {
           style={{
             padding: '7px 14px',
             borderRadius: '20px',
-            border: mode === val ? `2px solid ${MODE_COLORS[val]}` : '2px solid rgba(0,0,0,0.15)',
+            border: mode === val ? `2px solid ${MODE_COLORS[val]}` : '2px solid rgba(26,10,0,0.15)',
             background: mode === val ? `${MODE_COLORS[val]}22` : 'rgba(255,255,255,0.5)',
             color: mode === val ? MODE_COLORS[val] : 'var(--text-secondary)',
             fontSize: '12px',

@@ -430,11 +430,11 @@ export default function HoldEditorView({ mode, hold, allHolds, imgSrc, onSave, o
 
   const zoomBtnStyle = {
     width: '32px', height: '32px', borderRadius: '8px',
-    border: '1px solid rgba(0,0,0,0.18)', background: 'rgba(255,255,255,0.88)',
+    border: '1px solid rgba(26,10,0,0.18)', background: 'rgba(255,255,255,0.88)',
     color: 'var(--text-secondary)', fontSize: '18px', lineHeight: 1,
     fontWeight: 700, cursor: 'pointer',
     display: 'flex', alignItems: 'center', justifyContent: 'center',
-    boxShadow: '0 1px 4px rgba(0,0,0,0.12)',
+    boxShadow: '0 1px 4px rgba(26,10,0,0.12)',
   };
 
   return (
@@ -448,7 +448,7 @@ export default function HoldEditorView({ mode, hold, allHolds, imgSrc, onSave, o
               flexShrink: 0,
               padding: '5px 12px', borderRadius: '20px', fontSize: '11px',
               fontWeight: 700, cursor: 'pointer',
-              border: drawMode ? '1.5px solid rgba(0,71,255,0.5)' : '1.5px solid rgba(0,0,0,0.18)',
+              border: drawMode ? '1.5px solid rgba(0,71,255,0.5)' : '1.5px solid rgba(26,10,0,0.18)',
               background: drawMode ? 'rgba(0,71,255,0.12)' : 'rgba(255,255,255,0.7)',
               color: drawMode ? 'var(--accent)' : 'var(--text-secondary)',
             }}
@@ -485,7 +485,7 @@ export default function HoldEditorView({ mode, hold, allHolds, imgSrc, onSave, o
         style={{
           position: 'relative', width: '100%',
           borderRadius: '12px', overflow: 'hidden',
-          border: '1px solid var(--border)', background: 'rgba(0,0,0,0.05)',
+          border: '1px solid var(--border)', background: 'rgba(26,10,0,0.05)',
           touchAction: needsFullTouchControl ? 'none' : 'pan-y',
           userSelect: 'none',
           cursor: panActive ? 'grabbing'
@@ -674,7 +674,7 @@ export default function HoldEditorView({ mode, hold, allHolds, imgSrc, onSave, o
                 <button key={val} onClick={() => setMeta(prev => ({ ...prev, color: val }))} style={{
                   display: 'flex', alignItems: 'center', gap: '5px',
                   padding: '5px 10px', borderRadius: '20px', fontSize: '11px', cursor: 'pointer',
-                  border: on ? '2px solid #0047FF' : '2px solid rgba(0,0,0,0.15)',
+                  border: on ? '2px solid #0047FF' : '2px solid rgba(26,10,0,0.15)',
                   background: on ? 'rgba(0,71,255,0.1)' : 'rgba(255,255,255,0.6)',
                   color: on ? '#0047FF' : 'var(--text-secondary)',
                 }}>
@@ -695,7 +695,7 @@ export default function HoldEditorView({ mode, hold, allHolds, imgSrc, onSave, o
               return (
                 <button key={type} onClick={() => toggleHoldType(type)} style={{
                   padding: '5px 12px', borderRadius: '20px', fontSize: '11px', cursor: 'pointer',
-                  border: on ? '2px solid #0047FF' : '2px solid rgba(0,0,0,0.15)',
+                  border: on ? '2px solid #0047FF' : '2px solid rgba(26,10,0,0.15)',
                   background: on ? 'rgba(0,71,255,0.1)' : 'rgba(255,255,255,0.6)',
                   color: on ? '#0047FF' : 'var(--text-secondary)', fontWeight: on ? 700 : 400,
                 }}>
@@ -737,12 +737,12 @@ export default function HoldEditorView({ mode, hold, allHolds, imgSrc, onSave, o
         )}
         <button onClick={onCancel} style={{
           flex: 1, padding: '10px', borderRadius: '8px', fontSize: '13px', cursor: 'pointer',
-          border: '1px solid rgba(0,0,0,0.15)', background: 'rgba(0,0,0,0.06)', color: 'var(--text-secondary)',
+          border: '1px solid rgba(26,10,0,0.15)', background: 'rgba(26,10,0,0.06)', color: 'var(--text-secondary)',
         }}>Cancel</button>
         <button onClick={handleSave} disabled={!canSave} style={{
           flex: 2, padding: '10px', borderRadius: '8px', fontSize: '13px',
           fontWeight: 700, cursor: canSave ? 'pointer' : 'default', border: 'none',
-          background: canSave ? '#0047FF' : 'rgba(0,0,0,0.12)',
+          background: canSave ? '#0047FF' : 'rgba(26,10,0,0.12)',
           color: canSave ? '#fff' : 'var(--text-dim)',
           transition: 'background 0.2s',
         }}>
@@ -755,7 +755,7 @@ export default function HoldEditorView({ mode, hold, allHolds, imgSrc, onSave, o
 
 const drawBtnStyle = {
   padding: '5px 14px', borderRadius: '6px', fontSize: '11px', cursor: 'pointer',
-  border: '1px solid rgba(0,0,0,0.15)', background: 'rgba(0,0,0,0.06)', color: 'var(--text-secondary)',
+  border: '1px solid rgba(26,10,0,0.15)', background: 'rgba(26,10,0,0.06)', color: 'var(--text-secondary)',
 };
 
 const metaSectionTitle = {
@@ -771,6 +771,6 @@ const metaLabel = {
 
 const metaInputStyle = {
   width: '100%', boxSizing: 'border-box', padding: '9px 12px', borderRadius: '8px',
-  border: '1.5px solid rgba(0,0,0,0.15)', background: 'var(--bg-input)',
+  border: '1.5px solid rgba(26,10,0,0.15)', background: 'var(--bg-input)',
   fontSize: '13px', color: 'var(--text-primary)', outline: 'none',
 };
