@@ -730,8 +730,8 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
     const fillColor = managerMode === 'metadata'
       ? 'rgba(0,71,255,0.06)'
       : isHigh ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.06)';
-    const holdDotColor = HOLD_COLOR_DOT[hold.color] || '#888';
-    const selectedColor = isInspected ? holdDotColor : '#0047FF';
+    // Always use brand blue for outlines — hold color visible through image cutout, not from outline tint
+    const selectedColor = '#0047FF';
     // Thicker lines for confirmed (high) holds
     const lineWidth = (isSel || isInspected) ? 10 : isHigh ? 10 : 4;
 
@@ -855,14 +855,14 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
         </div>
       </div>
 
-      {/* Mode toggle: Boundaries / Metadata */}
+      {/* Mode toggle: Boundaries / Hold Info */}
       <div style={{
         padding: '4px 12px', borderBottom: '1px solid var(--border)',
         background: 'rgba(255,255,255,0.3)', display: 'flex', justifyContent: 'center',
         flexShrink: 0,
       }}>
         <div style={{ display: 'inline-flex', borderRadius: '6px', overflow: 'hidden', border: '1px solid var(--border)' }}>
-          {[{ key: 'boundaries', label: 'Boundaries' }, { key: 'metadata', label: 'Metadata' }].map(m => (
+          {[{ key: 'boundaries', label: 'Boundaries' }, { key: 'metadata', label: 'Hold Info' }].map(m => (
             <button key={m.key}
               onClick={() => { setManagerMode(m.key); onManagerModeChange?.(m.key); if (m.key === 'metadata') { setSelectedIds([]); setInspectedHoldId(null); } }}
               style={{
@@ -930,14 +930,14 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
         )}
       </div>}
 
-      {/* Metadata mode toolbar */}
+      {/* Hold Info mode toolbar */}
       {managerMode === 'metadata' && (
         <div style={{
           padding: '6px 12px', borderBottom: '1px solid var(--border)',
           background: 'rgba(255,255,255,0.4)', flexShrink: 0,
           fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600,
         }}>
-          {inspectedHoldId ? 'Hold selected — see details below' : 'Tap a hold to view its metadata'}
+          {inspectedHoldId ? 'Hold selected — see details below' : 'Tap a hold to view its info'}
         </div>
       )}
 
@@ -1118,15 +1118,15 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
           </div>
 
           <button onClick={deleteSelected}
-            style={{ ...secBtnStyle, marginLeft: 'auto', color: '#FF5252', borderColor: 'rgba(255,82,82,0.3)', background: 'rgba(255,82,82,0.06)' }}>
+            style={{ ...secBtnStyle, marginLeft: 'auto', color: '#FF5252', borderColor: 'rgba(255,82,82,0.35)', background: 'rgba(255,171,148,0.25)' }}>
             Delete{selectedIds.length > 1 ? ` (${selectedIds.length})` : ''}
           </button>
           </>)}
         </div>
       )}
 
-      {/* Canvas */}
-      <div style={{ flex: 1, overflow: 'hidden', position: 'relative', padding: '6px' }}>
+      {/* Canvas — no top padding so image sits flush under toolbar; sides + bottom keep peach visible */}
+      <div style={{ flex: 1, overflow: 'hidden', position: 'relative', padding: '0 6px 6px' }}>
         <div
           ref={containerRef}
           onTouchStart={handleTouchStart}
@@ -1143,11 +1143,13 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
             cursor: cursorStyle, overflow: 'hidden',
           }}
         >
+          {/* height:100% fills the flex-1 canvas so image maxHeight:100% fits regardless of toolbar count */}
           <div style={{
             transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})`,
             transformOrigin: 'center center',
             willChange: 'transform',
-            display: 'flex', justifyContent: 'center',
+            height: '100%',
+            display: 'flex', justifyContent: 'center', alignItems: 'flex-start',
           }}>
             <img
               src={imgSrc || '/Barn_Board_Reset_02_C.jpg'}
@@ -1157,7 +1159,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
                 setImageLoaded(true);
               }}
               style={{
-                maxWidth: 'calc(100% - 12px)', maxHeight: 'calc(100vh - 160px)',
+                maxWidth: '100%', maxHeight: '100%',
                 display: 'block', opacity: imageLoaded ? 1 : 0.3,
                 borderRadius: '6px',
               }}
