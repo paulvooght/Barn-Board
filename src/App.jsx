@@ -76,49 +76,67 @@ export default function App() {
     return () => subscription.unsubscribe();
   }, []);
 
-  // ─── Data load — fetch routes + sessions from Supabase on login ────
+  // ─── Data load — fetch routes + sessions + playlists from Supabase ──
+  const hasLoadedOnce = useRef(false);
+
+  const loadDataFromSupabase = useCallback(async (userId, isFirstLoad) => {
+    // Routes
+    const { data: routeRows } = await supabase.from('routes').select('data').eq('user_id', userId).order('created_at', { ascending: false });
+    if (routeRows && routeRows.length > 0) {
+      setRoutes(routeRows.map(r => r.data));
+    } else if (isFirstLoad) {
+      // First login on this account — migrate any localStorage routes
+      const local = JSON.parse(localStorage.getItem('barnboard_routes') || '[]');
+      if (local.length > 0) {
+        setRoutes(local);
+        await supabase.from('routes').insert(local.map(r => ({ id: r.id, user_id: userId, data: r })));
+      }
+    }
+    // Sessions
+    const { data: sessionRows } = await supabase.from('sessions').select('data').eq('user_id', userId).order('created_at', { ascending: false });
+    if (sessionRows && sessionRows.length > 0) {
+      setSessions(sessionRows.map(r => r.data));
+    } else if (isFirstLoad) {
+      const local = JSON.parse(localStorage.getItem('barnboard_sessions') || '[]');
+      if (local.length > 0) {
+        setSessions(local);
+        await supabase.from('sessions').insert(local.map(s => ({ id: s.id, user_id: userId, data: s })));
+      }
+    }
+    // Playlists
+    const { data: plData } = await supabase.from('board_settings').select('data').eq('key', `playlists_${userId}`).maybeSingle();
+    if (plData) {
+      setPlaylists(plData.data || []);
+    } else if (isFirstLoad) {
+      const local = JSON.parse(localStorage.getItem('barnboard_playlists') || '[]');
+      if (local.length > 0) {
+        setPlaylists(local);
+        await supabase.from('board_settings').upsert({ key: `playlists_${userId}`, data: local });
+      }
+    }
+    setDataReady(true);
+  }, [setRoutes, setSessions, setPlaylists]);
+
+  // Initial load on login
   useEffect(() => {
     if (!user) return;
     setDataReady(false);
-    const load = async () => {
-      // Routes
-      const { data: routeRows } = await supabase.from('routes').select('data').eq('user_id', user.id).order('created_at', { ascending: false });
-      if (routeRows && routeRows.length > 0) {
-        setRoutes(routeRows.map(r => r.data));
-      } else {
-        // First login on this account — migrate any localStorage routes
-        const local = JSON.parse(localStorage.getItem('barnboard_routes') || '[]');
-        if (local.length > 0) {
-          setRoutes(local);
-          await supabase.from('routes').insert(local.map(r => ({ id: r.id, user_id: user.id, data: r })));
-        }
+    hasLoadedOnce.current = false;
+    loadDataFromSupabase(user.id, true).then(() => { hasLoadedOnce.current = true; });
+  }, [user?.id, loadDataFromSupabase]);
+
+  // Re-fetch from Supabase when tab becomes visible (switching devices/tabs)
+  useEffect(() => {
+    if (!user) return;
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible' && hasLoadedOnce.current) {
+        console.log('[Sync] Tab visible — refreshing from Supabase');
+        loadDataFromSupabase(user.id, false);
       }
-      // Sessions
-      const { data: sessionRows } = await supabase.from('sessions').select('data').eq('user_id', user.id).order('created_at', { ascending: false });
-      if (sessionRows && sessionRows.length > 0) {
-        setSessions(sessionRows.map(r => r.data));
-      } else {
-        const local = JSON.parse(localStorage.getItem('barnboard_sessions') || '[]');
-        if (local.length > 0) {
-          setSessions(local);
-          await supabase.from('sessions').insert(local.map(s => ({ id: s.id, user_id: user.id, data: s })));
-        }
-      }
-      // Playlists (stored in board_settings as shared, keyed per user via user_id prefix)
-      const { data: plData } = await supabase.from('board_settings').select('data').eq('key', `playlists_${user.id}`).maybeSingle();
-      if (plData) {
-        setPlaylists(plData.data || []);
-      } else {
-        const local = JSON.parse(localStorage.getItem('barnboard_playlists') || '[]');
-        if (local.length > 0) {
-          setPlaylists(local);
-          await supabase.from('board_settings').upsert({ key: `playlists_${user.id}`, data: local });
-        }
-      }
-      setDataReady(true);
     };
-    load();
-  }, [user?.id]);
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, [user?.id, loadDataFromSupabase]);
 
   // ─── Routes sync — upsert to Supabase whenever routes change ──────
   const routesSyncTimer = useRef(null);
