@@ -997,15 +997,15 @@ export default function App() {
             <button
               onClick={startSession}
               style={{
-                padding: '14px 28px', borderRadius: '24px',
-                border: 'none',
-                background: '#7DD3E8', color: '#fff',
-                fontSize: '16px', fontWeight: 800, cursor: 'pointer',
-                boxShadow: '0 3px 10px rgba(125,211,232,0.4)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                padding: '12px 24px', borderRadius: '24px',
+                border: '2px solid rgba(125,211,232,0.5)',
+                background: 'rgba(125,211,232,0.12)', color: '#3BA8C4',
+                fontSize: '13px', fontWeight: 800, cursor: 'pointer',
+                letterSpacing: '0.5px',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
               }}
             >
-              <span style={{ fontSize: '14px' }}>▶</span>
+              <span style={{ fontSize: '10px' }}>▶</span> Start Session
             </button>
           )}
           {/* Stop session button */}
