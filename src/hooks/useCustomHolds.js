@@ -61,16 +61,17 @@ export function useCustomHolds(user) {
   }, [user?.id]);
 
   // ─── Sync helpers (called by mutations below) ─────────────────────
+  // Returns a promise so callers can await critical writes
   const syncOverrides = (overrides) => {
-    if (!user) return;
-    supabase.from('board_settings')
+    if (!user) return Promise.resolve();
+    return supabase.from('board_settings')
       .upsert({ key: 'hold_overrides', data: overrides, updated_at: new Date().toISOString() })
       .then(({ error }) => { if (error) console.error('[Supabase] hold_overrides sync:', error); });
   };
 
   const syncCustoms = (customs) => {
-    if (!user) return;
-    supabase.from('board_settings')
+    if (!user) return Promise.resolve();
+    return supabase.from('board_settings')
       .upsert({ key: 'custom_holds', data: customs, updated_at: new Date().toISOString() })
       .then(({ error }) => { if (error) console.error('[Supabase] custom_holds sync:', error); });
   };
@@ -126,7 +127,7 @@ export function useCustomHolds(user) {
     syncCustoms([]);
   };
 
-  const replaceAllHolds = (newHolds) => {
+  const replaceAllHolds = async (newHolds) => {
     const hideAll = {};
     for (const h of holdsData.holds) {
       hideAll[h.id] = { hidden: true };
@@ -138,8 +139,8 @@ export function useCustomHolds(user) {
       id: h.id.startsWith('custom_') ? h.id : `custom_${h.id}`,
     }));
     setCustomHolds(customs);
-    syncOverrides(hideAll);
-    syncCustoms(customs);
+    // Await both writes so data is in Supabase before navigation
+    await Promise.all([syncOverrides(hideAll), syncCustoms(customs)]);
   };
 
   return { allHolds, customHolds, holdOverrides, addHold, updateHold, deleteHold, resetAllOverrides, replaceAllHolds };

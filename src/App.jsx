@@ -122,6 +122,21 @@ export default function App() {
 
   // ─── Routes sync — upsert to Supabase whenever routes change ──────
   const routesSyncTimer = useRef(null);
+  const routesRef = useRef(routes);
+  routesRef.current = routes;
+
+  // Immediate flush — use when data MUST be in Supabase before continuing
+  const flushRoutesToSupabase = useCallback(async (routesToSync) => {
+    const r = routesToSync || routesRef.current;
+    if (!user || r.length === 0) return;
+    clearTimeout(routesSyncTimer.current); // cancel pending debounce
+    const { error } = await supabase.from('routes').upsert(
+      r.map(rt => ({ id: rt.id, user_id: user.id, data: rt, updated_at: new Date().toISOString() })),
+      { onConflict: 'id' }
+    );
+    if (error) console.error('[Supabase] routes flush error:', error);
+  }, [user]);
+
   useEffect(() => {
     if (!user || !dataReady) return;
     clearTimeout(routesSyncTimer.current);
@@ -138,6 +153,20 @@ export default function App() {
 
   // ─── Sessions sync — upsert to Supabase whenever sessions change ──
   const sessionsSyncTimer = useRef(null);
+  const sessionsRef = useRef(sessions);
+  sessionsRef.current = sessions;
+
+  const flushSessionsToSupabase = useCallback(async (sessionsToSync) => {
+    const s = sessionsToSync || sessionsRef.current;
+    if (!user || s.length === 0) return;
+    clearTimeout(sessionsSyncTimer.current);
+    const { error } = await supabase.from('sessions').upsert(
+      s.map(ss => ({ id: ss.id, user_id: user.id, data: ss, updated_at: new Date().toISOString() })),
+      { onConflict: 'id' }
+    );
+    if (error) console.error('[Supabase] sessions flush error:', error);
+  }, [user]);
+
   useEffect(() => {
     if (!user || !dataReady) return;
     clearTimeout(sessionsSyncTimer.current);
@@ -154,6 +183,16 @@ export default function App() {
 
   // ─── Playlists sync ───────────────────────────────────────────────
   const playlistsSyncTimer = useRef(null);
+  const flushPlaylistsToSupabase = useCallback(async (pl) => {
+    if (!user) return;
+    clearTimeout(playlistsSyncTimer.current);
+    const { error } = await supabase.from('board_settings').upsert(
+      { key: `playlists_${user.id}`, data: pl, updated_at: new Date().toISOString() },
+      { onConflict: 'key' }
+    );
+    if (error) console.error('[Supabase] playlists flush error:', error);
+  }, [user]);
+
   useEffect(() => {
     if (!user || !dataReady) return;
     clearTimeout(playlistsSyncTimer.current);
@@ -285,11 +324,17 @@ export default function App() {
       routesSent: finalRoutesSent,
       sends: finalSends,
     };
-    setSessions(prev => [finished, ...prev]);
+    let savedSessions;
+    setSessions(prev => {
+      savedSessions = [finished, ...prev];
+      return savedSessions;
+    });
+    // Flush session to Supabase immediately
+    if (savedSessions) flushSessionsToSupabase(savedSessions);
     setCompletedSession(finished);
     setActiveSession(null);
     setView('sessionSummary');
-  }, [activeSession, routes, setSessions, setActiveSession]);
+  }, [activeSession, routes, setSessions, setActiveSession, flushSessionsToSupabase]);
 
   const logRouteAttempted = useCallback((routeId) => {
     if (!activeSession) return;
@@ -343,19 +388,23 @@ export default function App() {
         holdSnapshots[holdId] = { cx: h.cx, cy: h.cy, polygon: h.polygon || null, w_pct: h.w_pct, h_pct: h.h_pct, r: h.r, color: h.color, holdTypes: h.holdTypes };
       }
     }
+    let savedRoutes;
     if (editingRouteId) {
-      setRoutes(prev => prev.map(r => r.id === editingRouteId ? {
-        ...r,
-        name: routeName.trim(),
-        grade: routeGrade,
-        angle: routeAngle,
-        setter: setter.trim(),
-        youtubeUrl: youtubeUrl.trim() || undefined,
-        holds: currentHolds,
-        holdSnapshots,
-        holdTypes, techniques, styles,
-        updatedAt: new Date().toISOString(),
-      } : r));
+      setRoutes(prev => {
+        savedRoutes = prev.map(r => r.id === editingRouteId ? {
+          ...r,
+          name: routeName.trim(),
+          grade: routeGrade,
+          angle: routeAngle,
+          setter: setter.trim(),
+          youtubeUrl: youtubeUrl.trim() || undefined,
+          holds: currentHolds,
+          holdSnapshots,
+          holdTypes, techniques, styles,
+          updatedAt: new Date().toISOString(),
+        } : r);
+        return savedRoutes;
+      });
     } else {
       const newRoute = {
         id: Date.now().toString(),
@@ -369,12 +418,17 @@ export default function App() {
         holdTypes, techniques, styles,
         createdAt: new Date().toISOString(),
       };
-      setRoutes(prev => [newRoute, ...prev]);
+      setRoutes(prev => {
+        savedRoutes = [newRoute, ...prev];
+        return savedRoutes;
+      });
       logRouteCreated(newRoute.id);
     }
+    // Flush to Supabase immediately — don't wait for debounce
+    if (savedRoutes) flushRoutesToSupabase(savedRoutes);
     resetCreate();
     setView('routes');
-  }, [routeName, routeGrade, routeAngle, setter, holdTypes, techniques, styles, setRoutes, resetCreate, editingRouteId, logRouteCreated, allHolds]);
+  }, [routeName, routeGrade, routeAngle, setter, holdTypes, techniques, styles, setRoutes, resetCreate, editingRouteId, logRouteCreated, allHolds, flushRoutesToSupabase]);
 
   const viewRoute = useCallback((route) => {
     // Defensive: always read the latest version of this route from localStorage
@@ -678,7 +732,7 @@ export default function App() {
   const handleGoToHoldSelect = () => setView('holdSelect');
 
   const handleSetupBoard = () => setView('setupBoard');
-  const handleSetupSave = (newHolds) => {
+  const handleSetupSave = async (newHolds) => {
     // Build a map of old hold IDs → new hold IDs so we can update routes
     const idMap = {};
     for (const h of newHolds) {
@@ -688,22 +742,29 @@ export default function App() {
       }
     }
 
-    replaceAllHolds(newHolds);
+    // Await hold data write to Supabase before continuing
+    await replaceAllHolds(newHolds);
 
     // Remap hold IDs in all saved routes so highlights survive
+    let remappedRoutes = null;
     if (Object.keys(idMap).length > 0) {
-      setRoutes(prev => prev.map(route => {
-        const oldHolds = route.holds || {};
-        const newHolds2 = {};
-        let changed = false;
-        for (const [holdId, selType] of Object.entries(oldHolds)) {
-          const mappedId = idMap[holdId] || holdId;
-          newHolds2[mappedId] = selType;
-          if (mappedId !== holdId) changed = true;
-        }
-        return changed ? { ...route, holds: newHolds2 } : route;
-      }));
+      setRoutes(prev => {
+        remappedRoutes = prev.map(route => {
+          const oldHolds = route.holds || {};
+          const newHolds2 = {};
+          let changed = false;
+          for (const [holdId, selType] of Object.entries(oldHolds)) {
+            const mappedId = idMap[holdId] || holdId;
+            newHolds2[mappedId] = selType;
+            if (mappedId !== holdId) changed = true;
+          }
+          return changed ? { ...route, holds: newHolds2 } : route;
+        });
+        return remappedRoutes;
+      });
       console.log('[handleSetupSave] Remapped hold IDs in routes:', idMap);
+      // Flush remapped routes to Supabase immediately
+      if (remappedRoutes) await flushRoutesToSupabase(remappedRoutes);
     }
 
     setView('board');
