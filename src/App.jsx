@@ -7,17 +7,25 @@ import RouteList from './components/RouteList';
 import Settings from './components/Settings';
 import HoldEditorView from './components/HoldEditorView';
 import SessionSummary from './components/SessionSummary';
+import AuthView from './components/AuthView';
 import { useLocalStorage } from './hooks/useLocalStorage';
 import { useCustomHolds } from './hooks/useCustomHolds';
+import { supabase, ADMIN_EMAIL } from './lib/supabase';
 import { V_GRADES, FONT_GRADES, SELECTION_MODES, MODE_COLORS, MODE_LABELS, BOARD_SPECS, HOLD_COLOR_DOT, HOLD_TYPE_SINGULAR_TO_PLURAL, convertGrade, getYouTubeId, getYouTubeThumbnail } from './utils/constants';
 
 const DEFAULT_BOARD_IMAGE = '/Barn_Board_Reset_02_C.jpg';
 
 export default function App() {
-  // Persistent state
-  const [routes, setRoutes] = useLocalStorage('barnboard_routes', []);
+  // ─── Auth ────────────────────────────────────────────────────────
+  const [user, setUser]           = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [dataReady, setDataReady] = useState(false);
+  const isAdmin = ADMIN_EMAIL ? user?.email === ADMIN_EMAIL : true;
+
+  // ─── Persistent state ─────────────────────────────────────────────
+  const [routes, setRoutes]     = useState([]);
+  const [sessions, setSessions] = useState([]);
   const [playlists, setPlaylists] = useLocalStorage('barnboard_playlists', []);
-  const [sessions, setSessions] = useLocalStorage('barnboard_sessions', []);
   const [settings, setSettings] = useLocalStorage('barnboard_settings', { gradeSystem: 'V' });
 
   // Active session state (persisted so it survives page reload)
@@ -53,7 +61,85 @@ export default function App() {
   }, [sessionStartTime]);
 
   // Hold management (auto-detected + custom + overrides)
-  const { allHolds, addHold, updateHold, deleteHold, replaceAllHolds } = useCustomHolds();
+  const { allHolds, addHold, updateHold, deleteHold, replaceAllHolds } = useCustomHolds(user);
+
+  // ─── Auth effect — listen for login/logout ─────────────────────────
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+      setAuthLoading(false);
+    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+      if (!session) { setRoutes([]); setSessions([]); setDataReady(false); }
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
+  // ─── Data load — fetch routes + sessions from Supabase on login ────
+  useEffect(() => {
+    if (!user) return;
+    setDataReady(false);
+    const load = async () => {
+      // Routes
+      const { data: routeRows } = await supabase.from('routes').select('data').eq('user_id', user.id).order('created_at', { ascending: false });
+      if (routeRows && routeRows.length > 0) {
+        setRoutes(routeRows.map(r => r.data));
+      } else {
+        // First login on this account — migrate any localStorage routes
+        const local = JSON.parse(localStorage.getItem('barnboard_routes') || '[]');
+        if (local.length > 0) {
+          setRoutes(local);
+          await supabase.from('routes').insert(local.map(r => ({ id: r.id, user_id: user.id, data: r })));
+        }
+      }
+      // Sessions
+      const { data: sessionRows } = await supabase.from('sessions').select('data').eq('user_id', user.id).order('created_at', { ascending: false });
+      if (sessionRows && sessionRows.length > 0) {
+        setSessions(sessionRows.map(r => r.data));
+      } else {
+        const local = JSON.parse(localStorage.getItem('barnboard_sessions') || '[]');
+        if (local.length > 0) {
+          setSessions(local);
+          await supabase.from('sessions').insert(local.map(s => ({ id: s.id, user_id: user.id, data: s })));
+        }
+      }
+      setDataReady(true);
+    };
+    load();
+  }, [user?.id]);
+
+  // ─── Routes sync — upsert to Supabase whenever routes change ──────
+  const routesSyncTimer = useRef(null);
+  useEffect(() => {
+    if (!user || !dataReady) return;
+    clearTimeout(routesSyncTimer.current);
+    routesSyncTimer.current = setTimeout(async () => {
+      if (routes.length === 0) return;
+      const { error } = await supabase.from('routes').upsert(
+        routes.map(r => ({ id: r.id, user_id: user.id, data: r, updated_at: new Date().toISOString() })),
+        { onConflict: 'id' }
+      );
+      if (error) console.error('[Supabase] routes sync error:', error);
+    }, 1500);
+    return () => clearTimeout(routesSyncTimer.current);
+  }, [routes, user, dataReady]);
+
+  // ─── Sessions sync — upsert to Supabase whenever sessions change ──
+  const sessionsSyncTimer = useRef(null);
+  useEffect(() => {
+    if (!user || !dataReady) return;
+    clearTimeout(sessionsSyncTimer.current);
+    sessionsSyncTimer.current = setTimeout(async () => {
+      if (sessions.length === 0) return;
+      const { error } = await supabase.from('sessions').upsert(
+        sessions.map(s => ({ id: s.id, user_id: user.id, data: s, updated_at: new Date().toISOString() })),
+        { onConflict: 'id' }
+      );
+      if (error) console.error('[Supabase] sessions sync error:', error);
+    }, 1500);
+    return () => clearTimeout(sessionsSyncTimer.current);
+  }, [sessions, user, dataReady]);
 
   // UI state
   // view: board | create | routes | settings | viewRoute | addHold | editHold | setupBoard | sessionSummary
@@ -378,7 +464,11 @@ export default function App() {
     setHoldSelection({});
     setViewingRoute(null);
     setView('routes');
-  }, [setRoutes, setPlaylists]);
+    // Delete from Supabase (must be explicit — upsert sync won't remove deleted rows)
+    if (user) supabase.from('routes').delete().eq('id', routeId).then(({ error }) => {
+      if (error) console.error('[Supabase] delete route error:', error);
+    });
+  }, [setRoutes, setPlaylists, user]);
 
   const updateRouteYoutubeUrl = useCallback((routeId, url) => {
     setRoutes(prev => prev.map(r =>
@@ -640,6 +730,14 @@ export default function App() {
 
   const isBoard      = view === 'board' || view === 'create' || view === 'viewRoute';
   const isHoldEditor = view === 'addHold' || view === 'editHold' || view === 'holdSelect';
+
+  // Show auth screen until session resolves
+  if (authLoading) return (
+    <div style={{ minHeight: '100vh', background: '#FFAB94', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ fontFamily: "'Space Mono', monospace", color: '#0047FF', fontWeight: 700, fontSize: 18 }}>BARN BOARD</div>
+    </div>
+  );
+  if (!user) return <AuthView />;
 
   return (
     <>
@@ -1121,6 +1219,9 @@ export default function App() {
           onSetupBoard={handleSetupBoard}
           sessions={sessions}
           routes={routes}
+          isAdmin={isAdmin}
+          userEmail={user?.email}
+          onSignOut={() => supabase.auth.signOut()}
           onViewSession={(session) => { setCompletedSession(session); setView('sessionSummary'); }}
         />
       )}

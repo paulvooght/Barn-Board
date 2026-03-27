@@ -8,7 +8,7 @@ import holdsData from '../data/holds.json';
  *   allHolds                 — merged hold array from useCustomHolds
  *   onSetupBoard()           — open the Hold Manager
  */
-export default function Settings({ settings, updateSettings, allHolds, onSetupBoard, sessions = [], routes = [], onViewSession }) {
+export default function Settings({ settings, updateSettings, allHolds, onSetupBoard, sessions = [], routes = [], isAdmin = true, userEmail, onSignOut, onViewSession }) {
   const totalHolds    = allHolds.length;
   const customCount   = allHolds.filter(h => h.custom).length;
   const verifiedCount = allHolds.filter(h => h.verified).length;
@@ -142,23 +142,25 @@ export default function Settings({ settings, updateSettings, allHolds, onSetupBo
         )}
       </div>
 
-      {/* ── Hold Manager ── */}
-      <div style={{ marginBottom: '12px' }}>
-        <button
-          onClick={onSetupBoard}
-          style={{
-            width: '100%', padding: '12px', borderRadius: '10px', fontSize: '14px',
-            fontWeight: 700, cursor: 'pointer', border: 'none',
-            background: 'var(--accent)', color: '#fff',
-            letterSpacing: '0.5px',
-          }}
-        >
-          Hold Manager
-        </button>
-        <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '6px', fontFamily: 'var(--font-heading)', textAlign: 'center' }}>
-          {totalHolds} holds · Last detected: {holdsData.detectedAt}
+      {/* ── Hold Manager (admin only) ── */}
+      {isAdmin && (
+        <div style={{ marginBottom: '12px' }}>
+          <button
+            onClick={onSetupBoard}
+            style={{
+              width: '100%', padding: '12px', borderRadius: '10px', fontSize: '14px',
+              fontWeight: 700, cursor: 'pointer', border: 'none',
+              background: 'var(--accent)', color: '#fff',
+              letterSpacing: '0.5px',
+            }}
+          >
+            Hold Manager
+          </button>
+          <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '6px', fontFamily: 'var(--font-heading)', textAlign: 'center' }}>
+            {totalHolds} holds · Last detected: {holdsData.detectedAt}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* ── Update Board Image ── */}
       <div style={{ marginBottom: '16px' }}>
@@ -492,6 +494,28 @@ export default function Settings({ settings, updateSettings, allHolds, onSetupBo
           </div>
         )}
       </div>
+
+      {/* ── Account ── */}
+      {(userEmail || onSignOut) && (
+        <div style={{ ...cardStyle, marginBottom: '16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div>
+            <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--accent)', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: 3 }}>Account</div>
+            <div style={{ fontSize: '12px', color: 'var(--text-secondary)', fontFamily: 'var(--font-heading)' }}>{userEmail}</div>
+          </div>
+          {onSignOut && (
+            <button
+              onClick={onSignOut}
+              style={{
+                padding: '6px 14px', borderRadius: '8px', fontSize: '12px', fontWeight: 700,
+                border: '1.5px solid rgba(26,10,0,0.15)', background: 'transparent',
+                color: 'var(--text-secondary)', cursor: 'pointer',
+              }}
+            >
+              Sign Out
+            </button>
+          )}
+        </div>
+      )}
 
       <div style={{ marginBottom: '32px' }} />
     </div>
