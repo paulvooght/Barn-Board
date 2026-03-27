@@ -23,9 +23,9 @@ export default function App() {
   const isAdmin = ADMIN_EMAIL ? user?.email === ADMIN_EMAIL : true;
 
   // ─── Persistent state ─────────────────────────────────────────────
-  const [routes, setRoutes]     = useState([]);
-  const [sessions, setSessions] = useState([]);
-  const [playlists, setPlaylists] = useLocalStorage('barnboard_playlists', []);
+  const [routes, setRoutes]       = useState([]);
+  const [sessions, setSessions]   = useState([]);
+  const [playlists, setPlaylists] = useState([]);
   const [settings, setSettings] = useLocalStorage('barnboard_settings', { gradeSystem: 'V' });
 
   // Active session state (persisted so it survives page reload)
@@ -104,6 +104,17 @@ export default function App() {
           await supabase.from('sessions').insert(local.map(s => ({ id: s.id, user_id: user.id, data: s })));
         }
       }
+      // Playlists (stored in board_settings as shared, keyed per user via user_id prefix)
+      const { data: plData } = await supabase.from('board_settings').select('data').eq('key', `playlists_${user.id}`).maybeSingle();
+      if (plData) {
+        setPlaylists(plData.data || []);
+      } else {
+        const local = JSON.parse(localStorage.getItem('barnboard_playlists') || '[]');
+        if (local.length > 0) {
+          setPlaylists(local);
+          await supabase.from('board_settings').upsert({ key: `playlists_${user.id}`, data: local });
+        }
+      }
       setDataReady(true);
     };
     load();
@@ -140,6 +151,21 @@ export default function App() {
     }, 1500);
     return () => clearTimeout(sessionsSyncTimer.current);
   }, [sessions, user, dataReady]);
+
+  // ─── Playlists sync ───────────────────────────────────────────────
+  const playlistsSyncTimer = useRef(null);
+  useEffect(() => {
+    if (!user || !dataReady) return;
+    clearTimeout(playlistsSyncTimer.current);
+    playlistsSyncTimer.current = setTimeout(async () => {
+      const { error } = await supabase.from('board_settings').upsert(
+        { key: `playlists_${user.id}`, data: playlists, updated_at: new Date().toISOString() },
+        { onConflict: 'key' }
+      );
+      if (error) console.error('[Supabase] playlists sync error:', error);
+    }, 1500);
+    return () => clearTimeout(playlistsSyncTimer.current);
+  }, [playlists, user, dataReady]);
 
   // UI state
   // view: board | create | routes | settings | viewRoute | addHold | editHold | setupBoard | sessionSummary
@@ -830,7 +856,7 @@ export default function App() {
           <NavButton
             active={view === 'settings' || isHoldEditor}
             onClick={() => { setEditingHold(null); setView('settings'); }}
-            label="⚙"
+            label={<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>}
           />
         </nav>
       </header>
@@ -1103,7 +1129,7 @@ export default function App() {
                 display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
               }}
             >
-              <span style={{ fontSize: '10px' }}>▶</span> Start Session
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg> Start Session
             </button>
           )}
           {/* Stop session button */}
@@ -1528,7 +1554,7 @@ function ViewRouteHeader({ route, grades, gradeSystem, playlists, settings, allH
             background: 'rgba(26,10,0,0.6)', display: 'flex',
             alignItems: 'center', justifyContent: 'center',
           }}>
-            <span style={{ color: '#fff', fontSize: '12px', marginLeft: '2px' }}>▶</span>
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="#fff" style={{ marginLeft: 2 }}><polygon points="5,3 19,12 5,21"/></svg>
           </div>
         </a>
       )}
