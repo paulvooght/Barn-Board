@@ -1151,8 +1151,6 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
             height: '100%',
             display: 'flex', justifyContent: 'center', alignItems: 'flex-start',
           }}>
-            {/* position:relative wrapper shrink-wraps to the image so SVG overlays align exactly */}
-            <div style={{ position: 'relative', maxWidth: '100%', maxHeight: '100%', lineHeight: 0 }}>
             <img
               src={imgSrc || '/Barn_Board_Reset_02_C.jpg'}
               alt="Climbing board"
@@ -1175,7 +1173,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
                 <svg
                   viewBox={`0 0 ${imgSize.w} ${imgSize.h}`}
                   width="100%" height="100%"
-                  preserveAspectRatio="xMidYMid meet"
+                  preserveAspectRatio="xMidYMin meet"
                   style={{ position: 'absolute', top: 0, left: 0, pointerEvents: 'none' }}
                 >
                   <defs>
@@ -1204,7 +1202,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
               <svg
                 ref={svgRef}
                 viewBox={`0 0 ${imgSize.w} ${imgSize.h}`}
-                preserveAspectRatio="xMidYMid meet"
+                preserveAspectRatio="xMidYMin meet"
                 style={{
                   position: 'absolute', top: 0, left: 0,
                   width: '100%', height: '100%',
@@ -1216,7 +1214,6 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
                 {renderDrawingState()}
               </svg>
             )}
-            </div>{/* end position:relative image wrapper */}
           </div>
         </div>
       </div>
