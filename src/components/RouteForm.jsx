@@ -155,7 +155,7 @@ export default function RouteForm({
           style={{
             ...saveBtnStyle,
             background: canSave ? 'var(--accent)' : 'var(--text-muted)',
-            color: canSave ? 'var(--text-primary)' : 'var(--text-dim)',
+            color: canSave ? '#fff' : 'var(--text-dim)',
             cursor: canSave ? 'pointer' : 'not-allowed',
           }}
         >

@@ -15,9 +15,41 @@ const TOOLS = {
   COPY: 'copy',   // internal state for paste placement
 };
 
+// SVG icons for toolbar tools
+const IconSelect = () => (
+  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M3 2l10 6-5 1-3 5z" />
+  </svg>
+);
+const IconDraw = () => (
+  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <polygon points="8,2 13,6 11,12 5,12 3,6" />
+  </svg>
+);
+const IconUndo = () => (
+  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M3 7H10a3 3 0 110 6H8" /><path d="M3 7l3-3M3 7l3 3" />
+  </svg>
+);
+const IconRedo = () => (
+  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M13 7H6a3 3 0 100 6H8" /><path d="M13 7l-3-3M13 7l-3 3" />
+  </svg>
+);
+const IconEye = () => (
+  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M1 8s3-5 7-5 7 5 7 5-3 5-7 5-7-5-7-5z" /><circle cx="8" cy="8" r="2" />
+  </svg>
+);
+const IconZoomReset = () => (
+  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="7" cy="7" r="4" /><path d="M13 13l-3-3" /><path d="M5 7h4M7 5v4" />
+  </svg>
+);
+
 const TOOL_LABELS = {
-  [TOOLS.SELECT]: { icon: '↖', label: 'Select', tip: 'Click holds to select · drag to move' },
-  [TOOLS.DRAW]:   { icon: '⬠', label: 'Draw', tip: 'Click to place vertices, click first vertex to close' },
+  [TOOLS.SELECT]: { icon: <IconSelect />, label: 'Select', tip: 'Click holds to select · drag to move' },
+  [TOOLS.DRAW]:   { icon: <IconDraw />, label: 'Draw', tip: 'Click to place vertices, click first vertex to close' },
 };
 
 const MIN_SCALE = 1;
@@ -910,22 +942,22 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
         <button onClick={undo} disabled={!canUndo}
           style={{ ...iconBtnStyle, opacity: canUndo ? 1 : 0.3 }}
           title="Undo (Ctrl+Z)"
-        >↩</button>
+        ><IconUndo /></button>
         <button onClick={redo} disabled={!canRedo}
           style={{ ...iconBtnStyle, opacity: canRedo ? 1 : 0.3 }}
           title="Redo (Ctrl+Shift+Z)"
-        >↪</button>
+        ><IconRedo /></button>
 
         <div style={{ width: '1px', height: '24px', background: 'var(--border)', margin: '0 4px' }} />
 
         <button onClick={() => setShowAllOutlines(prev => !prev)}
-          style={{ ...iconBtnStyle, background: showAllOutlines ? 'rgba(0,71,255,0.1)' : 'rgba(26,10,0,0.05)' }}
+          style={{ ...iconBtnStyle, background: showAllOutlines ? 'rgba(0,71,255,0.1)' : 'rgba(26,10,0,0.05)', color: showAllOutlines ? 'var(--accent)' : 'var(--text-secondary)' }}
           title="Toggle all outlines"
-        >◻</button>
+        ><IconEye /></button>
 
         {isZoomed && (
-          <button onClick={resetZoom} style={{ ...iconBtnStyle, fontSize: '10px' }}>
-            {Math.round(scale * 100)}% ↺
+          <button onClick={resetZoom} style={{ ...iconBtnStyle, fontSize: '10px', gap: '3px', display: 'flex', alignItems: 'center' }}>
+            {Math.round(scale * 100)}% <IconZoomReset />
           </button>
         )}
       </div>}
@@ -966,8 +998,13 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
                 style={{
                   padding: '3px 8px', borderRadius: '6px', border: '1px solid var(--border)',
                   background: 'transparent', color: 'var(--text-muted)', fontSize: '12px', cursor: 'pointer',
+                  display: 'flex', alignItems: 'center',
                 }}
-              >✕</button>
+              >
+                <svg width="10" height="10" viewBox="0 0 10 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                  <line x1="1" y1="1" x2="9" y2="9"/><line x1="9" y1="1" x2="1" y2="9"/>
+                </svg>
+              </button>
             </div>
             <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '8px' }}>
               <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{types}</span>

@@ -306,15 +306,15 @@ export default function RouteList({
                 background: isActive ? 'var(--accent-dim)' : 'var(--bg-card)',
               }}
             >
-              <div style={{ fontSize: '20px', marginBottom: '2px' }}>▤</div>
               <div style={{
-                fontSize: '10px', fontWeight: 700,
+                fontSize: '11px', fontWeight: 700,
                 color: isActive ? 'var(--accent)' : 'var(--text-secondary)',
-                whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                maxWidth: '60px',
+                textAlign: 'center', wordBreak: 'break-word', lineHeight: 1.2,
+                display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
+                overflow: 'hidden', width: '100%',
               }}>{pl.name}</div>
-              <div style={{ fontSize: '9px', color: 'var(--text-dim)', fontFamily: 'var(--font-heading)' }}>
-                {count}
+              <div style={{ fontSize: '9px', color: 'var(--text-dim)', fontFamily: 'var(--font-heading)', marginTop: '3px' }}>
+                {count} route{count !== 1 ? 's' : ''}
               </div>
             </button>
           );
@@ -329,8 +329,8 @@ export default function RouteList({
             background: 'transparent',
           }}
         >
-          <div style={{ fontSize: '20px', marginBottom: '2px', color: 'var(--text-dim)' }}>+</div>
-          <div style={{ fontSize: '9px', fontWeight: 600, color: 'var(--text-dim)' }}>New</div>
+          <div style={{ fontSize: '18px', color: 'var(--text-dim)', lineHeight: 1 }}>+</div>
+          <div style={{ fontSize: '9px', fontWeight: 600, color: 'var(--text-dim)', marginTop: '2px' }}>New</div>
         </button>
       </div>
 
@@ -687,8 +687,8 @@ export default function RouteList({
 }
 
 const playlistTileStyle = {
-  width: '72px', minWidth: '72px', height: '72px',
-  borderRadius: '12px', padding: '8px 4px',
+  width: '80px', minWidth: '80px', height: '60px',
+  borderRadius: '12px', padding: '6px 8px',
   display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
   cursor: 'pointer', flexShrink: 0,
   boxShadow: '0 2px 6px rgba(26,10,0,0.06)',
