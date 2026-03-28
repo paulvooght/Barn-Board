@@ -1,212 +1,216 @@
-# CLAUDE.md — Instructions for Claude Code
+# CLAUDE.md — Operating Manual for Claude Code
 
-## Context
-Climbing route logger for a private angle-adjustable climbing board. The owner is learning to code via vibe coding — explain decisions clearly and keep things approachable. Primary use is on a phone at the board.
+## What This App Is
+Climbing route logger for a private angle-adjustable climbing board (4.8m wide x 4.5m tall, 18-55 degrees). The owner is learning to code via vibe coding — explain decisions clearly and keep things approachable. Primary use is on a phone at the board, also used on laptop for setup.
 
 ## Tech Stack
-- **React 18** + **Vite 6** — no other runtime dependencies
-- **Python 3** (Pillow + numpy) — hold detection script only
-- **localStorage** — all persistence (routes, settings, hold overrides, custom holds)
-- **No router, no state management library** — single-page app with view state machine
+- **React 18** + **Vite 6** — no router, no state library, single-page app with view state machine
+- **Supabase** — auth (email/password), database (routes, sessions, playlists, hold data)
+- **localStorage** — local cache layer, auto-migrated to Supabase on first login
+- **Python 3** (Pillow + numpy) — hold detection script only (not part of the app runtime)
+- **Hosted on Vercel** — auto-deploys from GitHub `main` branch
+- **GitHub repo:** `paulvooght/Barn-Board` (public)
 
 ## Architecture
 
 ### View State Machine (App.jsx)
-`board` → `create` → route creation with hold selection on board
-`board` → `routes` → saved route list
-`board` → `viewRoute` → view a saved route on the board (dimmed image, highlighted holds)
-`board` → `settings` → grade system, board specs, Hold Manager access
-`settings` → `setupBoard` → full Hold Manager (BoardSetupView)
-`board` → `addHold` / `editHold` → individual hold polygon editor (HoldEditorView)
-
-### Three-Layer Hold Data (useCustomHolds.js)
-1. `src/data/holds.json` — base holds, auto-detected by Python script (25 holds with confidence + polygons)
-2. `barnboard_hold_overrides` (localStorage) — edits to existing holds (position, polygon, metadata)
-3. `barnboard_custom_holds` (localStorage) — user-created holds
-4. `replaceAllHolds()` — bulk replacement from Hold Manager (hides base holds, stores all as custom)
-
-### Key Files
-| File | Purpose |
-|------|---------|
-| `src/App.jsx` | View state machine, route CRUD, navigation (446 lines) |
-| `src/components/BoardView.jsx` | Board image + SVG overlay + zoom/pan + image dimming for route view (419 lines) |
-| `src/components/BoardSetupView.jsx` | **Hold Manager** — full hold editing overlay with Select/Draw/Copy tools (931 lines) |
-| `src/components/HoldOverlay.jsx` | SVG `<g>` per hold — route view highlighting with labels (126 lines) |
-| `src/components/HoldEditorView.jsx` | Individual polygon editor — draw/edit hold boundaries, hold metadata |
-| `src/components/ModeSelector.jsx` | Hold selection mode buttons (start/hand/foot/handOnly/finish) |
-| `src/components/RouteForm.jsx` | Route creation/edit form (name, grade, angle, tags) |
-| `src/components/RouteList.jsx` | Saved routes list with filtering |
-| `src/components/RouteCard.jsx` | Individual route card in list |
-| `src/components/Settings.jsx` | Settings page — grade system, Hold Manager button, board specs (158 lines) |
-| `src/components/TagPicker.jsx` | Multi-select tag picker for hold types, techniques, styles |
-| `src/hooks/useCustomHolds.js` | Three-layer hold data merging + replaceAllHolds |
-| `src/hooks/useLocalStorage.js` | localStorage-backed React state |
-| `src/hooks/useUndoRedo.js` | Undo/redo state snapshots (max 50 entries) |
-| `src/utils/constants.js` | Grades, modes, colors, labels, board specs |
-| `src/utils/polygonUtils.js` | Polygon math — centroid, bounding box, translate, rotate, point-in-polygon (263 lines) |
-| `src/data/holds.json` | Auto-detected hold positions + polygons + confidence levels |
-| `scripts/detect_holds.py` | Python hold detection from board photo (multi-pass with plywood filtering) |
-
-### Board Image Coordinate System
-- Hold positions (`cx`, `cy`) are **percentages within the BOARD AREA**, not the full image
-- Board region within the photo: `left 3.4%, top 2.9%, width 92.3%, height 94.4%`
-- To position overlays: `left = BOARD.left + (hold.cx / 100) * BOARD.width`
-- The board image aspect ratio must be preserved
-- SVG overlay uses `viewBox="0 0 naturalWidth naturalHeight"` with `preserveAspectRatio="none"`
-- Coordinate conversion uses `svg.getScreenCTM().inverse()` for accuracy across zoom/pan states
-
-## Current Feature Set
-
-### Hold Manager (BoardSetupView.jsx)
-Full-screen hold editing overlay accessed from Settings. Three tools:
-- **Select** — click holds to select, drag vertices to reshape, delete, add vertices, edit metadata
-- **Draw** — click to place vertices, click first vertex to close loop (14px screen-distance threshold via getScreenCTM)
-- **Copy** — click hold to copy → click to place → rotate with slider → drag to reposition → Done
-
-Features: undo/redo, zoom/pan (pinch + trackpad + mouse wheel), "Delete all medium" bulk action, Save & Exit writes to main board.
-
-Hold outlines: 10px stroke width, green solid (high confidence), red dashed (medium confidence). Selected holds show cyan outline with vertex handles.
-
-### Route Creation
-1. Tap "+ CREATE ROUTE" button (below board image)
-2. Select hold type mode (start/hand/foot/handOnly/finish)
-3. Tap holds on board to assign them
-4. Fill in route form (name, grade, angle, tags)
-5. Save → stored in localStorage
-
-### Route Viewing
-- Select route from list → board shows with **dimmed background image** (50% opacity mask over non-hold areas)
-- Selected holds render at **full image intensity** (masked cutouts in the dimming overlay)
-- Hold outlines: 10px stroke, colors match selection type (green=start, cyan=hand, yellow=foot, purple=handOnly, red=finish)
-- Labels (Start, Foot, Top, Hand Only) positioned **below** each hold to avoid blocking small holds
-- Unselected holds hidden — only route holds visible
-
-### Settings Page
-- Grade system toggle (V-Grade / Font)
-- Hold Manager button (opens BoardSetupView)
-- Board specs table (width, height, angle range, hold counts)
-
-### Hold Detection (scripts/detect_holds.py)
-Multi-pass Python detection:
-- **Pass 1 (colour HSV):** High confidence — detects cyan, yellow, black, purple, green holds with tight thresholds
-- **Pass 2 (Canny edges):** Medium confidence — edge-based detection for missed holds
-- **Plywood filtering:** Samples board edge colors, rejects contours matching plywood HSV
-- **Thresholds:** MIN_HOLD_AREA=800, HIGH_CONFIDENCE_MIN_AREA=1500, EDGE_MARGIN_PCT=3.0
-- Grey detection removed (was main source of false positives on plywood grain)
-
-## Key Product Decisions
-
-### Hold Selection Modes (route creation)
-- `start` — starting hold (green #34d399)
-- `hand` — regular hand hold (cyan #22d3ee)
-- `foot` — foot-only hold (yellow #fbbf24)
-- `handOnly` — hand-only hold (purple #c084fc)
-- `finish` — finish/top hold (red #f87171)
-
-### Hold Metadata (per hold, via HoldEditorView)
-- Name, colour (9 options), hold types (Jug/Crimp/Sloper/Pinch/etc + Macro), positivity slider (-5 to +5)
-
-### Route Data Shape
-```json
-{ "id", "name", "grade", "angle", "holds": { "[holdId]": "selectionType" },
-  "holdTypes": [], "techniques": [], "styles": [], "rating": 0-5,
-  "createdAt", "updatedAt" }
+```
+board → create        (route creation with hold selection on board)
+board → routes        (saved route list with playlists, filtering, sorting)
+board → viewRoute     (view saved route on dimmed board with highlighted holds)
+board → settings      (grade system, Hold Manager, sessions, board specs)
+board → sessionSummary (session recap after Stop Session)
+settings → setupBoard (Hold Manager — BoardSetupView)
+board → addHold / editHold (HoldEditorView — polygon + metadata editor)
 ```
 
-### Grade Systems
-- V-grade: VB, V0, V1 ... V16
-- Font: 3, 4, 4+, 5, 5+, 6A, 6A+, 6B, 6B+, 6C, 6C+, 7A, 7A+, 7B, 7B+, 7C, 7C+, 8A, 8A+, 8B, 8B+
+### Three-Layer Hold Data (useCustomHolds.js)
+1. `src/data/holds.json` — base holds, auto-detected by Python script (25 holds)
+2. `hold_overrides` (Supabase `board_settings` + localStorage cache) — edits to detected holds
+3. `custom_holds` (Supabase `board_settings` + localStorage cache) — user-created holds
+4. `replaceAllHolds()` — bulk replacement from Hold Manager (hides base holds, stores all as custom)
 
-### Board Angle
-- Range: 18° (near vertical) to 55° (very steep), stored as integer degrees
+### Supabase Schema
+| Table | PK | Content |
+|-------|----------|---------|
+| `routes` | `id` (text) | `user_id`, `data` (full route JSON), timestamps |
+| `sessions` | `id` (text) | `user_id`, `data` (full session JSON), timestamps |
+| `board_settings` | `key` (text) | `data` (JSON blob) — shared across all users |
 
-## Coding Conventions
+**board_settings keys:** `hold_overrides`, `custom_holds`, `playlists_${userId}`
 
-### Touch vs Mouse Event Handling (CRITICAL)
-- **All interactive SVG surfaces must handle touch and mouse SEPARATELY** — never rely on synthesized click/mouse events on mobile
-- Use `lastTouchTimeRef` pattern: stamp `Date.now()` on every touchstart, ignore mouse events within 500ms (`isSynthesizedMouse()` guard)
-- Use refs (`closedRef`, etc.) for state that event handlers read — React closures go stale between `setState` and re-render
-- Vertex circle `onTouchStart` must ALWAYS call `e.stopPropagation()` to prevent SVG tap handler from seeing vertex touches
-- Track touch-based vertex drag via `touch.identifier` matching (not `setPointerCapture`)
+### Supabase Sync Pattern
+- **Immediate flush** on critical writes (save route, end session)
+- **Debounced 1500ms** on non-critical changes
+- **Tab visibility listener** — re-fetches all data when tab becomes visible (multi-device sync)
+- **First login migration** — moves localStorage data to Supabase automatically
 
-### SVG Coordinate Conversion (CRITICAL)
-- Use `svg.getScreenCTM().inverse()` to convert screen coordinates → SVG coordinates
-- This correctly accounts for SVG `preserveAspectRatio` letterboxing AND CSS zoom/pan transforms
-- Never use simple `getBoundingClientRect()` division — it breaks when SVG has letterboxing
-- For pixel-distance checks (e.g. draw close detection), use `getScreenCTM().a` as the scale factor
+### Admin System
+- `VITE_ADMIN_EMAIL` env var determines the admin user
+- Only admin sees Hold Manager button in Settings
+- Hold data (overrides + custom holds) is shared across all users (one physical board)
 
-### SVG Overlay Pattern
-- BoardView renders `<svg>` over `<img>`, both inside a CSS-transformed zoom/pan wrapper
-- HoldOverlay returns `<g>` elements (NOT divs) — polygon if available, else ellipse
-- Hit targets on SVG circles need generous radius for mobile touch (HANDLE_R + HIT_EXTRA)
+### Key Files
+| File | Lines | Purpose |
+|------|-------|---------|
+| `src/App.jsx` | ~1900 | View state machine, route/session CRUD, navigation, Supabase sync |
+| `src/components/BoardView.jsx` | ~465 | Board image + SVG overlay + zoom/pan + route view dimming |
+| `src/components/BoardSetupView.jsx` | ~1280 | Hold Manager — Select/Draw/Copy, Boundaries/Hold Info modes |
+| `src/components/HoldEditorView.jsx` | ~800 | Individual hold polygon + metadata editor |
+| `src/components/HoldOverlay.jsx` | ~126 | SVG `<g>` per hold — route view highlighting with labels |
+| `src/components/RouteList.jsx` | ~706 | Routes list with playlists, filtering, sorting |
+| `src/components/RouteCard.jsx` | ~144 | Route card (grade, angle, sent, missing holds indicator) |
+| `src/components/RouteForm.jsx` | ~209 | Route create/edit form with auto hold type collection |
+| `src/components/Settings.jsx` | ~598 | Settings, sessions list, board specs, sign out |
+| `src/components/SessionSummary.jsx` | ~346 | Session recap after climbing |
+| `src/components/AuthView.jsx` | ~85 | Email/password login + signup |
+| `src/components/ModeSelector.jsx` | ~28 | Hold selection mode buttons |
+| `src/components/TagPicker.jsx` | ~42 | Multi-select tag picker with auto-highlight |
+| `src/hooks/useCustomHolds.js` | ~147 | Three-layer hold data + Supabase sync |
+| `src/hooks/useLocalStorage.js` | ~27 | localStorage-backed React state |
+| `src/hooks/useUndoRedo.js` | ~70 | Undo/redo state snapshots (max 50) |
+| `src/lib/supabase.js` | ~9 | Supabase client init |
+| `src/utils/constants.js` | ~145 | Grades, modes, colors, labels, board specs |
+| `src/utils/polygonUtils.js` | ~272 | Polygon math — centroid, bbox, translate, rotate, hit-test |
+| `src/data/holds.json` | — | Auto-detected hold positions + polygons |
+| `scripts/detect_holds.py` | — | Python hold detection from board photo |
 
-### Route View Dimming Pattern (BoardView.jsx)
-- SVG mask with white base (full dim) + black polygon cutouts for selected holds
-- Dimming rectangle uses the mask: `fill="black"` with `opacity="0.5"` and `mask="url(#holdMask)"`
-- Creates effect where board is dimmed but selected holds show at full intensity
+### Board Image Coordinate System
+- Hold positions (`cx`, `cy`) are **percentages within the BOARD AREA** (0-100), not the full image
+- Board region within the photo defined in `holds.json`: `boardRegion: { left, top, width, height }`
+- Conversion: `SVG_x = boardRegion.left% × imgW + (hold.cx / 100) × boardRegion.width% × imgW`
+- SVG overlays use `viewBox="0 0 naturalWidth naturalHeight"`
+- **BoardView** uses `preserveAspectRatio="none"` (image fills width)
+- **BoardSetupView** uses `preserveAspectRatio="xMidYMin meet"` (image may be height-constrained on laptop — YMin aligns SVG to top matching image's flex-start alignment)
+- Coordinate conversion uses `svg.getScreenCTM().inverse()` for accuracy across zoom/pan
+
+## Data Shapes
+
+### Route
+```json
+{
+  "id": "timestamp", "name": "", "grade": "V3", "angle": 30,
+  "setter": "", "youtubeUrl": "",
+  "holds": { "holdId": "start|hand|foot|handOnly|finish" },
+  "holdSnapshots": { "holdId": { "cx", "cy", "polygon", "w_pct", "h_pct", "r", "color", "holdTypes" } },
+  "holdTypes": ["Jugs"], "techniques": ["Heel hooks"], "styles": ["Power"],
+  "rating": 0, "sent": false,
+  "angleGrades": [{ "angle": 30, "grade": "V4", "sent": true }],
+  "createdAt": "ISO", "updatedAt": "ISO"
+}
+```
+
+### Hold
+```json
+{
+  "id": "hold_1|custom_123", "cx": 50, "cy": 30,
+  "w_pct": 5, "h_pct": 3, "r": 0,
+  "polygon": [[x, y], ...],
+  "color": "cyan", "confidence": "high",
+  "name": "", "holdTypes": ["Crimp"], "positivity": 0, "material": "Wood"
+}
+```
+
+### Session
+```json
+{
+  "id": "timestamp", "startTime": "ISO", "endTime": "ISO",
+  "boardAngle": 30,
+  "sends": [{ "routeId": "", "angle": 30, "grade": "V3", "time": "ISO" }],
+  "routesAttempted": ["id"], "routesCreated": ["id"], "anglesClimbed": [30, 35]
+}
+```
+
+## Selection Modes (Route Creation)
+| Mode | Color | Purpose |
+|------|-------|---------|
+| `start` | `#34d399` green | Starting hold |
+| `hand` | `#22d3ee` cyan | Regular hand hold |
+| `foot` | `#fbbf24` yellow | Foot-only hold |
+| `handOnly` | `#c084fc` purple | Hand-only hold |
+| `finish` | `#f87171` red | Finish/top hold |
+
+## Style Guide
+- **Peach background** `#FFAB94`, white cards, dark text `#1A0A00`
+- **Accent blue** `#0047FF`
+- **Fonts:** DM Sans (body), Space Mono (headings/monospace)
+- **Mobile-first** — max-width 480px, primary use on phone
+- Warm industrial aesthetic, minimal chrome, high information density
+- Hold overlays: 10px stroke width for visibility
+- Route view: dimmed board with full-intensity hold cutouts via SVG mask
+- Hold Manager: green outlines (high confidence), red dashed (medium confidence)
+
+## Coding Rules
+
+### Touch vs Mouse (CRITICAL — DO NOT CHANGE)
+- All interactive SVG surfaces handle touch and mouse **separately**
+- `lastTouchTimeRef` pattern: stamp `Date.now()` on touchstart, ignore mouse within 500ms
+- Use refs (`closedRef`, etc.) for state in event handlers — React closures go stale
+- Vertex `onTouchStart` must ALWAYS `e.stopPropagation()`
+- Track touch vertex drag via `touch.identifier` (not `setPointerCapture`)
+
+### SVG Coordinate Conversion (CRITICAL — DO NOT CHANGE)
+- Use `svg.getScreenCTM().inverse()` to convert screen → SVG coordinates
+- Handles `preserveAspectRatio` letterboxing AND CSS zoom/pan transforms
+- Never use `getBoundingClientRect()` division — breaks with letterboxing
+- Pixel-distance checks: use `getScreenCTM().a` as scale factor
+
+### Route View Dimming
+- SVG mask: white base (full dim) + black polygon cutouts for selected holds
+- Dimming rect: `fill="black"` + `opacity="0.5"` + `mask="url(#holdMask)"`
 
 ### Zoom/Pan
-- CSS `transform: translate(x,y) scale(s)` on a wrapper div
-- State in both React state (for renders) and refs (for event handlers)
-- Pinch zoom via two-touch distance tracking
-- Mouse wheel / trackpad zoom with **three-tier dampening**: deltaY <10 = gentle (1.02/0.98), <50 = moderate (1.04/0.96), >=50 = normal (1.12/0.9)
-- Single-finger/mouse drag to pan (only when zoomed > 1x)
+- CSS `transform: translate(x,y) scale(s)` on wrapper div
+- State in both React state and refs (for event handlers)
+- Mouse wheel: three-tier dampening (deltaY <10 gentle, <50 moderate, >=50 normal)
+- Single-finger pan only when zoomed > 1x
 
-### Copy/Paste Flow (BoardSetupView)
-1. Click Copy tool → click hold to copy it to clipboard
-2. Click board to place copy at location
-3. **Rotate** with slider (applies rotation from original polygon around paste center)
-4. **Drag to move** — mousedown/touchstart on pasted hold starts whole-hold drag
-5. Click **Done** to finish (clears clipboard, returns to Select tool)
-- Internal state: `_pasteCx`, `_pasteCy`, `_origPoly` stored on hold during paste phase, cleaned up on Done
-- `applyRotationToPasted()` always rotates from `_origPoly` to avoid cumulative rotation drift
+### Copy/Paste (BoardSetupView)
+- `_origPoly` stored on hold during paste → rotate always from original (prevents drift)
+- `_pasteCx`, `_pasteCy` track placement — cleaned up on Done
 
-## Running the Project
+## Environment Variables
+```
+VITE_SUPABASE_URL=https://xxx.supabase.co
+VITE_SUPABASE_ANON_KEY=eyJ...
+VITE_ADMIN_EMAIL=user@email.com
+```
+Set in **Vercel project settings** for production AND `.env.local` for local dev.
+
+## Running & Deploying
 ```bash
 npm install
-npm run dev          # Dev server — access via http://localhost:5173
-                     # Phone access: http://<your-local-ip>:5173 (same WiFi)
+npm run dev              # Local dev at http://localhost:5173
+git push origin main     # Auto-deploys to Vercel
 ```
 
 ## Re-detecting Holds
 ```bash
 pip install Pillow numpy
-# Place straight-on board photo as public/Board\ background.jpg
-python3 scripts/detect_holds.py
-# Updates src/data/holds.json with polygon outlines
-# Review output — filter shadows at edges, verify small jibs detected
+python3 scripts/detect_holds.py    # Updates src/data/holds.json
 ```
 
-## Style Guide
-- Warm industrial aesthetic — peach bg (#FFAB94), white cards, dark text (#1A0A00)
-- Accent: blue #0047FF
-- Fonts: DM Sans (body), Space Mono (headings/monospace)
-- Mobile-first — max-width 480px, primary use on phone
-- Minimal UI chrome, high information density
-- Hold overlays: 10px stroke width for visibility against board photo
-- Route view: dimmed board image with full-intensity hold cutouts
-- Hold Manager: green=high confidence, red dashed=medium confidence outlines
+## Things That Must Not Change Casually
+- Three-layer hold data architecture (JSON → overrides → custom)
+- SVG coordinate system (percentage-based within board area)
+- Touch event handling in BoardSetupView / HoldEditorView
+- `closedRef` / `lastTouchTimeRef` / `vertexDragActive` ref patterns
+- Hold polygon format (`[[x_pct, y_pct], ...]` as % of board area)
+- `getScreenCTM().inverse()` coordinate conversion
+- Route view dimming mask pattern
+- Copy/paste `_origPoly` / `_pasteCx` / `_pasteCy` pattern
+- Trackpad zoom dampening tiers
+- `preserveAspectRatio="xMidYMin meet"` in BoardSetupView (not xMidYMid — causes vertical offset)
+- Supabase sync flush timing (immediate on save, debounced otherwise)
+- Tab visibility re-fetch (multi-device sync mechanism)
 
 ## Common Pitfalls
-- **Synthesized mouse events on mobile** — after every touch, browsers fire mousedown/mouseup/click ~300ms later. These WILL trigger mouse handlers and cause ghost interactions. Always guard with `isSynthesizedMouse()`.
-- **Stale closures in event handlers** — `useState` values captured in closures go stale between `setState()` and re-render. Use refs (`closedRef.current`) for values read in touch/mouse handlers.
-- **SVG coordinate conversion** — never use simple `getBoundingClientRect()` math. Use `getScreenCTM().inverse()` which correctly handles `preserveAspectRatio` letterboxing and CSS transforms.
-- **Board photo shadows** — hold detection picks up shadows at left/right edges. Filter by position >3% from edges and area <15000px.
-- **Small cyan jibs** — can be very small (40px area). Keep minimum detection threshold low.
-- **Touch targets** — hold overlay hit targets need minimum 44px equivalent for mobile.
-- **Image filename case** — file is `Board background.jpg`; macOS is case-insensitive but Linux is not.
-- **localStorage is port-tied** — routes are lost if dev server port changes. Will be resolved at deployment.
-- **Trackpad zoom sensitivity** — trackpad sends many small deltaY events vs mouse wheel sending few large ones. Must use tiered dampening.
-- **Draw close detection** — must use pixel-distance (via getScreenCTM scale factor) not board-percentage distance. Otherwise threshold changes with zoom level.
-- **Copy/paste rotation drift** — always rotate from original polygon (`_origPoly`), not current polygon. Rotating an already-rotated polygon causes cumulative floating-point drift.
-
-## Things to Avoid Changing Casually
-- The three-layer hold data architecture (JSON → overrides → custom)
-- The SVG coordinate system (percentage-based within board area)
-- Touch event handling in BoardSetupView / HoldEditorView — hard-won mobile compatibility
-- The `closedRef` / `lastTouchTimeRef` / `vertexDragActive` ref pattern — these solve real mobile bugs
-- Hold polygon data format (`[[x_pct, y_pct], ...]` pairs as % of board area)
-- The `getScreenCTM().inverse()` coordinate conversion — this replaces broken `getBoundingClientRect()` math
-- Route view dimming mask pattern — carefully tuned SVG mask with hold cutouts
-- Copy/paste `_origPoly` / `_pasteCx` / `_pasteCy` pattern — prevents rotation drift
-- Trackpad zoom dampening tiers — these were calibrated to feel right
+- **Synthesized mouse on mobile** — browsers fire mouse events ~300ms after touch. Guard with `isSynthesizedMouse()`.
+- **Stale closures** — `useState` values go stale in event handlers. Use refs.
+- **SVG coordinates** — never use `getBoundingClientRect()`. Use `getScreenCTM().inverse()`.
+- **BoardSetupView preserveAspectRatio** — must be `xMidYMin meet` (not `xMidYMid`). Image is top-aligned (flex-start), SVG must match.
+- **Draw close detection** — use pixel-distance via getScreenCTM scale, not board-percentage.
+- **Copy/paste rotation drift** — always rotate from `_origPoly`, not current polygon.
+- **Multi-device sync** — data re-fetched on tab visibility change, not real-time. Must switch tabs or refresh.
+- **Board photo shadows** — detection picks up edge shadows. Filter by position and area.
+- **Touch targets** — minimum 44px equivalent for mobile.
