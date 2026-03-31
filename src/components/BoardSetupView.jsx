@@ -817,7 +817,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
         {showVertices && activeTool === TOOLS.SELECT && hold.polygon.map(([x, y], idx) => {
           const sx = toSvgX(x), sy = toSvgY(y);
           const svgScale = getSvgScale();
-          const vr = 8 / svgScale;
+          const vr = 4 / svgScale;
           const hitR = 30 / svgScale;
           return (
             <g key={idx} style={{ cursor: 'move' }}
