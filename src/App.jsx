@@ -1202,7 +1202,7 @@ export default function App() {
               style={{
                 padding: '12px 24px', borderRadius: '24px',
                 border: '2px solid rgba(125,211,232,0.5)',
-                background: '#fff', color: '#3BA8C4',
+                background: 'var(--bg-card)', color: '#3BA8C4',
                 fontSize: '13px', fontWeight: 800, cursor: 'pointer',
                 letterSpacing: '0.5px',
                 display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
