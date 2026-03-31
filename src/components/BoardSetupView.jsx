@@ -817,8 +817,8 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
         {showVertices && activeTool === TOOLS.SELECT && hold.polygon.map(([x, y], idx) => {
           const sx = toSvgX(x), sy = toSvgY(y);
           const svgScale = getSvgScale();
-          const vr = 4 / svgScale;
-          const hitR = 30 / svgScale;
+          const vr = 8;           // Fixed in SVG space — scales with content like the hold outlines
+          const hitR = 30 / svgScale;  // Screen-space — stays ~30px for touch targeting regardless of zoom
           return (
             <g key={idx} style={{ cursor: 'move' }}
               onMouseDown={(e) => { if (!isSynthesizedMouse()) startVertexDrag(hold.id, idx, e); }}
