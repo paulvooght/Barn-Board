@@ -123,38 +123,44 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
   const toSvgX = (x) => bLeft + (x / 100) * bW;
   const toSvgY = (y) => bTop + (y / 100) * bH;
 
+  // Returns screen-pixels-per-SVG-unit, accounting for preserveAspectRatio="xMidYMin meet".
+  // Uses getBoundingClientRect() which reliably includes CSS transforms on all browsers
+  // (iOS Safari doesn't include CSS ancestor transforms in getScreenCTM()).
+  function getSvgScale() {
+    const svg = svgRef.current;
+    if (!svg) return 1;
+    const rect = svg.getBoundingClientRect();
+    return Math.min(rect.width / imgSize.w, rect.height / imgSize.h);
+  }
+
   const clientToBoardPct = useCallback((clientX, clientY) => {
     const svg = svgRef.current;
     if (!svg) return null;
-    const ctm = svg.getScreenCTM();
-    if (!ctm) return null;
-    const pt = svg.createSVGPoint();
-    pt.x = clientX;
-    pt.y = clientY;
-    const svgPt = pt.matrixTransform(ctm.inverse());
+    const rect = svg.getBoundingClientRect();
+    // Letterbox offsets for preserveAspectRatio="xMidYMin meet"
+    const uniformScale = Math.min(rect.width / imgSize.w, rect.height / imgSize.h);
+    const xOffset = (rect.width - imgSize.w * uniformScale) / 2; // xMid
+    const yOffset = 0;                                            // YMin
+    const svgX = (clientX - rect.left - xOffset) / uniformScale;
+    const svgY = (clientY - rect.top  - yOffset) / uniformScale;
     return {
-      x: clamp(((svgPt.x - bLeft) / bW) * 100, 0, 100),
-      y: clamp(((svgPt.y - bTop) / bH) * 100, 0, 100),
+      x: clamp(((svgX - bLeft) / bW) * 100, 0, 100),
+      y: clamp(((svgY - bTop)  / bH) * 100, 0, 100),
     };
-  }, [bLeft, bTop, bW, bH]);
+  }, [bLeft, bTop, bW, bH, imgSize.w, imgSize.h]);
 
-  // Check if a click is on the first draw vertex (in SVG pixel space for zoom-independent accuracy)
+  // Check if a click is on the first draw vertex (in screen pixel space for zoom-independent accuracy)
   const isOnFirstVertex = useCallback((pct) => {
     if (drawPoints.length < 3) return false;
-    const svg = svgRef.current;
-    if (!svg) return false;
-    const ctm = svg.getScreenCTM();
-    if (!ctm) return false;
-    // Convert both points to screen pixels for zoom-independent distance
-    const scale = ctm.a; // uniform scale factor from SVG to screen
+    const svgScale = getSvgScale();
     const clickSvgX = toSvgX(pct.x);
     const clickSvgY = toSvgY(pct.y);
     const firstSvgX = toSvgX(drawPoints[0][0]);
     const firstSvgY = toSvgY(drawPoints[0][1]);
-    const distPx = Math.hypot((clickSvgX - firstSvgX) * scale, (clickSvgY - firstSvgY) * scale);
+    const distPx = Math.hypot((clickSvgX - firstSvgX) * svgScale, (clickSvgY - firstSvgY) * svgScale);
     // First vertex circle has r=12 in SVG space — use 14px screen threshold (generous but tight)
     return distPx < 14;
-  }, [drawPoints, toSvgX, toSvgY]);
+  }, [drawPoints, toSvgX, toSvgY, imgSize.w, imgSize.h]);
 
   // ─── Zoom ───────────────────────────────────────────────────────────
   function doZoom(newScale, pivotX, pivotY) {
@@ -564,7 +570,8 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
     }
 
     if (activeTool === TOOLS.SELECT) {
-      const hitId = findHoldAtPoint(pct.x, pct.y, holds, 3);
+      const touchTolerance = Date.now() - lastTouchTimeRef.current < 500 ? 5 : 3;
+      const hitId = findHoldAtPoint(pct.x, pct.y, holds, touchTolerance);
       if (!hitId) {
         // Tap empty space → deselect all
         clearSelection();
@@ -628,7 +635,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
       if (activeTool === TOOLS.SELECT) {
         const pct = clientToBoardPct(touch.clientX, touch.clientY);
         if (pct) {
-          const hitId = findHoldAtPoint(pct.x, pct.y, holds, 3);
+          const hitId = findHoldAtPoint(pct.x, pct.y, holds, 5);
           if (hitId && selectedIds.includes(hitId)) {
             const multi = selectedIds.length > 1;
             const holdObj = holds.find(h => h.id === hitId);
@@ -689,7 +696,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
       if (panDragRef.current.active) {
         const dx = touch.clientX - panDragRef.current.startX;
         const dy = touch.clientY - panDragRef.current.startY;
-        if (Math.abs(dx) > 12 || Math.abs(dy) > 12) panDragRef.current.moved = true;
+        if (Math.abs(dx) > 20 || Math.abs(dy) > 20) panDragRef.current.moved = true;
         if (scaleRef.current > 1 && panDragRef.current.moved) {
           e.preventDefault();
           const el = containerRef.current;
@@ -809,15 +816,22 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
         />
         {showVertices && activeTool === TOOLS.SELECT && hold.polygon.map(([x, y], idx) => {
           const sx = toSvgX(x), sy = toSvgY(y);
+          const svgScale = getSvgScale();
+          const vr = 18 / svgScale;
+          const hitR = 30 / svgScale;
           return (
-            <circle key={idx} cx={sx} cy={sy} r={8}
-              fill={idx === 0 ? selectedColor : '#fff'}
-              stroke={idx === 0 ? '#fff' : selectedColor}
-              strokeWidth={2}
-              style={{ pointerEvents: 'all', cursor: 'move' }}
+            <g key={idx} style={{ cursor: 'move' }}
               onMouseDown={(e) => { if (!isSynthesizedMouse()) startVertexDrag(hold.id, idx, e); }}
               onTouchStart={(e) => startVertexDrag(hold.id, idx, e)}
-            />
+            >
+              <circle cx={sx} cy={sy} r={hitR} fill="transparent" stroke="none" style={{ pointerEvents: 'all' }} />
+              <circle cx={sx} cy={sy} r={vr}
+                fill={idx === 0 ? selectedColor : '#fff'}
+                stroke={idx === 0 ? '#fff' : selectedColor}
+                strokeWidth={2}
+                style={{ pointerEvents: 'none' }}
+              />
+            </g>
           );
         })}
       </g>

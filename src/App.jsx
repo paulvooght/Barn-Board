@@ -1202,13 +1202,13 @@ export default function App() {
               style={{
                 padding: '12px 24px', borderRadius: '24px',
                 border: '2px solid rgba(125,211,232,0.5)',
-                background: 'rgba(125,211,232,0.12)', color: '#3BA8C4',
+                background: 'rgba(26,10,0,0.06)', color: '#3BA8C4',
                 fontSize: '13px', fontWeight: 800, cursor: 'pointer',
                 letterSpacing: '0.5px',
                 display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
               }}
             >
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg> Start Session
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg> Begin Session
             </button>
           )}
           {/* Stop session button */}
