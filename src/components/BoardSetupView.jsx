@@ -91,6 +91,10 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
 
   // Vertex drag state
   const [draggingVertex, setDraggingVertex] = useState(null);
+  const draggingVertexRef = useRef(null);   // mirrors draggingVertex for use in event handlers
+  const touchPosRef = useRef(null);         // { clientX, clientY } during touch vertex drag
+  const dragVertexPctRef = useRef(null);    // { x, y } board-% position of dragged vertex
+  const [loupeUpdate, setLoupeUpdate] = useState(0); // incremented to force loupe re-render
 
   // Whole-hold drag state (for pasted hold repositioning)
   // offsetX/Y: cursor distance from hold centroid at drag-start — keeps cursor relative to hold
@@ -688,9 +692,12 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
         }
         return;
       }
-      if (draggingVertex && pct) {
+      if (draggingVertexRef.current && pct) {
         e.preventDefault();
-        updateVertexPosition(draggingVertex.holdId, draggingVertex.vertexIdx, pct.x, pct.y);
+        touchPosRef.current = { clientX: touch.clientX, clientY: touch.clientY };
+        dragVertexPctRef.current = { x: pct.x, y: pct.y };
+        updateVertexPosition(draggingVertexRef.current.holdId, draggingVertexRef.current.vertexIdx, pct.x, pct.y);
+        setLoupeUpdate(prev => prev + 1);
         return;
       }
       if (panDragRef.current.active) {
@@ -715,7 +722,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
   function handleTouchEnd(e) {
     if (lassoActiveRef.current) { lassoActiveRef.current = false; finishLasso(); pinchRef.current.active = false; panDragRef.current.active = false; return; }
     if (draggingHold) { setDraggingHold(null); moveMultiLastRef.current = null; pinchRef.current.active = false; panDragRef.current.active = false; return; }
-    if (draggingVertex) { setDraggingVertex(null); pinchRef.current.active = false; panDragRef.current.active = false; return; }
+    if (draggingVertex) { setDraggingVertex(null); draggingVertexRef.current = null; touchPosRef.current = null; dragVertexPctRef.current = null; pinchRef.current.active = false; panDragRef.current.active = false; return; }
     if (panDragRef.current.active && !panDragRef.current.moved) {
       const touch = e.changedTouches?.[0];
       if (touch) {
@@ -729,7 +736,18 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
 
   function startVertexDrag(holdId, vertexIdx, e) {
     e.stopPropagation();
-    if (e.type === 'touchstart') lastTouchTimeRef.current = Date.now();
+    e.preventDefault();
+    if (e.type === 'touchstart') {
+      lastTouchTimeRef.current = Date.now();
+      const touch = e.touches?.[0] || e.changedTouches?.[0];
+      if (touch) touchPosRef.current = { clientX: touch.clientX, clientY: touch.clientY };
+      // Initialise loupe position from existing vertex coords
+      const hold = holds.find(h => h.id === holdId);
+      if (hold?.polygon?.[vertexIdx]) {
+        dragVertexPctRef.current = { x: hold.polygon[vertexIdx][0], y: hold.polygon[vertexIdx][1] };
+      }
+    }
+    draggingVertexRef.current = { holdId, vertexIdx };
     setDraggingVertex({ holdId, vertexIdx });
   }
 
@@ -1269,6 +1287,48 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
         </div>
       </div>
 
+      {/* Vertex drag magnifier loupe — touch only */}
+      {draggingVertex && touchPosRef.current && dragVertexPctRef.current && (() => {
+        const LOUPE_W = 160;
+        const LOUPE_H = 120;
+        const MAGNIFICATION = 3;
+        const OFFSET_ABOVE = 80;
+        const BORDER_RADIUS = 12;
+
+        const { clientX, clientY } = touchPosRef.current;
+        const { x: vtxBoardX, y: vtxBoardY } = dragVertexPctRef.current;
+
+        const vtxImgFracX = (boardRegion.left / 100) + (vtxBoardX / 100) * (boardRegion.width / 100);
+        const vtxImgFracY = (boardRegion.top / 100) + (vtxBoardY / 100) * (boardRegion.height / 100);
+
+        const magW = LOUPE_W * MAGNIFICATION;
+        const magH = magW * (imgSize.h / imgSize.w);
+
+        const imgLeft = -(vtxImgFracX * magW) + LOUPE_W / 2;
+        const imgTop  = -(vtxImgFracY * magH) + LOUPE_H / 2;
+
+        const loupeLeft = clamp(clientX - LOUPE_W / 2, 4, window.innerWidth - LOUPE_W - 4);
+        const loupeTop  = clamp(clientY - OFFSET_ABOVE - LOUPE_H, 4, clientY - OFFSET_ABOVE);
+
+        return (
+          <div style={{
+            position: 'fixed', left: loupeLeft, top: loupeTop,
+            width: LOUPE_W, height: LOUPE_H,
+            borderRadius: BORDER_RADIUS,
+            border: '2px solid rgba(255,255,255,0.9)',
+            boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
+            overflow: 'hidden', pointerEvents: 'none', zIndex: 300,
+            background: '#1a0a00',
+          }}>
+            <img src={imgSrc || '/Barn_Board_Reset_02_C.jpg'} alt="" draggable={false}
+              style={{ position: 'absolute', width: magW, height: magH, left: imgLeft, top: imgTop, pointerEvents: 'none' }}
+            />
+            <div style={{ position: 'absolute', left: LOUPE_W / 2 - 1, top: 0, width: 2, height: LOUPE_H, background: 'rgba(0,71,255,0.5)', pointerEvents: 'none' }} />
+            <div style={{ position: 'absolute', left: 0, top: LOUPE_H / 2 - 1, width: LOUPE_W, height: 2, background: 'rgba(0,71,255,0.5)', pointerEvents: 'none' }} />
+            <div style={{ position: 'absolute', left: LOUPE_W / 2 - 3, top: LOUPE_H / 2 - 3, width: 6, height: 6, borderRadius: '50%', background: '#0047FF', border: '1px solid white', pointerEvents: 'none' }} />
+          </div>
+        );
+      })()}
     </div>
   );
 }
