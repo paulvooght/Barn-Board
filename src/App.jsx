@@ -1208,7 +1208,7 @@ export default function App() {
                 display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
               }}
             >
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg> Begin Session
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg> Start Session
             </button>
           )}
           {/* Stop session button */}
