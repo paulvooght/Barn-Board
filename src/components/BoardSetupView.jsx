@@ -1291,7 +1291,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
       {draggingVertex && touchPosRef.current && dragVertexPctRef.current && (() => {
         const LOUPE_W = 160;
         const LOUPE_H = 120;
-        const MAGNIFICATION = 3;
+        const MAGNIFICATION = 3 * scale;
         const OFFSET_ABOVE = 80;
         const BORDER_RADIUS = 12;
 
