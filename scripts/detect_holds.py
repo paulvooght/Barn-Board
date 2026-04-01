@@ -594,9 +594,43 @@ def save_debug_overlay(image_path, data, output_path):
 # ─── Entry Point ──────────────────────────────────────────────────────
 
 def main():
+    import argparse
+    parser = argparse.ArgumentParser(description='Detect holds on a board image.')
+    parser.add_argument('--output', default=None,
+                        help='Write detection results to this file instead of src/data/holds.json')
+    parser.add_argument('--force', action='store_true',
+                        help='Overwrite src/data/holds.json even if it already has holds (DANGEROUS)')
+    args = parser.parse_args()
+
     script_dir = Path(__file__).parent
     project_root = script_dir.parent
-    output_path = project_root / 'src' / 'data' / 'holds.json'
+    default_output = project_root / 'src' / 'data' / 'holds.json'
+
+    # Resolve output path
+    if args.output:
+        output_path = Path(args.output)
+        if not output_path.is_absolute():
+            output_path = Path.cwd() / output_path
+    else:
+        output_path = default_output
+
+    # Safety check: warn before overwriting holds.json if it already has holds
+    if output_path.resolve() == default_output.resolve() and not args.force:
+        if default_output.exists():
+            try:
+                existing = json.loads(default_output.read_text())
+                existing_count = len(existing.get('holds', []))
+                if existing_count > 0:
+                    print(f"\n⚠️  WARNING: {default_output} already has {existing_count} holds.")
+                    print("Direct overwrite will scramble hold IDs and break existing routes!\n")
+                    print("Safe workflow:")
+                    print("  python3 scripts/detect_holds.py --output src/data/holds_new.json")
+                    print("  python3 scripts/merge_holds.py src/data/holds.json src/data/holds_new.json --dry-run")
+                    print("  python3 scripts/merge_holds.py src/data/holds.json src/data/holds_new.json\n")
+                    print("To force overwrite anyway (DANGEROUS): add --force")
+                    sys.exit(1)
+            except (json.JSONDecodeError, KeyError):
+                pass  # Corrupted file — allow overwrite
 
     white_bg_path = project_root / 'public' / WHITE_BG_IMAGE
     display_path = project_root / 'public' / DISPLAY_IMAGE
