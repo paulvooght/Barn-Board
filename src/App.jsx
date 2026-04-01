@@ -189,6 +189,53 @@ export default function App() {
     return () => document.removeEventListener('visibilitychange', handleVisibility);
   }, [user?.id, loadDataFromSupabase]);
 
+  // ─── Realtime subscription — instant sync across devices ──────────
+  useEffect(() => {
+    if (!user) return;
+
+    const channel = supabase.channel('routes-realtime')
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'routes' },
+        (payload) => {
+          console.log('[Realtime] routes change:', payload.eventType, payload.new?.id || payload.old?.id);
+
+          if (payload.eventType === 'INSERT') {
+            const newRoute = {
+              ...payload.new.data,
+              creatorId: payload.new.data.creatorId || payload.new.user_id,
+            };
+            // Only add if we don't already have it (avoid duplicating our own inserts)
+            setRoutes(prev => {
+              if (prev.some(r => r.id === newRoute.id)) return prev;
+              return [newRoute, ...prev];
+            });
+          }
+
+          if (payload.eventType === 'UPDATE') {
+            const updatedRoute = {
+              ...payload.new.data,
+              creatorId: payload.new.data.creatorId || payload.new.user_id,
+            };
+            setRoutes(prev => prev.map(r =>
+              r.id === updatedRoute.id ? updatedRoute : r
+            ));
+          }
+
+          if (payload.eventType === 'DELETE') {
+            const deletedId = payload.old.id;
+            setRoutes(prev => prev.filter(r => r.id !== deletedId));
+          }
+        }
+      )
+      .subscribe((status) => {
+        console.log('[Realtime] subscription status:', status);
+      });
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user?.id]);
+
   // ─── Routes sync — upsert to Supabase whenever routes change ──────
   const routesSyncTimer = useRef(null);
   const routesRef = useRef(routes);
