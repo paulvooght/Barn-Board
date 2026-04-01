@@ -238,6 +238,7 @@ export default function App() {
 
   // ─── Routes sync — upsert to Supabase whenever routes change ──────
   const routesSyncTimer = useRef(null);
+  const localRouteChange = useRef(false);
   const routesRef = useRef(routes);
   routesRef.current = routes;
   const userRouteDataRef = useRef(userRouteData);
@@ -259,6 +260,12 @@ export default function App() {
 
   useEffect(() => {
     if (!user || !dataReady) return;
+    // Only sync when the change originated locally (user created/edited a route).
+    // Skip if routes changed due to Supabase load or Realtime event — those come
+    // FROM Supabase and must not be written back (would re-insert deleted rows).
+    if (!localRouteChange.current) return;
+    localRouteChange.current = false;
+
     clearTimeout(routesSyncTimer.current);
     routesSyncTimer.current = setTimeout(async () => {
       const myRoutes = routes.filter(r => r.creatorId === user.id || !r.creatorId);
@@ -511,6 +518,7 @@ export default function App() {
       }
     }
     let savedRoutes;
+    localRouteChange.current = true;
     if (editingRouteId) {
       setRoutes(prev => {
         savedRoutes = prev.map(r => r.id === editingRouteId ? {
@@ -586,6 +594,7 @@ export default function App() {
         console.warn('[viewRoute] Route has no holds:', routeToView.name, routeToView.id);
       }
       // Persist the backfill so ghost outlines survive future sessions
+      if (didBackfill) localRouteChange.current = true;
       return didBackfill ? prev.map(r => r.id === updated.id ? updated : r) : prev;
     });
     setView('viewRoute');
@@ -620,6 +629,7 @@ export default function App() {
       // When grade system changes, convert all existing route grades
       if (key === 'gradeSystem' && val !== prev.gradeSystem) {
         const oldSystem = prev.gradeSystem;
+        localRouteChange.current = true;
         setRoutes(prevRoutes => prevRoutes.map(r => ({
           ...r,
           grade: convertGrade(r.grade, oldSystem, val),
@@ -699,6 +709,7 @@ export default function App() {
   }, [setRoutes, setPlaylists, user]);
 
   const updateRouteYoutubeUrl = useCallback((routeId, url) => {
+    localRouteChange.current = true;
     setRoutes(prev => prev.map(r =>
       r.id === routeId ? { ...r, youtubeUrl: url.trim() || undefined, updatedAt: new Date().toISOString() } : r
     ));
@@ -743,6 +754,7 @@ export default function App() {
 
   // ─── Angle-grade management ───────────────────────────────────────
   const addAngleGrade = useCallback((routeId, angle, grade) => {
+    localRouteChange.current = true;
     setRoutes(prev => prev.map(r => {
       if (r.id !== routeId) return r;
       const existing = r.angleGrades || [];
@@ -769,6 +781,7 @@ export default function App() {
   }, [setRoutes]);
 
   const removeAngleGrade = useCallback((routeId, angle) => {
+    localRouteChange.current = true;
     setRoutes(prev => prev.map(r => {
       if (r.id !== routeId) return r;
       return { ...r, angleGrades: (r.angleGrades || []).filter(ag => ag.angle !== angle) };
@@ -832,6 +845,7 @@ export default function App() {
       };
     };
 
+    localRouteChange.current = true;
     setRoutes(prev => prev.map(applyHeadlineSwap));
     setViewingRoute(prev => {
       if (!prev || prev.id !== routeId) return prev;
@@ -875,6 +889,7 @@ export default function App() {
     // Remap hold IDs in all saved routes so highlights survive
     let remappedRoutes = null;
     if (Object.keys(idMap).length > 0) {
+      localRouteChange.current = true;
       setRoutes(prev => {
         remappedRoutes = prev.map(route => {
           const oldHolds = route.holds || {};
