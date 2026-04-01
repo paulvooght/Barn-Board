@@ -17,7 +17,7 @@ export default function Settings({ settings, updateSettings, allHolds, onSetupBo
   const [showBeta, setShowBeta] = useState(false);
 
   // Board image state
-  const currentImage = settings.boardImage || '/Barn_Board_Reset_02_C.jpg';
+  const currentImage = settings.boardImage || '/Barn_Set_01_V3A.JPG';
   const currentFilename = currentImage.replace(/^\//, '');
   const [showImageInput, setShowImageInput] = useState(false);
   const [imageInput, setImageInput] = useState(currentFilename);

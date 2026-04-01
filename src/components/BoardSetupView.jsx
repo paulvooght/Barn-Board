@@ -1221,7 +1221,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
             display: 'flex', justifyContent: 'center', alignItems: 'flex-start',
           }}>
             <img
-              src={imgSrc || '/Barn_Board_Reset_02_C.jpg'}
+              src={imgSrc || '/Barn_Set_01_V3A.JPG'}
               alt="Climbing board"
               onLoad={(e) => {
                 setImgSize({ w: e.target.naturalWidth, h: e.target.naturalHeight });
@@ -1320,7 +1320,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
             overflow: 'hidden', pointerEvents: 'none', zIndex: 300,
             background: '#1a0a00',
           }}>
-            <img src={imgSrc || '/Barn_Board_Reset_02_C.jpg'} alt="" draggable={false}
+            <img src={imgSrc || '/Barn_Set_01_V3A.JPG'} alt="" draggable={false}
               style={{ position: 'absolute', width: magW, height: magH, left: imgLeft, top: imgTop, pointerEvents: 'none' }}
             />
             <div style={{ position: 'absolute', left: LOUPE_W / 2 - 1, top: 0, width: 2, height: LOUPE_H, background: 'rgba(0,71,255,0.5)', pointerEvents: 'none' }} />

@@ -41,8 +41,8 @@ except ImportError as e:
 
 # ─── Configuration ────────────────────────────────────────────────────
 
-DISPLAY_IMAGE = 'Barn_Board_Reset_02_C.jpg'
-WHITE_BG_IMAGE = 'Barn_Board_reset_01_A_holds.jpg'
+DISPLAY_IMAGE = 'Barn_Set_01_V3A.JPG'
+WHITE_BG_IMAGE = 'Barn_Set_01_V3A_holds.jpg'  # white-bg version (optional)
 
 # Board crop region (percentage of image dimensions)
 # Updated for cropped image without yellow/white border

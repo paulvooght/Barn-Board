@@ -13,7 +13,7 @@ import { useCustomHolds } from './hooks/useCustomHolds';
 import { supabase, ADMIN_EMAIL } from './lib/supabase';
 import { V_GRADES, FONT_GRADES, SELECTION_MODES, MODE_COLORS, MODE_LABELS, BOARD_SPECS, HOLD_COLOR_DOT, HOLD_TYPE_SINGULAR_TO_PLURAL, convertGrade, getYouTubeId, getYouTubeThumbnail } from './utils/constants';
 
-const DEFAULT_BOARD_IMAGE = '/Barn_Board_Reset_02_C.jpg';
+const DEFAULT_BOARD_IMAGE = '/Barn_Set_01_V3A.JPG';
 
 // Strip per-user fields before writing to the shared routes table
 function stripPerUserFields(route) {
