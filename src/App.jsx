@@ -113,7 +113,8 @@ export default function App() {
             await supabase.from('user_route_data').upsert({
               user_id: userId, route_id: r.id,
               sent: !!r.sent, rating: r.rating || 0, angle_sends: angleSends,
-            });
+            }, { onConflict: 'user_id,route_id' })
+              .then(({ error }) => { if (error) console.error('[Supabase] user_route_data sync error:', error); });
           }
         }
       }
@@ -594,7 +595,8 @@ export default function App() {
         user_id: user.id, route_id: routeId,
         sent: current.sent, rating: finalRating, angle_sends: current.angleSends,
         updated_at: new Date().toISOString(),
-      });
+      }, { onConflict: 'user_id,route_id' })
+        .then(({ error }) => { if (error) console.error('[Supabase] user_route_data sync error:', error); });
       // Optimistically update community average
       setCommunityRatings(prevR => {
         const old = prevR[routeId] || { avg: 0, count: 0 };
@@ -621,7 +623,8 @@ export default function App() {
         user_id: user.id, route_id: routeId,
         sent: newSent, rating: current.rating, angle_sends: current.angleSends,
         updated_at: new Date().toISOString(),
-      });
+      }, { onConflict: 'user_id,route_id' })
+        .then(({ error }) => { if (error) console.error('[Supabase] user_route_data sync error:', error); });
       if (newSent) {
         const route = routesRef.current.find(r => r.id === routeId);
         if (route) {
@@ -741,7 +744,8 @@ export default function App() {
         user_id: user.id, route_id: routeId,
         sent: current.sent, rating: current.rating, angle_sends: angleSends,
         updated_at: new Date().toISOString(),
-      });
+      }, { onConflict: 'user_id,route_id' })
+        .then(({ error }) => { if (error) console.error('[Supabase] user_route_data sync error:', error); });
       if (!wasSent) {
         const route = routesRef.current.find(r => r.id === routeId);
         const ag = (route?.angleGrades || []).find(a => a.angle === angle);
