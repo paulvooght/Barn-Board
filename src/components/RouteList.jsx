@@ -14,9 +14,12 @@ function getMissingHoldCount(route, holdIdSet) {
 
 export default function RouteList({
   routes, grades, gradeSystem, playlists, allHolds,
+  userRouteData, communityRatings,
   onViewRoute, onCreateNew, onRateRoute, onToggleSent,
   onCreatePlaylist, onDeletePlaylist, onRenamePlaylist, onRemoveRouteFromPlaylist,
 }) {
+  const urd = userRouteData || {};
+  const cr = communityRatings || {};
   const [showFilters, setShowFilters] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showSortMenu, setShowSortMenu] = useState(false);
@@ -72,7 +75,7 @@ export default function RouteList({
   }
 
   // Apply hide-sent toggle
-  let filtered = hideSent ? baseRoutes.filter(r => !r.sent) : baseRoutes;
+  let filtered = hideSent ? baseRoutes.filter(r => !urd[r.id]?.sent) : baseRoutes;
 
   // Grade range filter — optionally checks angleGrades too
   if (filterGradeFrom || filterGradeTo) {
@@ -92,7 +95,7 @@ export default function RouteList({
     });
   }
 
-  if (filterRating > 0) filtered = filtered.filter(r => (r.rating || 0) >= filterRating);
+  if (filterRating > 0) filtered = filtered.filter(r => (cr[r.id]?.avg || 0) >= filterRating);
   if (filterHoldTypes.length > 0) filtered = filtered.filter(r =>
     filterHoldTypes.every(ht => r.holdTypes?.includes(ht))
   );
@@ -108,7 +111,7 @@ export default function RouteList({
     } else if (sortKey === 'grade') {
       cmp = grades.indexOf(a.grade) - grades.indexOf(b.grade);
     } else if (sortKey === 'rating') {
-      cmp = (a.rating || 0) - (b.rating || 0);
+      cmp = (cr[a.id]?.avg || 0) - (cr[b.id]?.avg || 0);
     }
     return sortAsc ? cmp : -cmp;
   });
@@ -135,7 +138,7 @@ export default function RouteList({
 
   const sortLabel = SORT_OPTIONS.find(o => o.key === sortKey)?.label || 'Date';
   const sortArrow = sortAsc ? '↑' : '↓';
-  const sentCount = baseRoutes.filter(r => r.sent).length;
+  const sentCount = baseRoutes.filter(r => urd[r.id]?.sent).length;
 
   return (
     <div style={{ padding: '16px 12px' }}>
@@ -675,6 +678,9 @@ export default function RouteList({
           <RouteCard
             key={route.id}
             route={route}
+            sent={urd[route.id]?.sent || false}
+            communityRating={cr[route.id]?.avg || 0}
+            ratingCount={cr[route.id]?.count || 0}
             onView={() => onViewRoute(route)}
             onRate={(rating) => onRateRoute(route.id, rating)}
             onToggleSent={() => onToggleSent(route.id)}

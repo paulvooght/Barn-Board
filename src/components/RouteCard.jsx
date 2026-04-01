@@ -1,8 +1,7 @@
 import { getYouTubeId } from '../utils/constants';
 
-export default function RouteCard({ route, onView, onRate, onToggleSent, missingHoldCount }) {
-  const rating    = route.rating || 0;
-  const sent      = !!route.sent;
+export default function RouteCard({ route, sent, communityRating, ratingCount, onView, onRate, onToggleSent, missingHoldCount }) {
+  const displayRating = Math.round(communityRating || 0);
   const hasVideo  = !!getYouTubeId(route.youtubeUrl);
   const hasAngleGrades = (route.angleGrades || []).length > 0;
   const hasMissing = (missingHoldCount || 0) > 0;
@@ -114,9 +113,8 @@ export default function RouteCard({ route, onView, onRate, onToggleSent, missing
           </button>
         </div>
 
-        {/* Bottom-right: star rating */}
-        <div
-          style={{ display: 'flex', gap: '1px' }}
+        {/* Bottom-right: community star rating */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}
           onClick={e => e.stopPropagation()}
         >
           {[1, 2, 3, 4, 5].map(star => (
@@ -127,16 +125,21 @@ export default function RouteCard({ route, onView, onRate, onToggleSent, missing
               style={{
                 background: 'none', border: 'none', padding: '1px',
                 cursor: 'pointer', fontSize: '14px', lineHeight: 1,
-                color: star <= rating ? '#FFE800' : 'rgba(26,10,0,0.15)',
-                textShadow: star <= rating ? '0 1px 3px rgba(26,10,0,0.15)' : 'none',
+                color: star <= displayRating ? '#FFE800' : 'rgba(26,10,0,0.15)',
+                textShadow: star <= displayRating ? '0 1px 3px rgba(26,10,0,0.15)' : 'none',
                 transition: 'color 0.1s, transform 0.1s',
               }}
               onMouseEnter={e => { e.currentTarget.style.transform = 'scale(1.25)'; }}
               onMouseLeave={e => { e.currentTarget.style.transform = 'scale(1)'; }}
             >
-              {star <= rating ? '★' : '☆'}
+              {star <= displayRating ? '★' : '☆'}
             </button>
           ))}
+          {ratingCount > 0 && (
+            <span style={{ fontSize: '9px', color: 'rgba(26,10,0,0.35)', marginLeft: '2px', lineHeight: 1 }}>
+              ({ratingCount})
+            </span>
+          )}
         </div>
       </div>
     </div>
