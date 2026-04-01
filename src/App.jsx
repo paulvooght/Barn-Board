@@ -268,8 +268,10 @@ export default function App() {
 
     clearTimeout(routesSyncTimer.current);
     routesSyncTimer.current = setTimeout(async () => {
-      const myRoutes = routes.filter(r => r.creatorId === user.id || !r.creatorId);
+      // Use ref for latest routes (avoids stale closure if state changed during timeout)
+      const myRoutes = routesRef.current.filter(r => r.creatorId === user.id || !r.creatorId);
       if (myRoutes.length === 0) return;
+      console.log('[Sync] Debounced upsert:', myRoutes.length, 'routes');
       const { error } = await supabase.from('routes').upsert(
         myRoutes.map(r => ({ id: r.id, user_id: user.id, data: stripPerUserFields(r), updated_at: new Date().toISOString() })),
         { onConflict: 'id' }
@@ -703,9 +705,13 @@ export default function App() {
     setViewingRoute(null);
     setView('routes');
     // Delete from Supabase (must be explicit — upsert sync won't remove deleted rows)
-    if (user) supabase.from('routes').delete().eq('id', routeId).then(({ error }) => {
-      if (error) console.error('[Supabase] delete route error:', error);
-    });
+    if (user) {
+      supabase.from('routes').delete().eq('id', routeId).select().then(({ data, error }) => {
+        if (error) console.error('[Supabase] delete route error:', error);
+        else if (!data || data.length === 0) console.warn('[Supabase] delete route: 0 rows affected — RLS may have blocked deletion for route', routeId);
+        else console.log('[Supabase] delete route OK:', routeId, data);
+      });
+    }
   }, [setRoutes, setPlaylists, user]);
 
   const updateRouteYoutubeUrl = useCallback((routeId, url) => {
