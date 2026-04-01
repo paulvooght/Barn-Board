@@ -685,6 +685,7 @@ export default function RouteList({
             onRate={(rating) => onRateRoute(route.id, rating)}
             onToggleSent={() => onToggleSent(route.id)}
             missingHoldCount={getMissingHoldCount(route, holdIdSet)}
+            onRemoveFromPlaylist={activePlaylist ? () => onRemoveRouteFromPlaylist(route.id, activePlaylist) : null}
           />
         ))
       )}

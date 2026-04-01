@@ -1,6 +1,6 @@
 import { getYouTubeId } from '../utils/constants';
 
-export default function RouteCard({ route, sent, communityRating, ratingCount, onView, onRate, onToggleSent, missingHoldCount }) {
+export default function RouteCard({ route, sent, communityRating, ratingCount, onView, onRate, onToggleSent, missingHoldCount, onRemoveFromPlaylist }) {
   const displayRating = Math.round(communityRating || 0);
   const hasVideo  = !!getYouTubeId(route.youtubeUrl);
   const hasAngleGrades = (route.angleGrades || []).length > 0;
@@ -96,6 +96,20 @@ export default function RouteCard({ route, sent, communityRating, ratingCount, o
             >
               +{route.angleGrades.length}
             </span>
+          )}
+          {onRemoveFromPlaylist && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onRemoveFromPlaylist(); }}
+              title="Remove from playlist"
+              style={{
+                width: '24px', height: '24px', borderRadius: '6px', flexShrink: 0,
+                border: '1.5px solid rgba(26,10,0,0.15)', background: 'rgba(26,10,0,0.06)',
+                color: 'var(--text-muted)', fontSize: '13px', fontWeight: 700, lineHeight: 1,
+                cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}
+            >
+              ✕
+            </button>
           )}
           <button
             onClick={(e) => { e.stopPropagation(); onToggleSent(); }}
