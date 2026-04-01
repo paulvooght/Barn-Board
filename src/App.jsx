@@ -1514,11 +1514,9 @@ function ViewRouteHeader({ route, sent, angleSends, isCreator, grades, gradeSyst
           {hasVideo && (
             <a href={route.youtubeUrl} target="_blank" rel="noopener noreferrer"
               onClick={e => e.stopPropagation()}
-              style={{ flexShrink: 0, display: 'flex', alignItems: 'center', textDecoration: 'none' }}
+              style={{ flexShrink: 0, display: 'flex', alignItems: 'center', textDecoration: 'none', fontSize: '16px', opacity: 0.45 }}
             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="var(--text-muted)" style={{ opacity: 0.5 }}>
-                <path d="M15 2H9a1 1 0 00-1 1v2H4a2 2 0 00-2 2v3a4 4 0 002 3.46V21a2 2 0 002 2h12a2 2 0 002-2v-7.54A4 4 0 0022 10V7a2 2 0 00-2-2h-4V3a1 1 0 00-1-1zm-1 3H10V4h4v1zM4 7h16v3a2 2 0 01-2 2h-1v-1a1 1 0 00-2 0v1H9v-1a1 1 0 00-2 0v1H6a2 2 0 01-2-2V7zm2 14v-6.17c.32.11.66.17 1 .17h1v1a1 1 0 002 0v-1h4v1a1 1 0 002 0v-1h1c.34 0 .68-.06 1-.17V21H6z"/>
-              </svg>
+              🎥
             </a>
           )}
         </div>
