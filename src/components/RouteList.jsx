@@ -17,6 +17,7 @@ export default function RouteList({
   userRouteData, communityRatings,
   onViewRoute, onCreateNew, onRateRoute, onToggleSent,
   onCreatePlaylist, onDeletePlaylist, onRenamePlaylist, onRemoveRouteFromPlaylist,
+  onFetchSharedPlaylists, onTogglePlaylistShared, onAddSharedPlaylist, userId,
 }) {
   const urd = userRouteData || {};
   const cr = communityRatings || {};
@@ -29,6 +30,13 @@ export default function RouteList({
   const [confirmDeletePlaylist, setConfirmDeletePlaylist] = useState(null);
   const [renamingPlaylist, setRenamingPlaylist] = useState(null); // playlist id
   const [renameValue, setRenameValue] = useState('');
+
+  // Browse shared playlists
+  const [showBrowse, setShowBrowse] = useState(false);
+  const [sharedPlaylists, setSharedPlaylists] = useState([]);
+  const [browseSearch, setBrowseSearch] = useState('');
+  const [browseLoading, setBrowseLoading] = useState(false);
+  const [addedIds, setAddedIds] = useState({}); // plId → true (for "Added ✓" feedback)
 
   // Sort state — key + ascending flag. Tap same key to flip direction.
   const [sortKey, setSortKey] = useState('date');
@@ -134,6 +142,21 @@ export default function RouteList({
     onDeletePlaylist(plId);
     if (activePlaylist === plId) setActivePlaylist(null);
     setConfirmDeletePlaylist(null);
+  };
+
+  const handleOpenBrowse = async () => {
+    setShowBrowse(true);
+    setBrowseSearch('');
+    setBrowseLoading(true);
+    const data = await onFetchSharedPlaylists();
+    setSharedPlaylists(data);
+    setBrowseLoading(false);
+  };
+
+  const handleAddSharedPlaylist = (pl) => {
+    onAddSharedPlaylist(pl);
+    setAddedIds(prev => ({ ...prev, [pl.id]: true }));
+    setTimeout(() => setAddedIds(prev => { const n = { ...prev }; delete n[pl.id]; return n; }), 2000);
   };
 
   const sortLabel = SORT_OPTIONS.find(o => o.key === sortKey)?.label || 'Date';
@@ -304,11 +327,18 @@ export default function RouteList({
               onClick={() => setActivePlaylist(isActive ? null : pl.id)}
               onContextMenu={(e) => { e.preventDefault(); setConfirmDeletePlaylist(pl.id); }}
               style={{
-                ...playlistTileStyle,
+                ...playlistTileStyle, position: 'relative',
                 border: isActive ? '2px solid var(--accent)' : '1.5px solid var(--border)',
                 background: isActive ? 'var(--accent-dim)' : 'var(--bg-card)',
               }}
             >
+              {pl.shared && (
+                <div style={{
+                  position: 'absolute', top: '4px', right: '4px',
+                  width: '7px', height: '7px', borderRadius: '50%',
+                  background: '#4ade80',
+                }} title="Shared publicly" />
+              )}
               <div style={{
                 fontSize: '11px', fontWeight: 700,
                 color: isActive ? 'var(--accent)' : 'var(--text-secondary)',
@@ -334,6 +364,19 @@ export default function RouteList({
         >
           <div style={{ fontSize: '18px', color: 'var(--text-dim)', lineHeight: 1 }}>+</div>
           <div style={{ fontSize: '9px', fontWeight: 600, color: 'var(--text-dim)', marginTop: '2px' }}>New</div>
+        </button>
+
+        {/* Browse shared playlists button */}
+        <button
+          onClick={handleOpenBrowse}
+          style={{
+            ...playlistTileStyle,
+            border: showBrowse ? '2px solid var(--accent)' : '1.5px solid var(--border)',
+            background: showBrowse ? 'var(--accent-dim)' : 'var(--bg-card)',
+          }}
+        >
+          <div style={{ fontSize: '16px', lineHeight: 1 }}>🔍</div>
+          <div style={{ fontSize: '9px', fontWeight: 600, color: showBrowse ? 'var(--accent)' : 'var(--text-dim)', marginTop: '2px' }}>Browse</div>
         </button>
       </div>
 
@@ -365,6 +408,97 @@ export default function RouteList({
             background: 'transparent', color: 'var(--text-muted)', fontSize: '12px',
             fontWeight: 600, cursor: 'pointer',
           }}>✕</button>
+        </div>
+      )}
+
+      {/* Browse shared playlists panel */}
+      {showBrowse && (
+        <div style={{
+          marginBottom: '12px', borderRadius: '12px',
+          background: 'var(--bg-card)', border: '1px solid var(--border)',
+          boxShadow: '0 2px 8px rgba(26,10,0,0.06)', overflow: 'hidden',
+        }}>
+          {/* Panel header */}
+          <div style={{
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            padding: '10px 12px', borderBottom: '1px solid var(--border)',
+          }}>
+            <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>
+              Browse Shared Playlists
+            </span>
+            <button
+              onClick={() => setShowBrowse(false)}
+              style={{
+                padding: '2px 8px', borderRadius: '6px', border: '1px solid var(--border)',
+                background: 'transparent', color: 'var(--text-muted)',
+                fontSize: '12px', cursor: 'pointer',
+              }}
+            >✕</button>
+          </div>
+          {/* Search */}
+          <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--border)' }}>
+            <input
+              type="text"
+              value={browseSearch}
+              onChange={e => setBrowseSearch(e.target.value)}
+              placeholder="Search playlists or creator..."
+              style={{
+                width: '100%', padding: '7px 10px', borderRadius: '8px', boxSizing: 'border-box',
+                border: '1.5px solid rgba(26,10,0,0.15)', background: 'var(--bg-input)',
+                color: 'var(--text-primary)', fontSize: '13px',
+              }}
+            />
+          </div>
+          {/* Results */}
+          <div style={{ maxHeight: '280px', overflowY: 'auto' }}>
+            {browseLoading ? (
+              <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-dim)', fontSize: '12px' }}>
+                Loading...
+              </div>
+            ) : (() => {
+              const q = browseSearch.trim().toLowerCase();
+              const results = sharedPlaylists.filter(p => {
+                if (p.user_id === userId) return false; // hide own
+                if (!q) return true;
+                return p.name.toLowerCase().includes(q) || p.creator_name.toLowerCase().includes(q);
+              });
+              if (results.length === 0) {
+                return (
+                  <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-dim)', fontSize: '12px' }}>
+                    No playlists found
+                  </div>
+                );
+              }
+              return results.map(p => (
+                <div key={p.id} style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  padding: '10px 12px', borderBottom: '1px solid rgba(26,10,0,0.06)',
+                }}>
+                  <div style={{ flex: 1, minWidth: 0, marginRight: '10px' }}>
+                    <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {p.name}
+                    </div>
+                    <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '2px' }}>
+                      by {p.creator_name} · {(p.route_ids || []).length} route{(p.route_ids || []).length !== 1 ? 's' : ''}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handleAddSharedPlaylist(p)}
+                    disabled={!!addedIds[p.id]}
+                    style={{
+                      padding: '5px 12px', borderRadius: '8px', border: 'none', flexShrink: 0,
+                      background: addedIds[p.id] ? '#4ade80' : 'var(--accent)',
+                      color: '#fff', fontSize: '11px', fontWeight: 700,
+                      cursor: addedIds[p.id] ? 'default' : 'pointer',
+                      transition: 'background 0.2s',
+                    }}
+                  >
+                    {addedIds[p.id] ? 'Added ✓' : 'Add'}
+                  </button>
+                </div>
+              ));
+            })()}
+          </div>
         </div>
       )}
 
@@ -467,18 +601,36 @@ export default function RouteList({
                 </span>
               </div>
             )}
-            <button
-              onClick={() => setConfirmDeletePlaylist(pl.id)}
-              style={{
-                padding: '4px 10px', borderRadius: '6px', border: '1px solid rgba(255,82,82,0.3)',
-                background: 'rgba(255,82,82,0.06)', color: '#FF5252',
-                fontSize: '10px', fontWeight: 700, cursor: 'pointer', flexShrink: 0,
-              }}
-            >
-              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="#FF5252" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M2 4h12M5.33 4V2.67a1.33 1.33 0 011.34-1.34h2.66a1.33 1.33 0 011.34 1.34V4M13.33 4v9.33a1.33 1.33 0 01-1.33 1.34H4a1.33 1.33 0 01-1.33-1.34V4" />
-              </svg>
-            </button>
+            <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexShrink: 0 }}>
+              {/* Share toggle — only for playlists the user created (not subscribed copies) */}
+              {!pl.subscribedFrom && onTogglePlaylistShared && (
+                <button
+                  onClick={() => onTogglePlaylistShared(pl.id, !pl.shared)}
+                  title={pl.shared ? 'Make private' : 'Share publicly'}
+                  style={{
+                    padding: '4px 8px', borderRadius: '6px', border: 'none', cursor: 'pointer',
+                    background: pl.shared ? 'rgba(74,222,128,0.15)' : 'rgba(26,10,0,0.06)',
+                    color: pl.shared ? '#16a34a' : 'var(--text-muted)',
+                    fontSize: '11px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '3px',
+                  }}
+                >
+                  <span style={{ fontSize: '12px' }}>{pl.shared ? '🔗' : '🔒'}</span>
+                  <span>{pl.shared ? 'Public' : 'Private'}</span>
+                </button>
+              )}
+              <button
+                onClick={() => setConfirmDeletePlaylist(pl.id)}
+                style={{
+                  padding: '4px 10px', borderRadius: '6px', border: '1px solid rgba(255,82,82,0.3)',
+                  background: 'rgba(255,82,82,0.06)', color: '#FF5252',
+                  fontSize: '10px', fontWeight: 700, cursor: 'pointer',
+                }}
+              >
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="#FF5252" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M2 4h12M5.33 4V2.67a1.33 1.33 0 011.34-1.34h2.66a1.33 1.33 0 011.34 1.34V4M13.33 4v9.33a1.33 1.33 0 01-1.33 1.34H4a1.33 1.33 0 01-1.33-1.34V4" />
+                </svg>
+              </button>
+            </div>
           </div>
         ) : null;
       })()}

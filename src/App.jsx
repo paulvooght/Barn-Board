@@ -332,9 +332,55 @@ export default function App() {
         { onConflict: 'key' }
       );
       if (error) console.error('[Supabase] playlists sync error:', error);
+      // Keep shared_playlists in sync for any shared playlists
+      const sharedOnes = playlists.filter(pl => pl.shared);
+      for (const pl of sharedOnes) {
+        const { error: spErr } = await supabase.from('shared_playlists').upsert({
+          id: pl.id, user_id: user.id, name: pl.name,
+          creator_name: user.email.split('@')[0],
+          route_ids: pl.routeIds, updated_at: new Date().toISOString(),
+        }, { onConflict: 'id' });
+        if (spErr) console.error('[Supabase] shared_playlists sync error:', spErr);
+      }
     }, 1500);
     return () => clearTimeout(playlistsSyncTimer.current);
   }, [playlists, user, dataReady]);
+
+  // ─── Shared playlists callbacks ───────────────────────────────────
+  const fetchSharedPlaylists = useCallback(async () => {
+    const { data } = await supabase.from('shared_playlists').select('*');
+    return data || [];
+  }, []);
+
+  const togglePlaylistShared = useCallback(async (plId, shared) => {
+    let targetPl = null;
+    setPlaylists(prev => {
+      targetPl = prev.find(p => p.id === plId);
+      return prev.map(pl => pl.id === plId ? { ...pl, shared } : pl);
+    });
+    if (!user) return;
+    if (shared && targetPl) {
+      await supabase.from('shared_playlists').upsert({
+        id: targetPl.id, user_id: user.id, name: targetPl.name,
+        creator_name: user.email.split('@')[0],
+        route_ids: targetPl.routeIds, updated_at: new Date().toISOString(),
+      }, { onConflict: 'id' });
+    } else if (!shared) {
+      await supabase.from('shared_playlists').delete().eq('id', plId);
+    }
+  }, [user]);
+
+  const addSharedPlaylist = useCallback((sharedPl) => {
+    const newPl = {
+      id: Date.now().toString(),
+      name: sharedPl.name,
+      routeIds: sharedPl.route_ids,
+      createdAt: new Date().toISOString(),
+      shared: false,
+      subscribedFrom: sharedPl.id,
+    };
+    setPlaylists(prev => [...prev, newPl]);
+  }, []);
 
   // UI state
   // view: board | create | routes | settings | viewRoute | addHold | editHold | setupBoard | sessionSummary
@@ -1436,6 +1482,10 @@ export default function App() {
           onDeletePlaylist={deletePlaylist}
           onRenamePlaylist={renamePlaylist}
           onRemoveRouteFromPlaylist={removeRouteFromPlaylist}
+          onFetchSharedPlaylists={fetchSharedPlaylists}
+          onTogglePlaylistShared={togglePlaylistShared}
+          onAddSharedPlaylist={addSharedPlaylist}
+          userId={user?.id}
         />
       )}
 
