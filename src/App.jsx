@@ -1690,6 +1690,7 @@ function ViewRouteHeader({ route, sent, angleSends, isCreator, grades, gradeSyst
   const [showAnglePanel, setShowAnglePanel] = useState(false);
   const [showPlaylistPanel, setShowPlaylistPanel] = useState(false);
   const [showGradePanel, setShowGradePanel] = useState(false);
+  const [showAngleSuggest, setShowAngleSuggest] = useState(null); // angle number of expanded row
   const [newPlaylistName, setNewPlaylistName] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [newAngle, setNewAngle] = useState(route.angle || 30);
@@ -1734,20 +1735,9 @@ function ViewRouteHeader({ route, sent, angleSends, isCreator, grades, gradeSyst
               display: 'flex', alignItems: 'center', gap: '3px', flexShrink: 0,
             }}
           >
-            {communityGrades?.headline ? (
-              <>
-                <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-muted)', fontFamily: 'var(--font-heading)' }}>
-                  {communityGrades.headline.consensus}
-                </span>
-                <span style={{ fontSize: '9px', color: 'var(--text-dim)' }}>
-                  ({communityGrades.headline.count})
-                </span>
-              </>
-            ) : (
-              <span style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)' }}>
-                Grade?
-              </span>
-            )}
+            <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', fontFamily: 'var(--font-heading)' }}>
+              {communityGrades?.headline ? communityGrades.headline.consensus : `${route.grade}?`}
+            </span>
           </button>
         )}
         <div style={{
@@ -2118,11 +2108,6 @@ function ViewRouteHeader({ route, sent, angleSends, isCreator, grades, gradeSyst
                     </div>,
                     <div key={`g${i}`} style={{ ...agCell, background: bg, fontWeight: 700 }}>
                       {ag.grade}
-                      {angleCommunity && angleCommunity.consensus !== ag.grade && (
-                        <span style={{ fontSize: '10px', color: 'var(--text-muted)', marginLeft: '4px' }}>
-                          ({angleCommunity.consensus})
-                        </span>
-                      )}
                     </div>,
                     <div key={`t${i}`} style={{ ...agCell, background: bg, textAlign: 'center' }}>
                       <button
@@ -2166,19 +2151,35 @@ function ViewRouteHeader({ route, sent, angleSends, isCreator, grades, gradeSyst
                     </div>,
                     <div key={`cg${i}`} style={{ ...agCell, background: bg, textAlign: 'center' }}>
                       {!isCreator && (
-                        <select
-                          value={myAngleSuggestion}
-                          onChange={(e) => onSuggestGrade(undefined, { [ag.angle]: e.target.value || null })}
-                          style={{
-                            padding: '2px 4px', borderRadius: '4px', fontSize: '10px',
-                            border: '1px solid rgba(26,10,0,0.1)', background: 'var(--bg-input)',
-                            fontFamily: 'var(--font-heading)', fontWeight: 600,
-                            width: '52px',
-                          }}
-                        >
-                          <option value="">{myAngleSuggestion || '—'}</option>
-                          {grades.map(g => <option key={g} value={g}>{g}</option>)}
-                        </select>
+                        showAngleSuggest === ag.angle ? (
+                          <select
+                            autoFocus
+                            value={myAngleSuggestion}
+                            onChange={(e) => { onSuggestGrade(undefined, { [ag.angle]: e.target.value || null }); setShowAngleSuggest(null); }}
+                            onBlur={() => setShowAngleSuggest(null)}
+                            style={{
+                              padding: '2px 4px', borderRadius: '4px', fontSize: '10px',
+                              border: '1px solid rgba(26,10,0,0.1)', background: 'var(--bg-input)',
+                              fontFamily: 'var(--font-heading)', fontWeight: 600,
+                              width: '52px',
+                            }}
+                          >
+                            <option value="">—</option>
+                            {grades.map(g => <option key={g} value={g}>{g}</option>)}
+                          </select>
+                        ) : (
+                          <button
+                            onClick={() => setShowAngleSuggest(ag.angle)}
+                            style={{
+                              background: 'none', border: '1px solid rgba(26,10,0,0.12)',
+                              borderRadius: '4px', cursor: 'pointer', padding: '2px 5px',
+                            }}
+                          >
+                            <span style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', fontFamily: 'var(--font-heading)' }}>
+                              {angleCommunity ? angleCommunity.consensus : `${ag.grade}?`}
+                            </span>
+                          </button>
+                        )
                       )}
                       {isCreator && angleCommunity && angleCommunity.consensus !== ag.grade && (
                         <button
