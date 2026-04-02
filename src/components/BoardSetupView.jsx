@@ -76,6 +76,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
 
   const [activeTool, setActiveTool] = useState(TOOLS.SELECT);
   const [selectedIds, setSelectedIds] = useState([]);       // multi-select: array of hold IDs
+  const [multiSelectMode, setMultiSelectMode] = useState(false); // opt-in multi-select
   const [showAllOutlines, setShowAllOutlines] = useState(true);
   const [selectRotation, setSelectRotation] = useState(0);  // rotation for selected holds
   const [selectScale, setSelectScale] = useState(100);       // scale % for selected holds
@@ -260,6 +261,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
 
   function clearSelection() {
     setSelectedIds([]);
+    setMultiSelectMode(false);
     setSelectRotation(0);
     setSelectScale(100);
     selectOrigPolysRef.current = {};
@@ -579,14 +581,15 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
       if (!hitId) {
         // Tap empty space → deselect all
         clearSelection();
-      } else if (selectedIds.length > 0 && selectedIds.includes(hitId)) {
-        // Tap already-selected hold → remove from selection
-        setSelectedIds(prev => prev.filter(id => id !== hitId));
-      } else if (selectedIds.length > 0) {
-        // Tap unselected hold while others selected → add to selection (multi-select)
-        setSelectedIds(prev => [...prev, hitId]);
+      } else if (multiSelectMode) {
+        // Multi-select mode: toggle hold in/out of selection
+        if (selectedIds.includes(hitId)) {
+          setSelectedIds(prev => prev.filter(id => id !== hitId));
+        } else {
+          setSelectedIds(prev => [...prev, hitId]);
+        }
       } else {
-        // Tap hold with nothing selected → single select
+        // Single-select mode: tap any hold → select just that one
         setSelectedIds([hitId]);
       }
     } else if (activeTool === TOOLS.DRAW && drawMode === 'polygon') {
@@ -1136,6 +1139,15 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
 
           {/* Select tool actions — order: Select All · Copy · +Vertex · Rotate · Scale · Delete */}
           {activeTool === TOOLS.SELECT && selectedIds.length > 0 && (<>
+          <button
+            onClick={() => setMultiSelectMode(prev => !prev)}
+            style={{
+              ...secBtnStyle,
+              background: multiSelectMode ? 'var(--accent)' : secBtnStyle.background,
+              color: multiSelectMode ? '#fff' : secBtnStyle.color,
+              borderColor: multiSelectMode ? 'var(--accent)' : secBtnStyle.borderColor,
+            }}
+          >Multi</button>
           <button onClick={selectAllHolds} style={secBtnStyle}>Select All</button>
           {selectedIds.length === 1 && (
             <>
@@ -1334,9 +1346,9 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
 }
 
 const headerBtnStyle = {
-  padding: '6px 14px', borderRadius: '8px', fontSize: '12px', cursor: 'pointer',
+  padding: '4px 10px', borderRadius: '6px', fontSize: '11px', cursor: 'pointer',
   border: '1px solid rgba(26,10,0,0.15)', background: 'rgba(26,10,0,0.06)',
-  color: 'var(--text-secondary)',
+  color: 'var(--text-secondary)', fontWeight: 600,
 };
 
 const iconBtnStyle = {
