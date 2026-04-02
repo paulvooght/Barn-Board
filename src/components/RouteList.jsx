@@ -57,6 +57,12 @@ export default function RouteList({
   const [filterRating, setFilterRating] = useState(0);
   const [filterHoldTypes, setFilterHoldTypes] = useState([]);
   const [filterStyles, setFilterStyles] = useState([]);
+  const [filterSetter, setFilterSetter] = useState('');
+
+  const setterNames = useMemo(() => {
+    const names = [...new Set(routes.map(r => r.setter).filter(Boolean))];
+    return names.sort((a, b) => a.localeCompare(b));
+  }, [routes]);
 
   const toggleFilter = (list, setter, val) => {
     setter(prev => prev.includes(val) ? prev.filter(v => v !== val) : [...prev, val]);
@@ -110,6 +116,7 @@ export default function RouteList({
   if (filterStyles.length > 0) filtered = filtered.filter(r =>
     filterStyles.every(s => r.styles?.includes(s))
   );
+  if (filterSetter) filtered = filtered.filter(r => r.setter === filterSetter);
 
   // Sort
   const sorted = [...filtered].sort((a, b) => {
@@ -124,11 +131,12 @@ export default function RouteList({
     return sortAsc ? cmp : -cmp;
   });
 
-  const hasActiveFilters = filterGradeFrom || filterGradeTo || filterRating > 0 || filterHoldTypes.length > 0 || filterStyles.length > 0 || showHiddenAngles;
+  const hasActiveFilters = filterGradeFrom || filterGradeTo || filterRating > 0 || filterHoldTypes.length > 0 || filterStyles.length > 0 || showHiddenAngles || filterSetter;
 
   const clearFilters = () => {
     setFilterGradeFrom(''); setFilterGradeTo(''); setFilterRating(0);
     setFilterHoldTypes([]); setFilterStyles([]); setShowHiddenAngles(false);
+    setFilterSetter('');
   };
 
   const handleCreatePlaylist = () => {
@@ -642,6 +650,32 @@ export default function RouteList({
           background: 'var(--bg-card)', border: '1px solid var(--border)',
           boxShadow: '0 2px 8px rgba(26,10,0,0.06)',
         }}>
+          {/* Setter filter */}
+          {setterNames.length > 0 && (
+            <div style={{ marginBottom: '10px' }}>
+              <div style={filterLabelStyle}>Setter</div>
+              <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                {setterNames.map(name => {
+                  const on = filterSetter === name;
+                  return (
+                    <button key={name}
+                      onClick={() => setFilterSetter(on ? '' : name)}
+                      style={{
+                        padding: '4px 10px', borderRadius: '8px', fontSize: '11px',
+                        border: on ? '1.5px solid var(--accent)' : '1.5px solid rgba(26,10,0,0.1)',
+                        background: on ? 'var(--accent-dim)' : 'transparent',
+                        color: on ? 'var(--accent)' : 'var(--text-muted)',
+                        cursor: 'pointer', fontWeight: 600,
+                      }}
+                    >
+                      {name}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {/* Grade range filter */}
           <div style={{ marginBottom: '10px' }}>
             <div style={filterLabelStyle}>Grade Range</div>
