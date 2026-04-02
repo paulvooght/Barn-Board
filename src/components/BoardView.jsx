@@ -316,7 +316,7 @@ export default function BoardView({ holds, selection, onHoldTap, interactive, di
             lineHeight: 0,
           }}>
           <img
-            src={imgSrc || '/Barn_Set_01_V3A.JPG'}
+            src={imgSrc || '/Barn_Set_01_V4.jpg'}
             alt="Climbing board"
             onLoad={(e) => {
               setImgSize({ w: e.target.naturalWidth, h: e.target.naturalHeight });

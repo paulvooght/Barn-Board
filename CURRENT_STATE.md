@@ -56,6 +56,13 @@
 
 ## Known Bugs / Issues
 
+### ⚠️ Hold IDs scrambled after board image replacement (ACTIVE — needs fix)
+- Board image was replaced and `detect_holds.py` re-ran, overwriting `holds.json`
+- All 24 original hold IDs now point to different physical holds (IDs assigned by sort order, new holds interspersed)
+- Existing routes reference old hold IDs → holds render in wrong positions
+- **Fix designed**: spatial matching to restore old IDs + assign new IDs to 19 newly detected holds
+- See TASK_SPEC.md for the complete repair plan
+
 ### Multi-device sync is visibility-based, not real-time
 - Data only refreshes when switching back to the tab (visibilitychange event)
 - If both devices are open simultaneously, changes won't appear until you switch away and back
@@ -130,3 +137,13 @@
 - Supabase sync timing (immediate vs debounced, edge cases with rapid changes)
 - Session tracking deduplication
 - Multi-device data freshness
+
+## Not Yet Built — Multi-User / Social Features
+The app is designed for multiple users sharing one board (see CLAUDE.md "Social / Multi-User Model"). The following need implementation:
+
+- **Per-user sent status** — currently `sent` is stored on the route itself. Needs to be per-user so each climber tracks their own sends independently.
+- **Per-user star ratings with community average** — currently rating is stored on the route. Needs per-user ratings with the card showing the average of all users' ratings.
+- **Creator-only editing** — currently any logged-in user can edit any route. Need `creatorId` on routes and edit button only shown to the creator.
+- **Setter search/filter** — filter route list by setter name to find favourite route-setters.
+- **Shared playlists** — playlists are currently private per user. Add option to share a playlist with other users.
+- **Per-user angle-grade sent tracking** — `angleGrades[].sent` should be per-user, not on the shared route record.
