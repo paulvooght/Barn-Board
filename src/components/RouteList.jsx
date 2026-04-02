@@ -14,13 +14,14 @@ function getMissingHoldCount(route, holdIdSet) {
 
 export default function RouteList({
   routes, grades, gradeSystem, playlists, allHolds,
-  userRouteData, communityRatings,
+  userRouteData, communityRatings, communityGrades,
   onViewRoute, onCreateNew, onRateRoute, onToggleSent,
   onCreatePlaylist, onDeletePlaylist, onRenamePlaylist, onRemoveRouteFromPlaylist,
   onFetchSharedPlaylists, onTogglePlaylistShared, onAddSharedPlaylist, userId,
 }) {
   const urd = userRouteData || {};
   const cr = communityRatings || {};
+  const cg = communityGrades || {};
   const [showFilters, setShowFilters] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showSortMenu, setShowSortMenu] = useState(false);
@@ -850,6 +851,7 @@ export default function RouteList({
               sent={urd[route.id]?.sent || false}
               communityRating={cr[route.id]?.avg || 0}
               ratingCount={cr[route.id]?.count || 0}
+              communityGrade={cg[route.id]?.headline?.consensus || null}
               onView={() => onViewRoute(route)}
               onRate={(rating) => onRateRoute(route.id, rating)}
               onToggleSent={() => onToggleSent(route.id)}

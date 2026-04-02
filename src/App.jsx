@@ -37,6 +37,7 @@ export default function App() {
   const [playlists, setPlaylists] = useState([]);
   const [userRouteData, setUserRouteData] = useState({}); // { [routeId]: { sent, rating, angleSends } }
   const [communityRatings, setCommunityRatings] = useState({}); // { [routeId]: { avg, count } }
+  const [communityGrades, setCommunityGrades]   = useState({}); // { [routeId]: { headline: {consensus, votes, count}, angles: {...} } }
   const [settings, setSettings] = useLocalStorage('barnboard_settings', { gradeSystem: 'V' });
 
   // Active session state (persisted so it survives page reload)
@@ -119,12 +120,12 @@ export default function App() {
         }
       }
     }
-    // b) Load current user's per-route data
-    const { data: urdRows } = await supabase.from('user_route_data').select('route_id, sent, rating, angle_sends').eq('user_id', userId);
+    // b) Load current user's per-route data (including grade_suggestions)
+    const { data: urdRows } = await supabase.from('user_route_data').select('route_id, sent, rating, angle_sends, grade_suggestions').eq('user_id', userId);
     const urdMap = {};
     if (urdRows) {
       for (const row of urdRows) {
-        urdMap[row.route_id] = { sent: row.sent, rating: row.rating, angleSends: row.angle_sends || [] };
+        urdMap[row.route_id] = { sent: row.sent, rating: row.rating, angleSends: row.angle_sends || [], gradeSuggestions: row.grade_suggestions || {} };
       }
     }
     setUserRouteData(urdMap);
@@ -143,6 +144,52 @@ export default function App() {
       avgMap[rid] = { avg: Math.round((total / count) * 10) / 10, count };
     }
     setCommunityRatings(avgMap);
+    // d) Load ALL grade suggestions for community consensus
+    const { data: gradeRows } = await supabase
+      .from('user_route_data')
+      .select('route_id, grade_suggestions')
+      .not('grade_suggestions', 'eq', '{}');
+    const gradeMap = {};
+    if (gradeRows) {
+      for (const row of gradeRows) {
+        const gs = row.grade_suggestions || {};
+        if (!gradeMap[row.route_id]) gradeMap[row.route_id] = { headline: {}, angles: {} };
+        if (gs.headline) {
+          const h = gradeMap[row.route_id].headline;
+          h[gs.headline] = (h[gs.headline] || 0) + 1;
+        }
+        if (gs.angles) {
+          for (const [angle, grade] of Object.entries(gs.angles)) {
+            if (!gradeMap[row.route_id].angles[angle]) gradeMap[row.route_id].angles[angle] = {};
+            const a = gradeMap[row.route_id].angles[angle];
+            a[grade] = (a[grade] || 0) + 1;
+          }
+        }
+      }
+    }
+    const communityGradeResult = {};
+    for (const [routeId, data] of Object.entries(gradeMap)) {
+      const result = { headline: null, angles: {} };
+      const hVotes = data.headline;
+      const hTotal = Object.values(hVotes).reduce((s, n) => s + n, 0);
+      if (hTotal > 0) {
+        const sorted = Object.entries(hVotes).sort((a, b) =>
+          b[1] !== a[1] ? b[1] - a[1] : grades.indexOf(b[0]) - grades.indexOf(a[0])
+        );
+        result.headline = { consensus: sorted[0][0], votes: hVotes, count: hTotal };
+      }
+      for (const [angle, aVotes] of Object.entries(data.angles)) {
+        const aTotal = Object.values(aVotes).reduce((s, n) => s + n, 0);
+        if (aTotal > 0) {
+          const sorted = Object.entries(aVotes).sort((a, b) =>
+            b[1] !== a[1] ? b[1] - a[1] : grades.indexOf(b[0]) - grades.indexOf(a[0])
+          );
+          result.angles[angle] = { consensus: sorted[0][0], votes: aVotes, count: aTotal };
+        }
+      }
+      communityGradeResult[routeId] = result;
+    }
+    setCommunityGrades(communityGradeResult);
     // Sessions
     const { data: sessionRows } = await supabase.from('sessions').select('data').eq('user_id', userId).order('created_at', { ascending: false });
     if (sessionRows && sessionRows.length > 0) {
@@ -905,6 +952,57 @@ export default function App() {
     });
   }, [setRoutes]);
 
+  // ─── Community grade suggestions ─────────────────────────────────
+  const suggestGrade = useCallback((routeId, headline, angles) => {
+    if (!user) return;
+    setUserRouteData(prev => {
+      const current = prev[routeId] || { sent: false, rating: 0, angleSends: [] };
+      const gradeSuggestions = { ...(current.gradeSuggestions || {}) };
+      if (headline !== undefined) {
+        if (headline === null) { delete gradeSuggestions.headline; } else { gradeSuggestions.headline = headline; }
+      }
+      if (angles !== undefined) {
+        gradeSuggestions.angles = { ...(gradeSuggestions.angles || {}), ...angles };
+        // Remove null entries
+        for (const [k, v] of Object.entries(gradeSuggestions.angles)) {
+          if (v === null || v === '') delete gradeSuggestions.angles[k];
+        }
+      }
+      supabase.from('user_route_data').upsert({
+        user_id: user.id, route_id: routeId,
+        sent: current.sent, rating: current.rating, angle_sends: current.angleSends,
+        grade_suggestions: gradeSuggestions, updated_at: new Date().toISOString(),
+      }, { onConflict: 'user_id,route_id' })
+        .then(({ error }) => { if (error) console.error('[Supabase] grade suggestion error:', error); });
+      return { ...prev, [routeId]: { ...current, gradeSuggestions } };
+    });
+  }, [user]);
+
+  const acceptGradeSuggestion = useCallback((routeId, grade, angle) => {
+    localRouteChange.current = true;
+    if (angle !== undefined) {
+      setRoutes(prev => prev.map(r => {
+        if (r.id !== routeId) return r;
+        const updated = (r.angleGrades || []).map(ag =>
+          ag.angle === angle ? { ...ag, grade } : ag
+        );
+        return { ...r, angleGrades: updated, updatedAt: new Date().toISOString() };
+      }));
+      setViewingRoute(prev => {
+        if (!prev || prev.id !== routeId) return prev;
+        const updated = (prev.angleGrades || []).map(ag =>
+          ag.angle === angle ? { ...ag, grade } : ag
+        );
+        return { ...prev, angleGrades: updated };
+      });
+    } else {
+      setRoutes(prev => prev.map(r =>
+        r.id === routeId ? { ...r, grade, updatedAt: new Date().toISOString() } : r
+      ));
+      setViewingRoute(prev => prev && prev.id === routeId ? { ...prev, grade } : prev);
+    }
+  }, []);
+
   // ─── Hold editor callbacks ───────────────────────────────────────────
   // Track where to return after editing (settings list or board select)
   const [holdEditorSource, setHoldEditorSource] = useState('settings');
@@ -1226,6 +1324,10 @@ export default function App() {
               playlists={playlists}
               settings={settings}
               allHolds={allHolds}
+              communityGrades={communityGrades[viewingRoute.id] || null}
+              myGradeSuggestions={userRouteData[viewingRoute.id]?.gradeSuggestions || {}}
+              onSuggestGrade={(headline, angles) => suggestGrade(viewingRoute.id, headline, angles)}
+              onAcceptGrade={(grade, angle) => acceptGradeSuggestion(viewingRoute.id, grade, angle)}
               onEdit={() => startEditRoute(viewingRoute)}
               onClose={() => { setHoldSelection({}); setViewingRoute(null); setShowRouteTags(false); setHoldDataMode(false); setInspectedRouteHoldId(null); setView('routes'); }}
               onDelete={() => deleteRoute(viewingRoute.id)}
@@ -1474,6 +1576,7 @@ export default function App() {
           allHolds={allHolds}
           userRouteData={userRouteData}
           communityRatings={communityRatings}
+          communityGrades={communityGrades}
           onViewRoute={viewRoute}
           onCreateNew={() => { resetCreate(); setView('create'); }}
           onRateRoute={rateRoute}
@@ -1583,9 +1686,10 @@ export default function App() {
 }
 
 // ─── View Route Header with Angle-Grade Management ──────────────────
-function ViewRouteHeader({ route, sent, angleSends, isCreator, grades, gradeSystem, playlists, settings, allHolds, onEdit, onClose, onDelete, onToggleSent, onAddAngleGrade, onRemoveAngleGrade, onSetHeadline, onToggleAngleSent, onAddToPlaylist, onCreatePlaylist }) {
+function ViewRouteHeader({ route, sent, angleSends, isCreator, grades, gradeSystem, playlists, settings, allHolds, communityGrades, myGradeSuggestions, onSuggestGrade, onAcceptGrade, onEdit, onClose, onDelete, onToggleSent, onAddAngleGrade, onRemoveAngleGrade, onSetHeadline, onToggleAngleSent, onAddToPlaylist, onCreatePlaylist }) {
   const [showAnglePanel, setShowAnglePanel] = useState(false);
   const [showPlaylistPanel, setShowPlaylistPanel] = useState(false);
+  const [showGradePanel, setShowGradePanel] = useState(false);
   const [newPlaylistName, setNewPlaylistName] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [newAngle, setNewAngle] = useState(route.angle || 30);
@@ -1620,6 +1724,24 @@ function ViewRouteHeader({ route, sent, angleSends, isCreator, grades, gradeSyst
         }}>
           {route.grade}
         </span>
+        {communityGrades?.headline && communityGrades.headline.consensus !== route.grade && (
+          <button
+            onClick={() => setShowGradePanel(prev => !prev)}
+            style={{
+              background: showGradePanel ? 'var(--accent-dim)' : 'none',
+              border: showGradePanel ? '1.5px solid var(--accent)' : '1.5px solid rgba(26,10,0,0.12)',
+              borderRadius: '8px', cursor: 'pointer', padding: '3px 7px',
+              display: 'flex', alignItems: 'center', gap: '3px', flexShrink: 0,
+            }}
+          >
+            <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-muted)', fontFamily: 'var(--font-heading)' }}>
+              {communityGrades.headline.consensus}
+            </span>
+            <span style={{ fontSize: '9px', color: 'var(--text-dim)' }}>
+              ({communityGrades.headline.count})
+            </span>
+          </button>
+        )}
         <div style={{
           flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: '6px',
         }}>
@@ -1661,6 +1783,74 @@ function ViewRouteHeader({ route, sent, angleSends, isCreator, grades, gradeSyst
           ✕
         </button>
       </div>
+
+      {/* ── Grade Suggestion Panel ── */}
+      {showGradePanel && communityGrades?.headline && (
+        <div style={{
+          marginTop: '6px', marginBottom: '8px', padding: '10px 12px', borderRadius: '10px',
+          background: 'var(--bg-card)', border: '1px solid var(--border)',
+          boxShadow: '0 2px 8px rgba(26,10,0,0.06)',
+        }}>
+          <div style={{
+            fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)',
+            letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '8px',
+          }}>
+            Grade Suggestions
+          </div>
+          {Object.entries(communityGrades.headline.votes)
+            .sort(([, a], [, b]) => b - a)
+            .map(([grade, count]) => {
+              const pct = Math.round(count / communityGrades.headline.count * 100);
+              return (
+                <div key={grade} style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                  <span style={{ fontSize: '12px', fontWeight: 700, fontFamily: 'var(--font-heading)', minWidth: '28px' }}>
+                    {grade}
+                  </span>
+                  <div style={{ flex: 1, height: '14px', borderRadius: '4px', background: 'rgba(26,10,0,0.06)', overflow: 'hidden' }}>
+                    <div style={{ width: `${pct}%`, height: '100%', borderRadius: '4px', background: 'var(--accent)', minWidth: pct > 0 ? '4px' : 0 }} />
+                  </div>
+                  <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', minWidth: '16px', textAlign: 'right' }}>
+                    {count}
+                  </span>
+                </div>
+              );
+            })
+          }
+          <div style={{ marginTop: '10px', paddingTop: '8px', borderTop: '1px solid var(--border)' }}>
+            {!isCreator && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600 }}>
+                  {myGradeSuggestions?.headline ? 'Your suggestion:' : 'Suggest a grade:'}
+                </span>
+                <select
+                  value={myGradeSuggestions?.headline || ''}
+                  onChange={(e) => onSuggestGrade(e.target.value || null, undefined)}
+                  style={{
+                    padding: '4px 8px', borderRadius: '6px',
+                    border: '1.5px solid rgba(26,10,0,0.15)', background: 'var(--bg-input)',
+                    fontSize: '12px', fontFamily: 'var(--font-heading)', fontWeight: 700,
+                  }}
+                >
+                  <option value="">—</option>
+                  {grades.map(g => <option key={g} value={g}>{g}</option>)}
+                </select>
+              </div>
+            )}
+            {isCreator && communityGrades.headline.consensus !== route.grade && (
+              <button
+                onClick={() => { onAcceptGrade(communityGrades.headline.consensus); setShowGradePanel(false); }}
+                style={{
+                  padding: '6px 14px', borderRadius: '8px', border: 'none',
+                  background: 'var(--accent)', color: '#fff',
+                  fontSize: '12px', fontWeight: 700, cursor: 'pointer',
+                }}
+              >
+                Accept {communityGrades.headline.consensus}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ── Row 2: Metadata — angle centered under grade pill ── */}
       <div style={{
@@ -1897,7 +2087,7 @@ function ViewRouteHeader({ route, sent, angleSends, isCreator, grades, gradeSyst
                 Logged Grades
               </div>
               <div style={{
-                display: 'grid', gridTemplateColumns: '50px 1fr 36px auto auto',
+                display: 'grid', gridTemplateColumns: '50px 1fr 36px auto auto auto',
                 gap: '0', fontSize: '12px', borderRadius: '8px', overflow: 'hidden',
                 border: '1px solid rgba(26,10,0,0.08)',
               }}>
@@ -1907,15 +2097,24 @@ function ViewRouteHeader({ route, sent, angleSends, isCreator, grades, gradeSyst
                 <div style={{ ...agHeaderCell, textAlign: 'center', fontSize: '9px' }}>Sent</div>
                 <div style={agHeaderCell}></div>
                 <div style={agHeaderCell}></div>
+                <div style={agHeaderCell}></div>
 
                 {angleGrades.map((ag, i) => {
                   const bg = i % 2 === 0 ? 'rgba(26,10,0,0.02)' : 'transparent';
+                  const angleKey = String(ag.angle);
+                  const angleCommunity = communityGrades?.angles?.[angleKey] || null;
+                  const myAngleSuggestion = myGradeSuggestions?.angles?.[angleKey] || '';
                   return [
                     <div key={`a${i}`} style={{ ...agCell, background: bg, fontFamily: 'var(--font-heading)', fontWeight: 700 }}>
                       {ag.angle}°
                     </div>,
                     <div key={`g${i}`} style={{ ...agCell, background: bg, fontWeight: 700 }}>
                       {ag.grade}
+                      {angleCommunity && angleCommunity.consensus !== ag.grade && (
+                        <span style={{ fontSize: '10px', color: 'var(--text-muted)', marginLeft: '4px' }}>
+                          ({angleCommunity.consensus})
+                        </span>
+                      )}
                     </div>,
                     <div key={`t${i}`} style={{ ...agCell, background: bg, textAlign: 'center' }}>
                       <button
@@ -1956,6 +2155,36 @@ function ViewRouteHeader({ route, sent, angleSends, isCreator, grades, gradeSyst
                       >
                         ✕
                       </button>
+                    </div>,
+                    <div key={`cg${i}`} style={{ ...agCell, background: bg, textAlign: 'center' }}>
+                      {!isCreator && (
+                        <select
+                          value={myAngleSuggestion}
+                          onChange={(e) => onSuggestGrade(undefined, { [ag.angle]: e.target.value || null })}
+                          style={{
+                            padding: '2px 4px', borderRadius: '4px', fontSize: '10px',
+                            border: '1px solid rgba(26,10,0,0.1)', background: 'var(--bg-input)',
+                            fontFamily: 'var(--font-heading)', fontWeight: 600,
+                            width: '52px',
+                          }}
+                        >
+                          <option value="">{myAngleSuggestion || '—'}</option>
+                          {grades.map(g => <option key={g} value={g}>{g}</option>)}
+                        </select>
+                      )}
+                      {isCreator && angleCommunity && angleCommunity.consensus !== ag.grade && (
+                        <button
+                          onClick={() => onAcceptGrade(angleCommunity.consensus, ag.angle)}
+                          style={{
+                            padding: '2px 6px', borderRadius: '4px', fontSize: '9px',
+                            border: '1px solid var(--accent)', background: 'transparent',
+                            color: 'var(--accent)', cursor: 'pointer', fontWeight: 700,
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          ✓ {angleCommunity.consensus}
+                        </button>
+                      )}
                     </div>,
                   ];
                 })}

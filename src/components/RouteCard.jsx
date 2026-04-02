@@ -1,6 +1,6 @@
 import { getYouTubeId } from '../utils/constants';
 
-export default function RouteCard({ route, sent, communityRating, ratingCount, onView, onRate, onToggleSent, missingHoldCount, onRemoveFromPlaylist }) {
+export default function RouteCard({ route, sent, communityRating, ratingCount, communityGrade, onView, onRate, onToggleSent, missingHoldCount, onRemoveFromPlaylist }) {
   const displayRating = Math.round(communityRating || 0);
   const hasVideo  = !!getYouTubeId(route.youtubeUrl);
   const hasAngleGrades = (route.angleGrades || []).length > 0;
@@ -41,6 +41,14 @@ export default function RouteCard({ route, sent, communityRating, ratingCount, o
             }}>
               {route.grade}
             </span>
+            {communityGrade && communityGrade !== route.grade && (
+              <span style={{
+                fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)',
+                marginTop: '2px',
+              }}>
+                {communityGrade}
+              </span>
+            )}
             {route.angle && (
               <span style={{
                 fontSize: '10px', fontWeight: 700, fontFamily: 'var(--font-heading)',
