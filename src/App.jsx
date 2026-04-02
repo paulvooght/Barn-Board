@@ -1724,7 +1724,7 @@ function ViewRouteHeader({ route, sent, angleSends, isCreator, grades, gradeSyst
         }}>
           {route.grade}
         </span>
-        {communityGrades?.headline && communityGrades.headline.consensus !== route.grade && (
+        {(communityGrades?.headline?.consensus !== route.grade || !isCreator) && (
           <button
             onClick={() => setShowGradePanel(prev => !prev)}
             style={{
@@ -1734,12 +1734,20 @@ function ViewRouteHeader({ route, sent, angleSends, isCreator, grades, gradeSyst
               display: 'flex', alignItems: 'center', gap: '3px', flexShrink: 0,
             }}
           >
-            <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-muted)', fontFamily: 'var(--font-heading)' }}>
-              {communityGrades.headline.consensus}
-            </span>
-            <span style={{ fontSize: '9px', color: 'var(--text-dim)' }}>
-              ({communityGrades.headline.count})
-            </span>
+            {communityGrades?.headline ? (
+              <>
+                <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-muted)', fontFamily: 'var(--font-heading)' }}>
+                  {communityGrades.headline.consensus}
+                </span>
+                <span style={{ fontSize: '9px', color: 'var(--text-dim)' }}>
+                  ({communityGrades.headline.count})
+                </span>
+              </>
+            ) : (
+              <span style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)' }}>
+                Grade?
+              </span>
+            )}
           </button>
         )}
         <div style={{
@@ -1785,7 +1793,7 @@ function ViewRouteHeader({ route, sent, angleSends, isCreator, grades, gradeSyst
       </div>
 
       {/* ── Grade Suggestion Panel ── */}
-      {showGradePanel && communityGrades?.headline && (
+      {showGradePanel && (
         <div style={{
           marginTop: '6px', marginBottom: '8px', padding: '10px 12px', borderRadius: '10px',
           background: 'var(--bg-card)', border: '1px solid var(--border)',
@@ -1797,7 +1805,7 @@ function ViewRouteHeader({ route, sent, angleSends, isCreator, grades, gradeSyst
           }}>
             Grade Suggestions
           </div>
-          {Object.entries(communityGrades.headline.votes)
+          {communityGrades?.headline && Object.entries(communityGrades.headline.votes)
             .sort(([, a], [, b]) => b - a)
             .map(([grade, count]) => {
               const pct = Math.round(count / communityGrades.headline.count * 100);
@@ -1816,7 +1824,7 @@ function ViewRouteHeader({ route, sent, angleSends, isCreator, grades, gradeSyst
               );
             })
           }
-          <div style={{ marginTop: '10px', paddingTop: '8px', borderTop: '1px solid var(--border)' }}>
+          <div style={{ marginTop: communityGrades?.headline ? '10px' : 0, paddingTop: communityGrades?.headline ? '8px' : 0, borderTop: communityGrades?.headline ? '1px solid var(--border)' : 'none' }}>
             {!isCreator && (
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600 }}>
@@ -1836,7 +1844,7 @@ function ViewRouteHeader({ route, sent, angleSends, isCreator, grades, gradeSyst
                 </select>
               </div>
             )}
-            {isCreator && communityGrades.headline.consensus !== route.grade && (
+            {isCreator && communityGrades?.headline?.consensus !== route.grade && (
               <button
                 onClick={() => { onAcceptGrade(communityGrades.headline.consensus); setShowGradePanel(false); }}
                 style={{
