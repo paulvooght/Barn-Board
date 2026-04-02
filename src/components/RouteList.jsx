@@ -59,11 +59,6 @@ export default function RouteList({
   const [filterStyles, setFilterStyles] = useState([]);
   const [filterSetter, setFilterSetter] = useState('');
 
-  const setterNames = useMemo(() => {
-    const names = [...new Set(routes.map(r => r.setter).filter(Boolean))];
-    return names.sort((a, b) => a.localeCompare(b));
-  }, [routes]);
-
   const toggleFilter = (list, setter, val) => {
     setter(prev => prev.includes(val) ? prev.filter(v => v !== val) : [...prev, val]);
   };
@@ -116,7 +111,10 @@ export default function RouteList({
   if (filterStyles.length > 0) filtered = filtered.filter(r =>
     filterStyles.every(s => r.styles?.includes(s))
   );
-  if (filterSetter) filtered = filtered.filter(r => r.setter === filterSetter);
+  if (filterSetter.trim()) {
+    const q = filterSetter.trim().toLowerCase();
+    filtered = filtered.filter(r => r.setter && r.setter.toLowerCase().includes(q));
+  }
 
   // Sort
   const sorted = [...filtered].sort((a, b) => {
@@ -131,7 +129,7 @@ export default function RouteList({
     return sortAsc ? cmp : -cmp;
   });
 
-  const hasActiveFilters = filterGradeFrom || filterGradeTo || filterRating > 0 || filterHoldTypes.length > 0 || filterStyles.length > 0 || showHiddenAngles || filterSetter;
+  const hasActiveFilters = filterGradeFrom || filterGradeTo || filterRating > 0 || filterHoldTypes.length > 0 || filterStyles.length > 0 || showHiddenAngles || filterSetter.trim();
 
   const clearFilters = () => {
     setFilterGradeFrom(''); setFilterGradeTo(''); setFilterRating(0);
@@ -308,11 +306,11 @@ export default function RouteList({
       }}>
         {/* "All" tile */}
         <button
-          onClick={() => setActivePlaylist(null)}
+          onClick={() => { setActivePlaylist(null); setShowBrowse(false); }}
           style={{
             ...playlistTileStyle,
-            border: !activePlaylist ? '2px solid var(--accent)' : '1.5px solid var(--border)',
-            background: !activePlaylist ? 'var(--accent-dim)' : 'var(--bg-card)',
+            border: !activePlaylist && !showBrowse ? '2px solid var(--accent)' : '1.5px solid var(--border)',
+            background: !activePlaylist && !showBrowse ? 'var(--accent-dim)' : 'var(--bg-card)',
           }}
         >
           <div style={{ fontSize: '20px', marginBottom: '2px' }}>◇</div>
@@ -332,7 +330,7 @@ export default function RouteList({
           return (
             <button
               key={pl.id}
-              onClick={() => setActivePlaylist(isActive ? null : pl.id)}
+              onClick={() => { setActivePlaylist(isActive ? null : pl.id); setShowBrowse(false); }}
               onContextMenu={(e) => { e.preventDefault(); setConfirmDeletePlaylist(pl.id); }}
               style={{
                 ...playlistTileStyle, position: 'relative',
@@ -416,97 +414,6 @@ export default function RouteList({
             background: 'transparent', color: 'var(--text-muted)', fontSize: '12px',
             fontWeight: 600, cursor: 'pointer',
           }}>✕</button>
-        </div>
-      )}
-
-      {/* Browse shared playlists panel */}
-      {showBrowse && (
-        <div style={{
-          marginBottom: '12px', borderRadius: '12px',
-          background: 'var(--bg-card)', border: '1px solid var(--border)',
-          boxShadow: '0 2px 8px rgba(26,10,0,0.06)', overflow: 'hidden',
-        }}>
-          {/* Panel header */}
-          <div style={{
-            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-            padding: '10px 12px', borderBottom: '1px solid var(--border)',
-          }}>
-            <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>
-              Browse Shared Playlists
-            </span>
-            <button
-              onClick={() => setShowBrowse(false)}
-              style={{
-                padding: '2px 8px', borderRadius: '6px', border: '1px solid var(--border)',
-                background: 'transparent', color: 'var(--text-muted)',
-                fontSize: '12px', cursor: 'pointer',
-              }}
-            >✕</button>
-          </div>
-          {/* Search */}
-          <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--border)' }}>
-            <input
-              type="text"
-              value={browseSearch}
-              onChange={e => setBrowseSearch(e.target.value)}
-              placeholder="Search playlists or creator..."
-              style={{
-                width: '100%', padding: '7px 10px', borderRadius: '8px', boxSizing: 'border-box',
-                border: '1.5px solid rgba(26,10,0,0.15)', background: 'var(--bg-input)',
-                color: 'var(--text-primary)', fontSize: '13px',
-              }}
-            />
-          </div>
-          {/* Results */}
-          <div style={{ maxHeight: '280px', overflowY: 'auto' }}>
-            {browseLoading ? (
-              <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-dim)', fontSize: '12px' }}>
-                Loading...
-              </div>
-            ) : (() => {
-              const q = browseSearch.trim().toLowerCase();
-              const results = sharedPlaylists.filter(p => {
-                if (p.user_id === userId) return false; // hide own
-                if (!q) return true;
-                return p.name.toLowerCase().includes(q) || p.creator_name.toLowerCase().includes(q);
-              });
-              if (results.length === 0) {
-                return (
-                  <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-dim)', fontSize: '12px' }}>
-                    No playlists found
-                  </div>
-                );
-              }
-              return results.map(p => (
-                <div key={p.id} style={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                  padding: '10px 12px', borderBottom: '1px solid rgba(26,10,0,0.06)',
-                }}>
-                  <div style={{ flex: 1, minWidth: 0, marginRight: '10px' }}>
-                    <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {p.name}
-                    </div>
-                    <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '2px' }}>
-                      by {p.creator_name} · {(p.route_ids || []).length} route{(p.route_ids || []).length !== 1 ? 's' : ''}
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => handleAddSharedPlaylist(p)}
-                    disabled={!!addedIds[p.id]}
-                    style={{
-                      padding: '5px 12px', borderRadius: '8px', border: 'none', flexShrink: 0,
-                      background: addedIds[p.id] ? '#4ade80' : 'var(--accent)',
-                      color: '#fff', fontSize: '11px', fontWeight: 700,
-                      cursor: addedIds[p.id] ? 'default' : 'pointer',
-                      transition: 'background 0.2s',
-                    }}
-                  >
-                    {addedIds[p.id] ? 'Added ✓' : 'Add'}
-                  </button>
-                </div>
-              ));
-            })()}
-          </div>
         </div>
       )}
 
@@ -651,30 +558,23 @@ export default function RouteList({
           boxShadow: '0 2px 8px rgba(26,10,0,0.06)',
         }}>
           {/* Setter filter */}
-          {setterNames.length > 0 && (
-            <div style={{ marginBottom: '10px' }}>
-              <div style={filterLabelStyle}>Setter</div>
-              <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-                {setterNames.map(name => {
-                  const on = filterSetter === name;
-                  return (
-                    <button key={name}
-                      onClick={() => setFilterSetter(on ? '' : name)}
-                      style={{
-                        padding: '4px 10px', borderRadius: '8px', fontSize: '11px',
-                        border: on ? '1.5px solid var(--accent)' : '1.5px solid rgba(26,10,0,0.1)',
-                        background: on ? 'var(--accent-dim)' : 'transparent',
-                        color: on ? 'var(--accent)' : 'var(--text-muted)',
-                        cursor: 'pointer', fontWeight: 600,
-                      }}
-                    >
-                      {name}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
+          <div style={{ marginBottom: '10px' }}>
+            <div style={filterLabelStyle}>Setter</div>
+            <input
+              type="text"
+              value={filterSetter}
+              onChange={e => setFilterSetter(e.target.value)}
+              placeholder="Search setter name..."
+              style={{
+                width: '100%', padding: '7px 10px', borderRadius: '8px', boxSizing: 'border-box',
+                border: filterSetter.trim()
+                  ? '1.5px solid var(--accent)'
+                  : '1.5px solid rgba(26,10,0,0.15)',
+                background: filterSetter.trim() ? 'var(--accent-dim)' : 'var(--bg-input)',
+                color: 'var(--text-primary)', fontSize: '12px',
+              }}
+            />
+          </div>
 
           {/* Grade range filter */}
           <div style={{ marginBottom: '10px' }}>
@@ -833,47 +733,131 @@ export default function RouteList({
         </div>
       )}
 
-      {/* Route cards */}
-      {baseRoutes.length === 0 && !activePlaylist ? (
-        <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-dim)' }}>
-          <div style={{ fontSize: '40px', marginBottom: '12px', color: 'var(--yellow)', opacity: 0.4 }}>◇</div>
-          <div style={{ fontSize: '14px', fontWeight: 500, color: 'var(--text-muted)' }}>
-            No routes yet
+      {/* Browse panel — replaces route list when active */}
+      {showBrowse ? (
+        <div>
+          {/* Header */}
+          <div style={{
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            marginBottom: '10px',
+          }}>
+            <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>
+              Browse Shared Playlists
+            </span>
+            <button
+              onClick={() => setShowBrowse(false)}
+              style={{
+                padding: '2px 8px', borderRadius: '6px', border: '1px solid var(--border)',
+                background: 'transparent', color: 'var(--text-muted)',
+                fontSize: '12px', cursor: 'pointer',
+              }}
+            >✕</button>
           </div>
-          <div style={{ fontSize: '12px', color: 'var(--text-dim)', marginTop: '4px' }}>
-            Create your first route on the board
-          </div>
-        </div>
-      ) : baseRoutes.length === 0 && activePlaylist ? (
-        <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-dim)' }}>
-          <div style={{ fontSize: '14px', fontWeight: 500, color: 'var(--text-muted)' }}>
-            No routes in this playlist
-          </div>
-          <div style={{ fontSize: '12px', color: 'var(--text-dim)', marginTop: '4px' }}>
-            Add routes from the route detail page
-          </div>
-        </div>
-      ) : sorted.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-dim)' }}>
-          <div style={{ fontSize: '14px', fontWeight: 500, color: 'var(--text-muted)' }}>
-            No routes match filters
-          </div>
+          {/* Search */}
+          <input
+            type="text"
+            value={browseSearch}
+            onChange={e => setBrowseSearch(e.target.value)}
+            placeholder="Search playlists or creator..."
+            style={{
+              width: '100%', padding: '7px 10px', borderRadius: '8px', boxSizing: 'border-box',
+              border: '1.5px solid rgba(26,10,0,0.15)', background: 'var(--bg-input)',
+              color: 'var(--text-primary)', fontSize: '13px', marginBottom: '10px',
+            }}
+          />
+          {/* Results */}
+          {browseLoading ? (
+            <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-dim)', fontSize: '12px' }}>
+              Loading...
+            </div>
+          ) : (() => {
+            const q = browseSearch.trim().toLowerCase();
+            const results = sharedPlaylists.filter(p => {
+              if (p.user_id === userId) return false; // hide own
+              if (!q) return true;
+              return p.name.toLowerCase().includes(q) || p.creator_name.toLowerCase().includes(q);
+            });
+            if (results.length === 0) {
+              return (
+                <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-dim)', fontSize: '12px' }}>
+                  No playlists found
+                </div>
+              );
+            }
+            return results.map(p => (
+              <div key={p.id} style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                padding: '10px 12px', borderRadius: '10px', marginBottom: '6px',
+                background: 'var(--bg-card)', border: '1px solid var(--border)',
+              }}>
+                <div style={{ flex: 1, minWidth: 0, marginRight: '10px' }}>
+                  <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {p.name}
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '2px' }}>
+                    by {p.creator_name} · {(p.route_ids || []).length} route{(p.route_ids || []).length !== 1 ? 's' : ''}
+                  </div>
+                </div>
+                <button
+                  onClick={() => handleAddSharedPlaylist(p)}
+                  disabled={!!addedIds[p.id]}
+                  style={{
+                    padding: '5px 12px', borderRadius: '8px', border: 'none', flexShrink: 0,
+                    background: addedIds[p.id] ? '#4ade80' : 'var(--accent)',
+                    color: '#fff', fontSize: '11px', fontWeight: 700,
+                    cursor: addedIds[p.id] ? 'default' : 'pointer',
+                    transition: 'background 0.2s',
+                  }}
+                >
+                  {addedIds[p.id] ? 'Added ✓' : 'Add'}
+                </button>
+              </div>
+            ));
+          })()}
         </div>
       ) : (
-        sorted.map(route => (
-          <RouteCard
-            key={route.id}
-            route={route}
-            sent={urd[route.id]?.sent || false}
-            communityRating={cr[route.id]?.avg || 0}
-            ratingCount={cr[route.id]?.count || 0}
-            onView={() => onViewRoute(route)}
-            onRate={(rating) => onRateRoute(route.id, rating)}
-            onToggleSent={() => onToggleSent(route.id)}
-            missingHoldCount={getMissingHoldCount(route, holdIdSet)}
-            onRemoveFromPlaylist={activePlaylist ? () => onRemoveRouteFromPlaylist(route.id, activePlaylist) : null}
-          />
-        ))
+        /* Route cards */
+        baseRoutes.length === 0 && !activePlaylist ? (
+          <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-dim)' }}>
+            <div style={{ fontSize: '40px', marginBottom: '12px', color: 'var(--yellow)', opacity: 0.4 }}>◇</div>
+            <div style={{ fontSize: '14px', fontWeight: 500, color: 'var(--text-muted)' }}>
+              No routes yet
+            </div>
+            <div style={{ fontSize: '12px', color: 'var(--text-dim)', marginTop: '4px' }}>
+              Create your first route on the board
+            </div>
+          </div>
+        ) : baseRoutes.length === 0 && activePlaylist ? (
+          <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-dim)' }}>
+            <div style={{ fontSize: '14px', fontWeight: 500, color: 'var(--text-muted)' }}>
+              No routes in this playlist
+            </div>
+            <div style={{ fontSize: '12px', color: 'var(--text-dim)', marginTop: '4px' }}>
+              Add routes from the route detail page
+            </div>
+          </div>
+        ) : sorted.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-dim)' }}>
+            <div style={{ fontSize: '14px', fontWeight: 500, color: 'var(--text-muted)' }}>
+              No routes match filters
+            </div>
+          </div>
+        ) : (
+          sorted.map(route => (
+            <RouteCard
+              key={route.id}
+              route={route}
+              sent={urd[route.id]?.sent || false}
+              communityRating={cr[route.id]?.avg || 0}
+              ratingCount={cr[route.id]?.count || 0}
+              onView={() => onViewRoute(route)}
+              onRate={(rating) => onRateRoute(route.id, rating)}
+              onToggleSent={() => onToggleSent(route.id)}
+              missingHoldCount={getMissingHoldCount(route, holdIdSet)}
+              onRemoveFromPlaylist={activePlaylist ? () => onRemoveRouteFromPlaylist(route.id, activePlaylist) : null}
+            />
+          ))
+        )
       )}
     </div>
   );
