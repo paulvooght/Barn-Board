@@ -2208,7 +2208,6 @@ function ViewRouteHeader({ route, sent, angleSends, isCreator, grades, gradeSyst
                     const angleKey = String(row.angle);
                     const angleCommunity = communityGrades?.angles?.[angleKey] || null;
                     const myAngleSuggestion = myGradeSuggestions?.angles?.[angleKey] || '';
-                    const iOwnThisSuggestion = isCommunity && !!myAngleSuggestion;
                     const baseBg = i % 2 === 0 ? 'rgba(26,10,0,0.02)' : 'transparent';
                     const communityBg = i % 2 === 0 ? 'rgba(0,71,255,0.05)' : 'rgba(0,71,255,0.03)';
                     const bg = isCommunity ? communityBg : baseBg;
@@ -2259,34 +2258,6 @@ function ViewRouteHeader({ route, sent, angleSends, isCreator, grades, gradeSyst
                           </button>
                         )}
                       </div>,
-                      /* Delete / Remove suggestion */
-                      <div key={`d${i}`} style={{ ...agCell, background: bg, textAlign: 'center' }}>
-                        {isOfficial && isCreator && (
-                          <button
-                            onClick={() => onRemoveAngleGrade(row.angle)}
-                            style={{
-                              padding: '2px 6px', borderRadius: '4px', fontSize: '10px',
-                              border: '1px solid rgba(255,82,82,0.3)', background: 'rgba(255,82,82,0.06)',
-                              color: '#FF5252', cursor: 'pointer',
-                            }}
-                          >
-                            ✕
-                          </button>
-                        )}
-                        {isCommunity && iOwnThisSuggestion && (
-                          <button
-                            onClick={() => onSuggestGrade(undefined, { [row.angle]: null })}
-                            title="Remove your suggestion"
-                            style={{
-                              padding: '2px 6px', borderRadius: '4px', fontSize: '10px',
-                              border: '1px solid rgba(255,82,82,0.3)', background: 'rgba(255,82,82,0.06)',
-                              color: '#FF5252', cursor: 'pointer',
-                            }}
-                          >
-                            ✕
-                          </button>
-                        )}
-                      </div>,
                       /* Suggest / Accept */
                       <div key={`cg${i}`} style={{ ...agCell, background: bg, textAlign: 'center' }}>
                         {isOfficial && (
@@ -2322,29 +2293,9 @@ function ViewRouteHeader({ route, sent, angleSends, isCreator, grades, gradeSyst
                         )}
                         {isCommunity && (
                           <>
-                            {!isCreator && iOwnThisSuggestion && (
+                            {!isCreator && (
                               showAngleSuggest === row.angle ? (
                                 <select autoFocus value={myAngleSuggestion}
-                                  onChange={(e) => { onSuggestGrade(undefined, { [row.angle]: e.target.value || null }); setShowAngleSuggest(null); }}
-                                  onBlur={() => setShowAngleSuggest(null)}
-                                  style={{ padding: '2px 4px', borderRadius: '4px', fontSize: '10px', border: '1px solid rgba(0,71,255,0.2)', background: 'var(--bg-input)', fontFamily: 'var(--font-heading)', fontWeight: 600, width: '52px' }}
-                                >
-                                  <option value="">—</option>
-                                  {grades.map(g => <option key={g} value={g}>{g}</option>)}
-                                </select>
-                              ) : (
-                                <button onClick={() => setShowAngleSuggest(row.angle)} title="Change your suggestion"
-                                  style={{ background: 'none', border: '1px solid rgba(0,71,255,0.15)', borderRadius: '4px', cursor: 'pointer', padding: '2px 5px' }}
-                                >
-                                  <span style={{ fontSize: '9px', fontWeight: 600, color: 'var(--text-muted)' }}>
-                                    Your: {myAngleSuggestion}
-                                  </span>
-                                </button>
-                              )
-                            )}
-                            {!isCreator && !iOwnThisSuggestion && (
-                              showAngleSuggest === row.angle ? (
-                                <select autoFocus value=""
                                   onChange={(e) => { onSuggestGrade(undefined, { [row.angle]: e.target.value || null }); setShowAngleSuggest(null); }}
                                   onBlur={() => setShowAngleSuggest(null)}
                                   style={{ padding: '2px 4px', borderRadius: '4px', fontSize: '10px', border: '1px solid rgba(26,10,0,0.1)', background: 'var(--bg-input)', fontFamily: 'var(--font-heading)', fontWeight: 600, width: '52px' }}
@@ -2370,6 +2321,34 @@ function ViewRouteHeader({ route, sent, angleSends, isCreator, grades, gradeSyst
                               </button>
                             )}
                           </>
+                        )}
+                      </div>,
+                      /* Delete / Remove suggestion — far right */
+                      <div key={`d${i}`} style={{ ...agCell, background: bg, textAlign: 'center' }}>
+                        {isOfficial && isCreator && (
+                          <button
+                            onClick={() => onRemoveAngleGrade(row.angle)}
+                            style={{
+                              padding: '2px 6px', borderRadius: '4px', fontSize: '10px',
+                              border: '1px solid rgba(255,82,82,0.3)', background: 'rgba(255,82,82,0.06)',
+                              color: '#FF5252', cursor: 'pointer',
+                            }}
+                          >
+                            ✕
+                          </button>
+                        )}
+                        {isCommunity && !!myAngleSuggestion && (
+                          <button
+                            onClick={() => onSuggestGrade(undefined, { [row.angle]: null })}
+                            title="Remove your suggestion"
+                            style={{
+                              padding: '2px 6px', borderRadius: '4px', fontSize: '10px',
+                              border: '1px solid rgba(255,82,82,0.3)', background: 'rgba(255,82,82,0.06)',
+                              color: '#FF5252', cursor: 'pointer',
+                            }}
+                          >
+                            ✕
+                          </button>
                         )}
                       </div>,
                     ];
