@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 
 export default function AuthView() {
@@ -8,6 +8,8 @@ export default function AuthView() {
   const [loading, setLoading]   = useState(false);
   const [error, setError]       = useState('');
   const [message, setMessage]   = useState('');
+  const emailRef = useRef(null);
+  const passRef = useRef(null);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -27,20 +29,29 @@ export default function AuthView() {
     setLoading(false);
   };
 
+  // iOS PWA standalone mode can block native input focus.
+  // Explicit tap handler on the label ensures focus reaches the input.
+  const tapToFocus = (ref) => () => {
+    if (ref.current) ref.current.focus();
+  };
+
   const input = {
     width: '100%', padding: '10px 14px', borderRadius: 8,
     border: '1.5px solid #e0d5cc', fontFamily: 'DM Sans, sans-serif',
-    fontSize: 16, boxSizing: 'border-box', outline: 'none',
+    fontSize: 16, boxSizing: 'border-box',
+    WebkitAppearance: 'none', appearance: 'none',
+    background: 'white', color: '#1A0A00',
   };
 
   return (
     <div style={{
-      minHeight: '100vh', background: '#FFAB94',
-      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
+      minHeight: '100dvh', background: '#FFAB94',
+      paddingTop: '30vh', paddingLeft: 20, paddingRight: 20, paddingBottom: 20,
     }}>
       <div style={{
         background: 'white', borderRadius: 16, padding: '32px 24px',
-        width: '100%', maxWidth: 360, boxShadow: '0 4px 24px rgba(0,0,0,0.08)',
+        width: '100%', maxWidth: 360, margin: '0 auto',
+        boxShadow: '0 4px 24px rgba(0,0,0,0.08)',
       }}>
         <div style={{ textAlign: 'center', marginBottom: 28 }}>
           <div style={{ fontFamily: "'Kodchasan', sans-serif", fontWeight: 700, fontSize: 22, color: '#0047FF', letterSpacing: 1 }}>
@@ -52,20 +63,18 @@ export default function AuthView() {
         </div>
 
         <form onSubmit={handleSubmit}>
-          <div style={{ marginBottom: 12 }}>
-            <input type="email" inputMode="email" autoComplete="email"
+          <label style={{ display: 'block', marginBottom: 12 }}
+            onTouchEnd={tapToFocus(emailRef)} onClick={tapToFocus(emailRef)}>
+            <input ref={emailRef} type="email" inputMode="email" autoComplete="email"
               placeholder="Email" value={email}
-              onClick={e => e.target.focus()}
-              onTouchEnd={e => e.target.focus()}
               onChange={e => setEmail(e.target.value)} required style={input} />
-          </div>
-          <div style={{ marginBottom: 20 }}>
-            <input type="password" inputMode="text" autoComplete="current-password"
+          </label>
+          <label style={{ display: 'block', marginBottom: 20 }}
+            onTouchEnd={tapToFocus(passRef)} onClick={tapToFocus(passRef)}>
+            <input ref={passRef} type="password" inputMode="text" autoComplete="current-password"
               placeholder="Password" value={password}
-              onClick={e => e.target.focus()}
-              onTouchEnd={e => e.target.focus()}
               onChange={e => setPassword(e.target.value)} required style={input} />
-          </div>
+          </label>
 
           {error   && <div style={{ color: '#f87171', fontSize: 13, marginBottom: 10, fontFamily: 'DM Sans, sans-serif' }}>{error}</div>}
           {message && <div style={{ color: '#22a870', fontSize: 13, marginBottom: 10, fontFamily: 'DM Sans, sans-serif' }}>{message}</div>}
