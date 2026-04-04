@@ -1301,11 +1301,9 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
 
       {/* Vertex drag magnifier loupe — touch only */}
       {draggingVertex && touchPosRef.current && dragVertexPctRef.current && (() => {
-        const LOUPE_W = 160;
-        const LOUPE_H = 120;
+        const LOUPE_SIZE = 150;
         const MAGNIFICATION = 3 * scale;
         const OFFSET_ABOVE = 80;
-        const BORDER_RADIUS = 12;
 
         const { clientX, clientY } = touchPosRef.current;
         const { x: vtxBoardX, y: vtxBoardY } = dragVertexPctRef.current;
@@ -1313,20 +1311,36 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
         const vtxImgFracX = (boardRegion.left / 100) + (vtxBoardX / 100) * (boardRegion.width / 100);
         const vtxImgFracY = (boardRegion.top / 100) + (vtxBoardY / 100) * (boardRegion.height / 100);
 
-        const magW = LOUPE_W * MAGNIFICATION;
+        const magW = LOUPE_SIZE * MAGNIFICATION;
         const magH = magW * (imgSize.h / imgSize.w);
 
-        const imgLeft = -(vtxImgFracX * magW) + LOUPE_W / 2;
-        const imgTop  = -(vtxImgFracY * magH) + LOUPE_H / 2;
+        const imgLeft = -(vtxImgFracX * magW) + LOUPE_SIZE / 2;
+        const imgTop  = -(vtxImgFracY * magH) + LOUPE_SIZE / 2;
 
-        const loupeLeft = clamp(clientX - LOUPE_W / 2, 4, window.innerWidth - LOUPE_W - 4);
-        const loupeTop  = clamp(clientY - OFFSET_ABOVE - LOUPE_H, 4, clientY - OFFSET_ABOVE);
+        // Adjacent vertex positions for boundary lines
+        const hold = holds.find(h => h.id === draggingVertex.holdId);
+        const poly = hold?.polygon;
+        const idx = draggingVertex.vertexIdx;
+        let prevLoupe = null, nextLoupe = null;
+        if (poly && poly.length >= 3) {
+          const N = poly.length;
+          const toLoupe = (bx, by) => ({
+            x: ((boardRegion.left / 100) + (bx / 100) * (boardRegion.width / 100)) * magW + imgLeft,
+            y: ((boardRegion.top / 100) + (by / 100) * (boardRegion.height / 100)) * magH + imgTop,
+          });
+          prevLoupe = toLoupe(poly[(idx - 1 + N) % N][0], poly[(idx - 1 + N) % N][1]);
+          nextLoupe = toLoupe(poly[(idx + 1) % N][0], poly[(idx + 1) % N][1]);
+        }
+        const center = LOUPE_SIZE / 2;
+
+        const loupeLeft = clamp(clientX - LOUPE_SIZE / 2, 4, window.innerWidth - LOUPE_SIZE - 4);
+        const loupeTop  = clamp(clientY - OFFSET_ABOVE - LOUPE_SIZE, 4, clientY - OFFSET_ABOVE);
 
         return (
           <div style={{
             position: 'fixed', left: loupeLeft, top: loupeTop,
-            width: LOUPE_W, height: LOUPE_H,
-            borderRadius: BORDER_RADIUS,
+            width: LOUPE_SIZE, height: LOUPE_SIZE,
+            borderRadius: '50%',
             border: '2px solid rgba(255,255,255,0.9)',
             boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
             overflow: 'hidden', pointerEvents: 'none', zIndex: 300,
@@ -1335,9 +1349,19 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
             <img src={imgSrc || '/Barn_Set_01_V4.jpg'} alt="" draggable={false}
               style={{ position: 'absolute', width: magW, height: magH, left: imgLeft, top: imgTop, pointerEvents: 'none' }}
             />
-            <div style={{ position: 'absolute', left: LOUPE_W / 2 - 1, top: 0, width: 2, height: LOUPE_H, background: 'rgba(0,71,255,0.5)', pointerEvents: 'none' }} />
-            <div style={{ position: 'absolute', left: 0, top: LOUPE_H / 2 - 1, width: LOUPE_W, height: 2, background: 'rgba(0,71,255,0.5)', pointerEvents: 'none' }} />
-            <div style={{ position: 'absolute', left: LOUPE_W / 2 - 3, top: LOUPE_H / 2 - 3, width: 6, height: 6, borderRadius: '50%', background: '#0047FF', border: '1px solid white', pointerEvents: 'none' }} />
+            {prevLoupe && nextLoupe && (
+              <svg width={LOUPE_SIZE} height={LOUPE_SIZE}
+                style={{ position: 'absolute', top: 0, left: 0, pointerEvents: 'none' }}
+              >
+                <line x1={prevLoupe.x} y1={prevLoupe.y} x2={center} y2={center}
+                  stroke="rgba(0,71,255,0.7)" strokeWidth={2} />
+                <line x1={center} y1={center} x2={nextLoupe.x} y2={nextLoupe.y}
+                  stroke="rgba(0,71,255,0.7)" strokeWidth={2} />
+              </svg>
+            )}
+            <div style={{ position: 'absolute', left: center - 1, top: 0, width: 2, height: LOUPE_SIZE, background: 'rgba(0,71,255,0.5)', pointerEvents: 'none' }} />
+            <div style={{ position: 'absolute', left: 0, top: center - 1, width: LOUPE_SIZE, height: 2, background: 'rgba(0,71,255,0.5)', pointerEvents: 'none' }} />
+            <div style={{ position: 'absolute', left: center - 3, top: center - 3, width: 6, height: 6, borderRadius: '50%', background: '#0047FF', border: '1px solid white', pointerEvents: 'none' }} />
           </div>
         );
       })()}
