@@ -55,11 +55,15 @@ export default function AuthView() {
           <div style={{ marginBottom: 12 }}>
             <input type="email" inputMode="email" autoComplete="email"
               placeholder="Email" value={email}
+              onClick={e => e.target.focus()}
+              onTouchEnd={e => e.target.focus()}
               onChange={e => setEmail(e.target.value)} required style={input} />
           </div>
           <div style={{ marginBottom: 20 }}>
             <input type="password" inputMode="text" autoComplete="current-password"
               placeholder="Password" value={password}
+              onClick={e => e.target.focus()}
+              onTouchEnd={e => e.target.focus()}
               onChange={e => setPassword(e.target.value)} required style={input} />
           </div>
 
