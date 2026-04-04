@@ -61,6 +61,7 @@ input, textarea, select {
   touch-action: manipulation;
   -webkit-user-select: text;
   user-select: text;
+  font-size: 16px !important;
 }
 
 input:focus, select:focus {
