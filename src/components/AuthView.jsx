@@ -1,8 +1,5 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState } from 'react';
 import { supabase } from '../lib/supabase';
-
-// Detect iOS PWA standalone mode
-const isStandalone = window.navigator.standalone === true;
 
 export default function AuthView() {
   const [email, setEmail]       = useState('');
@@ -11,35 +8,6 @@ export default function AuthView() {
   const [loading, setLoading]   = useState(false);
   const [error, setError]       = useState('');
   const [message, setMessage]   = useState('');
-  const emailRef = useRef(null);
-  const passRef = useRef(null);
-
-  // iOS PWA standalone: attach native touchstart handlers that use the
-  // readonly trick to force the keyboard open. Must be native (not React
-  // synthetic) so the focus happens within the original user gesture.
-  useEffect(() => {
-    if (!isStandalone) return;
-
-    const forceKeyboard = (e) => {
-      const el = e.currentTarget;
-      el.setAttribute('readonly', 'readonly');
-      el.focus();
-      requestAnimationFrame(() => {
-        el.removeAttribute('readonly');
-        el.focus();
-      });
-    };
-
-    const emailEl = emailRef.current;
-    const passEl = passRef.current;
-    if (emailEl) emailEl.addEventListener('touchstart', forceKeyboard, { passive: true });
-    if (passEl) passEl.addEventListener('touchstart', forceKeyboard, { passive: true });
-
-    return () => {
-      if (emailEl) emailEl.removeEventListener('touchstart', forceKeyboard);
-      if (passEl) passEl.removeEventListener('touchstart', forceKeyboard);
-    };
-  }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -63,8 +31,6 @@ export default function AuthView() {
     width: '100%', padding: '10px 14px', borderRadius: 8,
     border: '1.5px solid #e0d5cc', fontFamily: 'DM Sans, sans-serif',
     fontSize: 16, boxSizing: 'border-box',
-    WebkitAppearance: 'none', appearance: 'none',
-    background: 'white', color: '#1A0A00',
   };
 
   return (
@@ -88,12 +54,12 @@ export default function AuthView() {
 
         <form onSubmit={handleSubmit}>
           <div style={{ marginBottom: 12 }}>
-            <input ref={emailRef} type="email" inputMode="email" autoComplete="email"
+            <input type="email" autoComplete="email"
               placeholder="Email" value={email}
               onChange={e => setEmail(e.target.value)} required style={input} />
           </div>
           <div style={{ marginBottom: 20 }}>
-            <input ref={passRef} type="password" inputMode="text" autoComplete="current-password"
+            <input type="password" autoComplete="current-password"
               placeholder="Password" value={password}
               onChange={e => setPassword(e.target.value)} required style={input} />
           </div>
