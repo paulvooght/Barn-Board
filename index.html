@@ -15,31 +15,16 @@
   <body>
     <div id="root"></div>
     <script>
-      // One-time cache bust: unregister old SWs and clear caches (bump version to re-trigger)
-      (function() {
-        var CACHE_BUST_VERSION = 1;
-        var key = 'cache_bust_v';
-        if (localStorage.getItem(key) !== String(CACHE_BUST_VERSION)) {
-          if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.getRegistrations().then(function(regs) {
-              regs.forEach(function(r) { r.unregister(); });
-            });
-          }
-          if ('caches' in window) {
-            caches.keys().then(function(names) {
-              names.forEach(function(n) { caches.delete(n); });
-            });
-          }
-          localStorage.setItem(key, String(CACHE_BUST_VERSION));
-          // Reload after clearing so the fresh version loads without SW
-          setTimeout(function() { location.reload(); }, 500);
-        }
-      })();
-
-      // iOS PWA standalone: native focus handler bypasses React synthetic events
+      // iOS PWA standalone: readonly trick forces keyboard to appear on focus
       document.addEventListener('touchend', function(e) {
-        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') {
-          setTimeout(function() { e.target.focus(); }, 0);
+        var el = e.target;
+        if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
+          el.setAttribute('readonly', 'readonly');
+          el.focus();
+          setTimeout(function() {
+            el.removeAttribute('readonly');
+            el.focus();
+          }, 50);
         }
       }, { passive: true });
     </script>
