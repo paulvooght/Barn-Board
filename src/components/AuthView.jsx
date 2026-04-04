@@ -43,7 +43,7 @@ export default function AuthView() {
         width: '100%', maxWidth: 360, boxShadow: '0 4px 24px rgba(0,0,0,0.08)',
       }}>
         <div style={{ textAlign: 'center', marginBottom: 28 }}>
-          <div style={{ fontFamily: "'Space Mono', monospace", fontWeight: 700, fontSize: 22, color: '#0047FF', letterSpacing: 1 }}>
+          <div style={{ fontFamily: "'Kodchasan', sans-serif", fontWeight: 700, fontSize: 22, color: '#0047FF', letterSpacing: 1 }}>
             BARN BOARD
           </div>
           <div style={{ fontFamily: 'DM Sans, sans-serif', fontSize: 12, color: '#888', marginTop: 2, letterSpacing: 1 }}>

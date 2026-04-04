@@ -659,7 +659,7 @@ export default function App() {
     if (savedRoutes) flushRoutesToSupabase(savedRoutes);
     resetCreate();
     setView('routes');
-  }, [routeName, routeGrade, routeAngle, setter, holdTypes, techniques, styles, setRoutes, resetCreate, editingRouteId, logRouteCreated, allHolds, flushRoutesToSupabase]);
+  }, [routeName, routeGrade, routeAngle, setter, description, holdTypes, techniques, styles, setRoutes, resetCreate, editingRouteId, logRouteCreated, allHolds, flushRoutesToSupabase]);
 
   const viewRoute = useCallback((route) => {
     // Defensive: always read the latest version of this route from localStorage
@@ -1121,7 +1121,7 @@ export default function App() {
   // Show auth screen until session resolves
   if (authLoading) return (
     <div style={{ minHeight: '100vh', background: '#FFAB94', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <div style={{ fontFamily: "'Space Mono', monospace", color: '#0047FF', fontWeight: 700, fontSize: 18 }}>BARN BOARD</div>
+      <div style={{ fontFamily: "'Kodchasan', sans-serif", color: '#0047FF', fontWeight: 700, fontSize: 18 }}>BARN BOARD</div>
     </div>
   );
   if (!user) return <AuthView />;
@@ -1567,6 +1567,7 @@ export default function App() {
           grade={routeGrade} setGrade={setRouteGrade}
           angle={routeAngle} setAngle={setRouteAngle}
           setter={setter} setSetter={setSetter}
+          description={description} setDescription={setDescription}
           youtubeUrl={youtubeUrl} setYoutubeUrl={setYoutubeUrl}
           holdTypes={holdTypes} setHoldTypes={setHoldTypes}
           autoHoldTypes={autoHoldTypes}
@@ -1978,6 +1979,7 @@ function ViewRouteHeader({ route, sent, angleSends, isCreator, grades, gradeSyst
           {route.angle}°
         </span>
         {route.setter && <span>by {route.setter}</span>}
+        {route.description && <span style={{ fontStyle: 'italic' }}>— {route.description}</span>}
       </div>
 
       {/* ── Missing holds warning ── */}
