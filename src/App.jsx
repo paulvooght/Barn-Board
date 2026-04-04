@@ -93,22 +93,30 @@ export default function App() {
   const hasLoadedOnce = useRef(false);
 
   const loadDataFromSupabase = useCallback(async (userId, isFirstLoad) => {
-    // a) Load ALL routes (shared — every user sees every route)
-    const { data: routeRows } = await supabase.from('routes').select('id, user_id, data').order('created_at', { ascending: false });
+    // Fire all 6 queries in parallel — biggest startup speedup
+    const [routeResult, urdResult, ratingResult, gradeResult, sessionResult, plResult] = await Promise.all([
+      supabase.from('routes').select('id, user_id, data').order('created_at', { ascending: false }),
+      supabase.from('user_route_data').select('route_id, sent, rating, angle_sends, grade_suggestions').eq('user_id', userId),
+      supabase.from('user_route_data').select('route_id, rating').gt('rating', 0),
+      supabase.from('user_route_data').select('route_id, grade_suggestions').not('grade_suggestions', 'eq', '{}'),
+      supabase.from('sessions').select('data').eq('user_id', userId).order('created_at', { ascending: false }),
+      supabase.from('board_settings').select('data').eq('key', `playlists_${userId}`).maybeSingle(),
+    ]);
+
+    // a) Routes
+    const routeRows = routeResult.data;
     if (routeRows && routeRows.length > 0) {
-      const allRoutes = routeRows.map(r => ({
+      setRoutes(routeRows.map(r => ({
         ...r.data,
-        creatorId: r.data.creatorId || r.user_id, // backfill for old routes
-      }));
-      setRoutes(allRoutes);
+        creatorId: r.data.creatorId || r.user_id,
+      })));
     } else if (isFirstLoad) {
-      // First login — migrate any localStorage routes
+      // First login — migrate any localStorage routes (sequential, runs once ever)
       const local = JSON.parse(localStorage.getItem('barnboard_routes') || '[]');
       if (local.length > 0) {
         const withCreator = local.map(r => ({ ...r, creatorId: r.creatorId || userId }));
         setRoutes(withCreator);
         await supabase.from('routes').insert(withCreator.map(r => ({ id: r.id, user_id: userId, data: stripPerUserFields(r) })));
-        // Migrate per-user sent/rating to user_route_data
         for (const r of local) {
           if (r.sent || r.rating) {
             const angleSends = (r.angleGrades || []).filter(ag => ag.sent).map(ag => ag.angle);
@@ -121,20 +129,20 @@ export default function App() {
         }
       }
     }
-    // b) Load current user's per-route data (including grade_suggestions)
-    const { data: urdRows } = await supabase.from('user_route_data').select('route_id, sent, rating, angle_sends, grade_suggestions').eq('user_id', userId);
+
+    // b) User's per-route data
     const urdMap = {};
-    if (urdRows) {
-      for (const row of urdRows) {
+    if (urdResult.data) {
+      for (const row of urdResult.data) {
         urdMap[row.route_id] = { sent: row.sent, rating: row.rating, angleSends: row.angle_sends || [], gradeSuggestions: row.grade_suggestions || {} };
       }
     }
     setUserRouteData(urdMap);
-    // c) Load ALL ratings for community averages
-    const { data: ratingRows } = await supabase.from('user_route_data').select('route_id, rating').gt('rating', 0);
+
+    // c) Community ratings
     const ratingsMap = {};
-    if (ratingRows) {
-      for (const row of ratingRows) {
+    if (ratingResult.data) {
+      for (const row of ratingResult.data) {
         if (!ratingsMap[row.route_id]) ratingsMap[row.route_id] = { total: 0, count: 0 };
         ratingsMap[row.route_id].total += row.rating;
         ratingsMap[row.route_id].count += 1;
@@ -145,14 +153,11 @@ export default function App() {
       avgMap[rid] = { avg: Math.round((total / count) * 10) / 10, count };
     }
     setCommunityRatings(avgMap);
-    // d) Load ALL grade suggestions for community consensus
-    const { data: gradeRows } = await supabase
-      .from('user_route_data')
-      .select('route_id, grade_suggestions')
-      .not('grade_suggestions', 'eq', '{}');
+
+    // d) Community grade consensus
     const gradeMap = {};
-    if (gradeRows) {
-      for (const row of gradeRows) {
+    if (gradeResult.data) {
+      for (const row of gradeResult.data) {
         const gs = row.grade_suggestions || {};
         if (!gradeMap[row.route_id]) gradeMap[row.route_id] = { headline: {}, angles: {} };
         if (gs.headline) {
@@ -191,8 +196,9 @@ export default function App() {
       communityGradeResult[routeId] = result;
     }
     setCommunityGrades(communityGradeResult);
-    // Sessions
-    const { data: sessionRows } = await supabase.from('sessions').select('data').eq('user_id', userId).order('created_at', { ascending: false });
+
+    // e) Sessions
+    const sessionRows = sessionResult.data;
     if (sessionRows && sessionRows.length > 0) {
       setSessions(sessionRows.map(r => r.data));
     } else if (isFirstLoad) {
@@ -202,8 +208,9 @@ export default function App() {
         await supabase.from('sessions').insert(local.map(s => ({ id: s.id, user_id: userId, data: s })));
       }
     }
-    // Playlists
-    const { data: plData } = await supabase.from('board_settings').select('data').eq('key', `playlists_${userId}`).maybeSingle();
+
+    // f) Playlists
+    const plData = plResult.data;
     if (plData) {
       setPlaylists(plData.data || []);
     } else if (isFirstLoad) {
@@ -213,6 +220,7 @@ export default function App() {
         await supabase.from('board_settings').upsert({ key: `playlists_${userId}`, data: local });
       }
     }
+
     setDataReady(true);
   }, [setRoutes, setSessions, setPlaylists]);
 

@@ -30,7 +30,7 @@ export default function AuthView() {
   const input = {
     width: '100%', padding: '10px 14px', borderRadius: 8,
     border: '1.5px solid #e0d5cc', fontFamily: 'DM Sans, sans-serif',
-    fontSize: 15, boxSizing: 'border-box', outline: 'none',
+    fontSize: 16, boxSizing: 'border-box', outline: 'none',
   };
 
   return (
