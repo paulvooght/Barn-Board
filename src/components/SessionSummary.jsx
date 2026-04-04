@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { V_GRADE_INDEX, FONT_GRADE_INDEX } from '../utils/constants';
 
 function formatDuration(ms) {
   const totalSec = Math.floor(ms / 1000);
@@ -11,6 +12,7 @@ function formatDuration(ms) {
 }
 
 export default function SessionSummary({ session, routes, grades, allSessions, onClose }) {
+  const gradeIndex = grades[0] === 'VB' ? V_GRADE_INDEX : FONT_GRADE_INDEX;
   const duration = new Date(session.endTime) - new Date(session.startTime);
 
   // Detailed sends — includes angle + grade from when the send was logged
@@ -50,14 +52,14 @@ export default function SessionSummary({ session, routes, grades, allSessions, o
     let hardestIdx = -1;
     let hardest = null;
     for (const g of allGradesSent) {
-      const idx = grades.indexOf(g);
+      const idx = gradeIndex[g] ?? -1;
       if (idx > hardestIdx) {
         hardestIdx = idx;
         hardest = g;
       }
     }
     return hardest;
-  }, [allGradesSent, grades]);
+  }, [allGradesSent, grades, gradeIndex]);
 
   // Combine angles from session log AND sent routes for completeness
   const sessionAngles = session.anglesClimbed || [];
@@ -104,7 +106,7 @@ export default function SessionSummary({ session, routes, grades, allSessions, o
 
     // Hardest grade ever sent in a session
     if (hardestGrade) {
-      const hardestIdx = grades.indexOf(hardestGrade);
+      const hardestIdx = gradeIndex[hardestGrade] ?? -1;
       let prevHardestIdx = -1;
       for (const ps of prevSessions) {
         const psSends = ps.sends || [];
@@ -112,7 +114,7 @@ export default function SessionSummary({ session, routes, grades, allSessions, o
           ? psSends.map(s => s.grade).filter(Boolean)
           : routes.filter(r => ps.routesSent.includes(r.id)).map(r => r.grade);
         for (const g of psGrades) {
-          const idx = grades.indexOf(g);
+          const idx = gradeIndex[g] ?? -1;
           if (idx > prevHardestIdx) prevHardestIdx = idx;
         }
       }

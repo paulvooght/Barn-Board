@@ -32,7 +32,7 @@ export function useCustomHolds(user) {
     loadedForUser.current = user.id;
 
     const load = async () => {
-      const { data, error } = await supabase.from('board_settings').select('key, data');
+      const { data, error } = await supabase.from('board_settings').select('key, data').in('key', ['hold_overrides', 'custom_holds']);
       if (error) { console.error('[Supabase] board_settings load error:', error); return; }
 
       const overridesRow = data?.find(r => r.key === 'hold_overrides');

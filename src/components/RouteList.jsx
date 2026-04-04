@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import RouteCard from './RouteCard';
 import Icon from './Icon';
-import { HOLD_TYPES, STYLES } from '../utils/constants';
+import { HOLD_TYPES, STYLES, V_GRADE_INDEX, FONT_GRADE_INDEX } from '../utils/constants';
 
 const SORT_OPTIONS = [
   { key: 'date',   label: 'Date' },
@@ -76,6 +76,8 @@ export default function RouteList({
     setShowSortMenu(false);
   };
 
+  const gradeIndex = gradeSystem === 'font' ? FONT_GRADE_INDEX : V_GRADE_INDEX;
+
   // Get routes for current view (all or playlist)
   let baseRoutes = routes;
   if (activePlaylist) {
@@ -90,8 +92,8 @@ export default function RouteList({
 
   // Grade range filter — optionally checks angleGrades too
   if (filterGradeFrom || filterGradeTo) {
-    const fromIdx = filterGradeFrom ? grades.indexOf(filterGradeFrom) : 0;
-    const toIdx = filterGradeTo ? grades.indexOf(filterGradeTo) : grades.length - 1;
+    const fromIdx = filterGradeFrom ? (gradeIndex[filterGradeFrom] ?? -1) : 0;
+    const toIdx = filterGradeTo ? (gradeIndex[filterGradeTo] ?? -1) : grades.length - 1;
     const lo = Math.min(fromIdx, toIdx);
     const hi = Math.max(fromIdx, toIdx);
     const validGrades = grades.slice(lo, hi + 1);
@@ -124,7 +126,7 @@ export default function RouteList({
     if (sortKey === 'date') {
       cmp = new Date(a.createdAt || 0) - new Date(b.createdAt || 0);
     } else if (sortKey === 'grade') {
-      cmp = grades.indexOf(a.grade) - grades.indexOf(b.grade);
+      cmp = (gradeIndex[a.grade] ?? -1) - (gradeIndex[b.grade] ?? -1);
     } else if (sortKey === 'rating') {
       cmp = (cr[a.id]?.avg || 0) - (cr[b.id]?.avg || 0);
     }

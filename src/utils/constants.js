@@ -10,6 +10,9 @@ export const FONT_GRADES = [
   '8A', '8A+', '8B', '8B+', '8C',
 ];
 
+export const V_GRADE_INDEX = Object.fromEntries(V_GRADES.map((g, i) => [g, i]));
+export const FONT_GRADE_INDEX = Object.fromEntries(FONT_GRADES.map((g, i) => [g, i]));
+
 export const HOLD_TYPES = [
   'Crimps', 'Slopers', 'Pinches', 'Jugs', 'Mini jug',
   'Pockets', 'Edges', 'Undercuts', 'Volumes', 'Jibs', 'Macro',
@@ -133,6 +136,13 @@ export function getYouTubeThumbnail(url) {
   const id = getYouTubeId(url);
   return id ? `https://img.youtube.com/vi/${id}/mqdefault.jpg` : null;
 }
+
+export const DEFAULT_BOARD_IMAGE = '/Barn_Set_01_V4.jpg';
+export const DEFAULT_BOARD_SRCSET =
+  '/Barn_Set_01_V4-800w.jpg 800w, ' +
+  '/Barn_Set_01_V4-1200w.jpg 1200w, ' +
+  '/Barn_Set_01_V4-2000w.jpg 2000w';
+export const DEFAULT_BOARD_SIZES = '100vw';
 
 export const BOARD_SPECS = {
   widthM: 4.8,

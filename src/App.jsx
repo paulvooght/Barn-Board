@@ -1,20 +1,19 @@
-import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
+import { useState, useCallback, useEffect, useRef, useMemo, lazy, Suspense } from 'react';
 import BoardView from './components/BoardView';
-import BoardSetupView from './components/BoardSetupView';
 import ModeSelector from './components/ModeSelector';
-import RouteForm from './components/RouteForm';
-import RouteList from './components/RouteList';
-import Settings from './components/Settings';
-import HoldEditorView from './components/HoldEditorView';
-import SessionSummary from './components/SessionSummary';
-import AuthView from './components/AuthView';
 import Icon from './components/Icon';
+
+const BoardSetupView = lazy(() => import('./components/BoardSetupView'));
+const RouteForm = lazy(() => import('./components/RouteForm'));
+const RouteList = lazy(() => import('./components/RouteList'));
+const Settings = lazy(() => import('./components/Settings'));
+const HoldEditorView = lazy(() => import('./components/HoldEditorView'));
+const SessionSummary = lazy(() => import('./components/SessionSummary'));
+const AuthView = lazy(() => import('./components/AuthView'));
 import { useLocalStorage } from './hooks/useLocalStorage';
 import { useCustomHolds } from './hooks/useCustomHolds';
 import { supabase, ADMIN_EMAIL } from './lib/supabase';
-import { V_GRADES, FONT_GRADES, SELECTION_MODES, MODE_COLORS, MODE_LABELS, BOARD_SPECS, HOLD_COLOR_DOT, HOLD_TYPE_SINGULAR_TO_PLURAL, convertGrade, getYouTubeId, getYouTubeThumbnail } from './utils/constants';
-
-const DEFAULT_BOARD_IMAGE = '/Barn_Set_01_V4.jpg';
+import { V_GRADES, FONT_GRADES, V_GRADE_INDEX, FONT_GRADE_INDEX, SELECTION_MODES, MODE_COLORS, MODE_LABELS, BOARD_SPECS, HOLD_COLOR_DOT, HOLD_TYPE_SINGULAR_TO_PLURAL, convertGrade, getYouTubeId, getYouTubeThumbnail, DEFAULT_BOARD_IMAGE, DEFAULT_BOARD_SRCSET, DEFAULT_BOARD_SIZES } from './utils/constants';
 
 // Strip per-user fields before writing to the shared routes table
 function stripPerUserFields(route) {
@@ -180,7 +179,7 @@ export default function App() {
       const hTotal = Object.values(hVotes).reduce((s, n) => s + n, 0);
       if (hTotal > 0) {
         const sorted = Object.entries(hVotes).sort((a, b) =>
-          b[1] !== a[1] ? b[1] - a[1] : grades.indexOf(b[0]) - grades.indexOf(a[0])
+          b[1] !== a[1] ? b[1] - a[1] : (gradeIndex[b[0]] ?? -1) - (gradeIndex[a[0]] ?? -1)
         );
         result.headline = { consensus: sorted[0][0], votes: hVotes, count: hTotal };
       }
@@ -188,7 +187,7 @@ export default function App() {
         const aTotal = Object.values(aVotes).reduce((s, n) => s + n, 0);
         if (aTotal > 0) {
           const sorted = Object.entries(aVotes).sort((a, b) =>
-            b[1] !== a[1] ? b[1] - a[1] : grades.indexOf(b[0]) - grades.indexOf(a[0])
+            b[1] !== a[1] ? b[1] - a[1] : (gradeIndex[b[0]] ?? -1) - (gradeIndex[a[0]] ?? -1)
           );
           result.angles[angle] = { consensus: sorted[0][0], votes: aVotes, count: aTotal };
         }
@@ -465,7 +464,11 @@ export default function App() {
   const [youtubeUrl, setYoutubeUrl] = useState('');
 
   const grades = settings.gradeSystem === 'V' ? V_GRADES : FONT_GRADES;
+  const gradeIndex = settings.gradeSystem === 'font' ? FONT_GRADE_INDEX : V_GRADE_INDEX;
   const imgSrc = settings.boardImage || DEFAULT_BOARD_IMAGE;
+  const isDefaultImage = !settings.boardImage || settings.boardImage === DEFAULT_BOARD_IMAGE;
+  const imgSrcSet = isDefaultImage ? DEFAULT_BOARD_SRCSET : undefined;
+  const imgSizes = isDefaultImage ? DEFAULT_BOARD_SIZES : undefined;
 
   const resetCreate = useCallback(() => {
     setHoldSelection({});
@@ -1248,6 +1251,8 @@ export default function App() {
           interactive={view === 'create' || (view === 'viewRoute' && holdDataMode)}
           dimBoard={view === 'viewRoute'}
           imgSrc={imgSrc}
+          imgSrcSet={imgSrcSet}
+          imgSizes={imgSizes}
           holdSnapshots={view === 'viewRoute' && viewingRoute ? viewingRoute.holdSnapshots : null}
         >
           {/* Create mode: mode selector + hold counts */}
@@ -1648,6 +1653,8 @@ export default function App() {
           holds={allHolds}
           selection={{}}
           imgSrc={imgSrc}
+          imgSrcSet={imgSrcSet}
+          imgSizes={imgSizes}
           onHoldTap={(holdId) => {
             const h = allHolds.find(h => h.id === holdId);
             if (h) handleEditHold(h, 'holdSelect');
@@ -1682,6 +1689,8 @@ export default function App() {
           onSave={handleSetupSave}
           onCancel={handleSetupCancel}
           imgSrc={imgSrc}
+          imgSrcSet={imgSrcSet}
+          imgSizes={imgSizes}
           initialManagerMode={holdManagerMode}
           onManagerModeChange={setHoldManagerMode}
           onEditHold={(hold) => handleEditHold(hold, 'setupBoard')}
@@ -1695,6 +1704,8 @@ export default function App() {
           hold={editingHold}
           allHolds={allHolds}
           imgSrc={imgSrc}
+          imgSrcSet={imgSrcSet}
+          imgSizes={imgSizes}
           onSave={handleHoldEditorSave}
           onCancel={handleHoldEditorCancel}
           onDelete={view === 'editHold' ? () => {
