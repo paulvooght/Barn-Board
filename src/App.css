@@ -25,10 +25,6 @@
   margin: 0;
   padding: 0;
   box-sizing: border-box;
-}
-
-/* Suppress tap highlight on non-input elements only */
-a, button, div, span, svg, nav, header, label {
   -webkit-tap-highlight-color: transparent;
 }
 
@@ -38,6 +34,7 @@ html, body {
   font-family: var(--font-body);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
 }
 
 body {
@@ -51,17 +48,10 @@ body {
   min-height: 100vh;
   min-height: 100dvh;
   position: relative;
-  overflow-x: hidden;
 }
 
 input, select, button {
   font-family: var(--font-body);
-}
-
-input, textarea, select {
-  -webkit-user-select: text;
-  user-select: text;
-  touch-action: manipulation;
 }
 
 input:focus, select:focus {

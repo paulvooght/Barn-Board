@@ -30,19 +30,17 @@ export default function AuthView() {
   const input = {
     width: '100%', padding: '10px 14px', borderRadius: 8,
     border: '1.5px solid #e0d5cc', fontFamily: 'DM Sans, sans-serif',
-    fontSize: 16, boxSizing: 'border-box',
-    WebkitAppearance: 'none', appearance: 'none',
+    fontSize: 16, boxSizing: 'border-box', outline: 'none',
   };
 
   return (
     <div style={{
-      minHeight: '100dvh', background: '#FFAB94',
-      padding: 20, overflowY: 'auto', WebkitOverflowScrolling: 'touch',
+      minHeight: '100vh', background: '#FFAB94',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
     }}>
       <div style={{
         background: 'white', borderRadius: 16, padding: '32px 24px',
-        width: '100%', maxWidth: 360, margin: '25vh auto 0',
-        boxShadow: '0 4px 24px rgba(0,0,0,0.08)',
+        width: '100%', maxWidth: 360, boxShadow: '0 4px 24px rgba(0,0,0,0.08)',
       }}>
         <div style={{ textAlign: 'center', marginBottom: 28 }}>
           <div style={{ fontFamily: "'Kodchasan', sans-serif", fontWeight: 700, fontSize: 22, color: '#0047FF', letterSpacing: 1 }}>
@@ -56,13 +54,11 @@ export default function AuthView() {
         <form onSubmit={handleSubmit}>
           <div style={{ marginBottom: 12 }}>
             <input type="email" placeholder="Email" value={email}
-              onChange={e => setEmail(e.target.value)} required style={input}
-              onTouchEnd={e => e.target.focus()} />
+              onChange={e => setEmail(e.target.value)} required style={input} />
           </div>
           <div style={{ marginBottom: 20 }}>
             <input type="password" placeholder="Password" value={password}
-              onChange={e => setPassword(e.target.value)} required style={input}
-              onTouchEnd={e => e.target.focus()} />
+              onChange={e => setPassword(e.target.value)} required style={input} />
           </div>
 
           {error   && <div style={{ color: '#f87171', fontSize: 13, marginBottom: 10, fontFamily: 'DM Sans, sans-serif' }}>{error}</div>}
