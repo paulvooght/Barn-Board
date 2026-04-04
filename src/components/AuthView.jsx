@@ -30,7 +30,8 @@ export default function AuthView() {
   const input = {
     width: '100%', padding: '10px 14px', borderRadius: 8,
     border: '1.5px solid #e0d5cc', fontFamily: 'DM Sans, sans-serif',
-    fontSize: 16, boxSizing: 'border-box', outline: 'none',
+    fontSize: 16, boxSizing: 'border-box',
+    WebkitAppearance: 'none', appearance: 'none',
   };
 
   return (
@@ -55,11 +56,13 @@ export default function AuthView() {
         <form onSubmit={handleSubmit}>
           <div style={{ marginBottom: 12 }}>
             <input type="email" placeholder="Email" value={email}
-              onChange={e => setEmail(e.target.value)} required style={input} />
+              onChange={e => setEmail(e.target.value)} required style={input}
+              onTouchEnd={e => e.target.focus()} />
           </div>
           <div style={{ marginBottom: 20 }}>
             <input type="password" placeholder="Password" value={password}
-              onChange={e => setPassword(e.target.value)} required style={input} />
+              onChange={e => setPassword(e.target.value)} required style={input}
+              onTouchEnd={e => e.target.focus()} />
           </div>
 
           {error   && <div style={{ color: '#f87171', fontSize: 13, marginBottom: 10, fontFamily: 'DM Sans, sans-serif' }}>{error}</div>}
