@@ -32,7 +32,7 @@ export default function RouteCard({ route, sent, communityRating, ratingCount, c
     >
       {/* ── LEFT: Grade pill + angle + Name ── */}
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '2px' }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', marginBottom: '2px' }}>
           <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
             <span style={{
               background: 'var(--yellow)', color: 'var(--text-primary)',
@@ -59,15 +59,15 @@ export default function RouteCard({ route, sent, communityRating, ratingCount, c
               </span>
             )}
           </div>
-          <div style={{ minWidth: 0 }}>
+          <div style={{ minWidth: 0, display: 'flex', alignItems: 'center', gap: '5px', paddingTop: '3px' }}>
             <span style={{
               fontWeight: 700, color: 'var(--text-primary)', fontSize: '16px',
               whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-              lineHeight: 1.2, display: 'flex', alignItems: 'center', gap: '5px',
+              lineHeight: 1.2,
             }}>
               {route.name}
-              {hasVideo && <Icon name="video" size={13} style={{ opacity: 0.4, flexShrink: 0 }}/>}
             </span>
+            {hasVideo && <Icon name="video" size={13} style={{ opacity: 0.4, flexShrink: 0 }}/>}
           </div>
         </div>
       </div>
