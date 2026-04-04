@@ -1110,6 +1110,7 @@ export default function App() {
 
   const isBoard      = view === 'board' || view === 'create' || view === 'viewRoute';
   const isHoldEditor = view === 'addHold' || view === 'editHold' || view === 'holdSelect';
+  const isHome       = view === 'board';
 
   // Show auth screen until session resolves
   if (authLoading) return (
@@ -1123,7 +1124,7 @@ export default function App() {
     <>
       {/* ── Header ── */}
       <header style={{
-        padding: '14px 16px 10px',
+        padding: isHome ? '20px 16px 14px' : '10px 16px 8px',
         borderBottom: '1px solid var(--border)',
         display: 'flex',
         justifyContent: 'space-between',
@@ -1138,15 +1139,21 @@ export default function App() {
           style={{ cursor: 'pointer' }}
         >
           <h1 style={{
-            margin: 0, fontSize: '20px',
+            margin: 0,
+            fontSize: isHome ? '42px' : '18px',
             fontFamily: 'var(--font-heading)', fontWeight: 700,
-            color: 'var(--accent)', letterSpacing: '-0.5px',
+            color: 'var(--accent)',
+            letterSpacing: isHome ? '-1px' : '-0.3px',
+            lineHeight: isHome ? 1.05 : 1,
           }}>
             BARN BOARD
           </h1>
           <div style={{
-            fontSize: '9px', color: 'var(--text-muted)',
-            letterSpacing: '2.5px', marginTop: '2px', textTransform: 'uppercase',
+            fontSize: isHome ? '10px' : '8px',
+            color: 'var(--text-muted)',
+            letterSpacing: isHome ? '3px' : '2px',
+            marginTop: isHome ? '4px' : '1px',
+            textTransform: 'uppercase',
             fontWeight: 600,
           }}>
             {view === 'addHold'    ? 'Add Hold'
