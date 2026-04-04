@@ -12,7 +12,7 @@ export const FONT_GRADES = [
 
 export const HOLD_TYPES = [
   'Crimps', 'Slopers', 'Pinches', 'Jugs', 'Mini jug',
-  'Pockets', 'Edges', 'Volumes', 'Jibs', 'Macro',
+  'Pockets', 'Edges', 'Undercuts', 'Volumes', 'Jibs', 'Macro',
 ];
 
 // Physical hold color name → display hex (for dots/indicators)
@@ -28,7 +28,7 @@ export const MATERIALS = ['Wood', 'PU', 'Fibreglass', 'Dual-tex'];
 export const HOLD_TYPE_SINGULAR_TO_PLURAL = {
   'Jug': 'Jugs', 'Mini Jug': 'Mini jug', 'Crimp': 'Crimps', 'Half Crimp': 'Crimps',
   'Pinch': 'Pinches', 'Sloper': 'Slopers', 'Edge': 'Edges',
-  'Pocket': 'Pockets', 'Volume': 'Volumes', 'Macro': 'Macro',
+  'Pocket': 'Pockets', 'Undercut': 'Undercuts', 'Volume': 'Volumes', 'Macro': 'Macro',
 };
 
 export const TECHNIQUES = [

@@ -52,7 +52,7 @@ const COLOR_OPTIONS = [
   { val: 'wood',   label: 'Wood',   dot: '#b08860' },
 ];
 
-const HOLD_TYPE_OPTIONS = ['Jug', 'Mini Jug', 'Crimp', 'Half Crimp', 'Pinch', 'Sloper', 'Edge', 'Pocket', 'Volume', 'Macro'];
+const HOLD_TYPE_OPTIONS = ['Jug', 'Mini Jug', 'Crimp', 'Half Crimp', 'Pinch', 'Sloper', 'Edge', 'Pocket', 'Undercut', 'Volume', 'Macro'];
 
 export default function HoldEditorView({ mode, hold, allHolds, imgSrc, onSave, onCancel, onDelete }) {
   const defaultMeta = {
