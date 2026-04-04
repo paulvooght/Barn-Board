@@ -2189,7 +2189,7 @@ function ViewRouteHeader({ route, sent, angleSends, isCreator, grades, gradeSyst
               </div>
               {unifiedAngleRows.length > 0 && (
                 <div style={{
-                  display: 'grid', gridTemplateColumns: '4px 50px 1fr 36px auto auto auto',
+                  display: 'grid', gridTemplateColumns: '4px 50px 1fr 36px auto auto',
                   gap: '0', fontSize: '12px', borderRadius: '8px', overflow: 'hidden',
                   border: '1px solid rgba(26,10,0,0.08)',
                 }}>
@@ -2198,7 +2198,6 @@ function ViewRouteHeader({ route, sent, angleSends, isCreator, grades, gradeSyst
                   <div style={agHeaderCell}>Angle</div>
                   <div style={agHeaderCell}>Grade</div>
                   <div style={{ ...agHeaderCell, textAlign: 'center', fontSize: '9px' }}>Sent</div>
-                  <div style={agHeaderCell}></div>
                   <div style={agHeaderCell}></div>
                   <div style={agHeaderCell}></div>
 
@@ -2211,6 +2210,11 @@ function ViewRouteHeader({ route, sent, angleSends, isCreator, grades, gradeSyst
                     const baseBg = i % 2 === 0 ? 'rgba(26,10,0,0.02)' : 'transparent';
                     const communityBg = i % 2 === 0 ? 'rgba(0,71,255,0.05)' : 'rgba(0,71,255,0.03)';
                     const bg = isCommunity ? communityBg : baseBg;
+                    const expanded = showAngleSuggest === row.angle;
+                    const inlineBtnStyle = (border) => ({
+                      background: 'none', border, borderRadius: '4px',
+                      cursor: 'pointer', padding: '1px 5px', lineHeight: 1,
+                    });
                     return [
                       /* Color bar */
                       <div key={`bar${i}`} style={{ background: isOfficial ? 'var(--yellow)' : 'rgba(0,71,255,0.3)' }} />,
@@ -2218,13 +2222,89 @@ function ViewRouteHeader({ route, sent, angleSends, isCreator, grades, gradeSyst
                       <div key={`a${i}`} style={{ ...agCell, background: bg, fontFamily: 'var(--font-heading)', fontWeight: 700, color: isCommunity ? 'var(--text-muted)' : 'inherit' }}>
                         {row.angle}°
                       </div>,
-                      /* Grade */
-                      <div key={`g${i}`} style={{ ...agCell, background: bg, fontWeight: 700, color: isCommunity ? 'var(--text-muted)' : 'inherit' }}>
-                        {row.grade}
-                        {isOfficial && angleCommunity && angleCommunity.consensus !== row.grade && (
-                          <span style={{ fontSize: '10px', fontWeight: 600, color: 'var(--text-muted)', marginLeft: '4px', fontFamily: 'var(--font-heading)' }}>
-                            ({angleCommunity.consensus})
-                          </span>
+                      /* Grade — with inline suggest/accept */
+                      <div key={`g${i}`} style={{ ...agCell, background: bg, fontWeight: 700, color: isCommunity ? 'var(--text-muted)' : 'inherit', display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap' }}>
+                        {isOfficial && (
+                          <>
+                            {row.grade}
+                            {/* Inline consensus button — collapsed */}
+                            {angleCommunity && angleCommunity.consensus !== row.grade && !expanded && (
+                              <button onClick={() => setShowAngleSuggest(row.angle)} style={inlineBtnStyle('1px solid rgba(26,10,0,0.12)')}>
+                                <span style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', fontFamily: 'var(--font-heading)' }}>
+                                  {!isCreator && !myAngleSuggestion ? `${angleCommunity.consensus}?` : angleCommunity.consensus}
+                                </span>
+                              </button>
+                            )}
+                            {/* No-suggestion prompt for non-creator — collapsed */}
+                            {!isCreator && !angleCommunity && !expanded && (
+                              <button onClick={() => setShowAngleSuggest(row.angle)} style={inlineBtnStyle('1px solid rgba(26,10,0,0.12)')}>
+                                <span style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', fontFamily: 'var(--font-heading)' }}>{row.grade}?</span>
+                              </button>
+                            )}
+                            {/* Expanded */}
+                            {expanded && (
+                              <>
+                                {isCreator && angleCommunity && angleCommunity.consensus !== row.grade && (
+                                  <button onClick={() => { onAcceptGrade(angleCommunity.consensus, row.angle); setShowAngleSuggest(null); }}
+                                    style={{ padding: '2px 8px', borderRadius: '4px', fontSize: '10px', border: 'none', background: 'var(--accent)', color: '#fff', cursor: 'pointer', fontWeight: 700, whiteSpace: 'nowrap' }}
+                                  >
+                                    Accept {angleCommunity.consensus}
+                                  </button>
+                                )}
+                                {!isCreator && (
+                                  <select autoFocus value={myAngleSuggestion}
+                                    onChange={(e) => { onSuggestGrade(undefined, { [row.angle]: e.target.value || null }); setShowAngleSuggest(null); }}
+                                    onBlur={() => setShowAngleSuggest(null)}
+                                    style={{ padding: '2px 4px', borderRadius: '4px', fontSize: '10px', border: '1px solid rgba(26,10,0,0.1)', background: 'var(--bg-input)', fontFamily: 'var(--font-heading)', fontWeight: 600, width: '56px' }}
+                                  >
+                                    <option value="">—</option>
+                                    {grades.map(g => <option key={g} value={g}>{g}</option>)}
+                                  </select>
+                                )}
+                                <button onClick={() => setShowAngleSuggest(null)}
+                                  style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '1px 4px', fontSize: '10px', color: 'var(--text-muted)' }}
+                                >✕</button>
+                              </>
+                            )}
+                          </>
+                        )}
+                        {isCommunity && (
+                          <>
+                            {/* Collapsed — whole grade is a button */}
+                            {!expanded && (
+                              <button onClick={() => setShowAngleSuggest(row.angle)} style={inlineBtnStyle('1px solid rgba(0,71,255,0.2)')}>
+                                <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', fontFamily: 'var(--font-heading)' }}>
+                                  {!isCreator && !myAngleSuggestion ? `${row.grade}?` : row.grade}
+                                </span>
+                              </button>
+                            )}
+                            {/* Expanded */}
+                            {expanded && (
+                              <>
+                                <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', fontFamily: 'var(--font-heading)' }}>{row.grade}</span>
+                                {isCreator && (
+                                  <button onClick={() => { onAcceptGrade(row.grade, row.angle); setShowAngleSuggest(null); }}
+                                    style={{ padding: '2px 8px', borderRadius: '4px', fontSize: '10px', border: 'none', background: 'var(--accent)', color: '#fff', cursor: 'pointer', fontWeight: 700, whiteSpace: 'nowrap' }}
+                                  >
+                                    Accept {row.grade}
+                                  </button>
+                                )}
+                                {!isCreator && (
+                                  <select autoFocus value={myAngleSuggestion}
+                                    onChange={(e) => { onSuggestGrade(undefined, { [row.angle]: e.target.value || null }); setShowAngleSuggest(null); }}
+                                    onBlur={() => setShowAngleSuggest(null)}
+                                    style={{ padding: '2px 4px', borderRadius: '4px', fontSize: '10px', border: '1px solid rgba(26,10,0,0.1)', background: 'var(--bg-input)', fontFamily: 'var(--font-heading)', fontWeight: 600, width: '56px' }}
+                                  >
+                                    <option value="">—</option>
+                                    {grades.map(g => <option key={g} value={g}>{g}</option>)}
+                                  </select>
+                                )}
+                                <button onClick={() => setShowAngleSuggest(null)}
+                                  style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '1px 4px', fontSize: '10px', color: 'var(--text-muted)' }}
+                                >✕</button>
+                              </>
+                            )}
+                          </>
                         )}
                       </div>,
                       /* Sent */
@@ -2258,97 +2338,17 @@ function ViewRouteHeader({ route, sent, angleSends, isCreator, grades, gradeSyst
                           </button>
                         )}
                       </div>,
-                      /* Suggest / Accept */
-                      <div key={`cg${i}`} style={{ ...agCell, background: bg, textAlign: 'center' }}>
-                        {isOfficial && (
-                          <>
-                            {!isCreator && (
-                              showAngleSuggest === row.angle ? (
-                                <select autoFocus value={myAngleSuggestion}
-                                  onChange={(e) => { onSuggestGrade(undefined, { [row.angle]: e.target.value || null }); setShowAngleSuggest(null); }}
-                                  onBlur={() => setShowAngleSuggest(null)}
-                                  style={{ padding: '2px 4px', borderRadius: '4px', fontSize: '10px', border: '1px solid rgba(26,10,0,0.1)', background: 'var(--bg-input)', fontFamily: 'var(--font-heading)', fontWeight: 600, width: '52px' }}
-                                >
-                                  <option value="">—</option>
-                                  {grades.map(g => <option key={g} value={g}>{g}</option>)}
-                                </select>
-                              ) : (
-                                <button onClick={() => setShowAngleSuggest(row.angle)}
-                                  style={{ background: 'none', border: '1px solid rgba(26,10,0,0.12)', borderRadius: '4px', cursor: 'pointer', padding: '2px 5px' }}
-                                >
-                                  <span style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', fontFamily: 'var(--font-heading)' }}>
-                                    {angleCommunity ? angleCommunity.consensus : `${row.grade}?`}
-                                  </span>
-                                </button>
-                              )
-                            )}
-                            {isCreator && angleCommunity && angleCommunity.consensus !== row.grade && (
-                              <button onClick={() => onAcceptGrade(angleCommunity.consensus, row.angle)}
-                                style={{ padding: '2px 6px', borderRadius: '4px', fontSize: '9px', border: '1px solid var(--accent)', background: 'transparent', color: 'var(--accent)', cursor: 'pointer', fontWeight: 700, whiteSpace: 'nowrap' }}
-                              >
-                                ✓ {angleCommunity.consensus}
-                              </button>
-                            )}
-                          </>
-                        )}
-                        {isCommunity && (
-                          <>
-                            {!isCreator && (
-                              showAngleSuggest === row.angle ? (
-                                <select autoFocus value={myAngleSuggestion}
-                                  onChange={(e) => { onSuggestGrade(undefined, { [row.angle]: e.target.value || null }); setShowAngleSuggest(null); }}
-                                  onBlur={() => setShowAngleSuggest(null)}
-                                  style={{ padding: '2px 4px', borderRadius: '4px', fontSize: '10px', border: '1px solid rgba(26,10,0,0.1)', background: 'var(--bg-input)', fontFamily: 'var(--font-heading)', fontWeight: 600, width: '52px' }}
-                                >
-                                  <option value="">—</option>
-                                  {grades.map(g => <option key={g} value={g}>{g}</option>)}
-                                </select>
-                              ) : (
-                                <button onClick={() => setShowAngleSuggest(row.angle)}
-                                  style={{ background: 'none', border: '1px solid rgba(26,10,0,0.12)', borderRadius: '4px', cursor: 'pointer', padding: '2px 5px' }}
-                                >
-                                  <span style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', fontFamily: 'var(--font-heading)' }}>
-                                    {row.grade}?
-                                  </span>
-                                </button>
-                              )
-                            )}
-                            {isCreator && (
-                              <button onClick={() => onAcceptGrade(row.grade, row.angle)}
-                                style={{ padding: '2px 6px', borderRadius: '4px', fontSize: '9px', border: '1px solid var(--accent)', background: 'transparent', color: 'var(--accent)', cursor: 'pointer', fontWeight: 700, whiteSpace: 'nowrap' }}
-                              >
-                                ✓ {row.grade}
-                              </button>
-                            )}
-                          </>
-                        )}
-                      </div>,
                       /* Delete / Remove suggestion — far right */
                       <div key={`d${i}`} style={{ ...agCell, background: bg, textAlign: 'center' }}>
                         {isOfficial && isCreator && (
-                          <button
-                            onClick={() => onRemoveAngleGrade(row.angle)}
-                            style={{
-                              padding: '2px 6px', borderRadius: '4px', fontSize: '10px',
-                              border: '1px solid rgba(255,82,82,0.3)', background: 'rgba(255,82,82,0.06)',
-                              color: '#FF5252', cursor: 'pointer',
-                            }}
-                          >
-                            ✕
-                          </button>
+                          <button onClick={() => onRemoveAngleGrade(row.angle)}
+                            style={{ padding: '2px 6px', borderRadius: '4px', fontSize: '10px', border: '1px solid rgba(255,82,82,0.3)', background: 'rgba(255,82,82,0.06)', color: '#FF5252', cursor: 'pointer' }}
+                          >✕</button>
                         )}
                         {isCommunity && !!myAngleSuggestion && (
-                          <button
-                            onClick={() => onSuggestGrade(undefined, { [row.angle]: null })}
-                            title="Remove your suggestion"
-                            style={{
-                              padding: '2px 6px', borderRadius: '4px', fontSize: '10px',
-                              border: '1px solid rgba(255,82,82,0.3)', background: 'rgba(255,82,82,0.06)',
-                              color: '#FF5252', cursor: 'pointer',
-                            }}
-                          >
-                            ✕
-                          </button>
+                          <button onClick={() => onSuggestGrade(undefined, { [row.angle]: null })} title="Remove your suggestion"
+                            style={{ padding: '2px 6px', borderRadius: '4px', fontSize: '10px', border: '1px solid rgba(255,82,82,0.3)', background: 'rgba(255,82,82,0.06)', color: '#FF5252', cursor: 'pointer' }}
+                          >✕</button>
                         )}
                       </div>,
                     ];
