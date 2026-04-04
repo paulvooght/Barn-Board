@@ -95,6 +95,8 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
   const draggingVertexRef = useRef(null);   // mirrors draggingVertex for use in event handlers
   const touchPosRef = useRef(null);         // { clientX, clientY } during touch vertex drag
   const dragVertexPctRef = useRef(null);    // { x, y } board-% position of dragged vertex
+  const vertexDragStartRef = useRef(null);  // { clientX, clientY } touch start for threshold check
+  const vertexDragActiveRef = useRef(false); // true once finger moves beyond threshold
   const [loupeUpdate, setLoupeUpdate] = useState(0); // incremented to force loupe re-render
 
   // Whole-hold drag state (for pasted hold repositioning)
@@ -697,6 +699,12 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
       }
       if (draggingVertexRef.current && pct) {
         e.preventDefault();
+        // Don't move vertex until finger exceeds threshold — prevents taps from jumping vertices
+        if (!vertexDragActiveRef.current) {
+          const s = vertexDragStartRef.current;
+          if (s && (touch.clientX - s.clientX) ** 2 + (touch.clientY - s.clientY) ** 2 < 100) return;
+          vertexDragActiveRef.current = true;
+        }
         touchPosRef.current = { clientX: touch.clientX, clientY: touch.clientY };
         dragVertexPctRef.current = { x: pct.x, y: pct.y };
         updateVertexPosition(draggingVertexRef.current.holdId, draggingVertexRef.current.vertexIdx, pct.x, pct.y);
@@ -725,7 +733,18 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
   function handleTouchEnd(e) {
     if (lassoActiveRef.current) { lassoActiveRef.current = false; finishLasso(); pinchRef.current.active = false; panDragRef.current.active = false; return; }
     if (draggingHold) { setDraggingHold(null); moveMultiLastRef.current = null; pinchRef.current.active = false; panDragRef.current.active = false; return; }
-    if (draggingVertex) { setDraggingVertex(null); draggingVertexRef.current = null; touchPosRef.current = null; dragVertexPctRef.current = null; pinchRef.current.active = false; panDragRef.current.active = false; return; }
+    if (draggingVertex) {
+      const wasTap = !vertexDragActiveRef.current;
+      setDraggingVertex(null); draggingVertexRef.current = null; touchPosRef.current = null; dragVertexPctRef.current = null;
+      vertexDragStartRef.current = null; vertexDragActiveRef.current = false;
+      pinchRef.current.active = false; panDragRef.current.active = false;
+      // If finger didn't move (tap, not drag), pass through to handleClick for deselection
+      if (wasTap) {
+        const touch = e.changedTouches?.[0];
+        if (touch) { const pct = clientToBoardPct(touch.clientX, touch.clientY); if (pct) handleClick(pct); }
+      }
+      return;
+    }
     if (panDragRef.current.active && !panDragRef.current.moved) {
       const touch = e.changedTouches?.[0];
       if (touch) {
@@ -740,10 +759,14 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
   function startVertexDrag(holdId, vertexIdx, e) {
     e.stopPropagation();
     e.preventDefault();
+    vertexDragActiveRef.current = false;
     if (e.type === 'touchstart') {
       lastTouchTimeRef.current = Date.now();
       const touch = e.touches?.[0] || e.changedTouches?.[0];
-      if (touch) touchPosRef.current = { clientX: touch.clientX, clientY: touch.clientY };
+      if (touch) {
+        touchPosRef.current = { clientX: touch.clientX, clientY: touch.clientY };
+        vertexDragStartRef.current = { clientX: touch.clientX, clientY: touch.clientY };
+      }
       // Initialise loupe position from existing vertex coords
       const hold = holds.find(h => h.id === holdId);
       if (hold?.polygon?.[vertexIdx]) {
@@ -1239,10 +1262,12 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
                 setImgSize({ w: e.target.naturalWidth, h: e.target.naturalHeight });
                 setImageLoaded(true);
               }}
+              onContextMenu={(e) => e.preventDefault()}
               style={{
                 maxWidth: '100%', maxHeight: '100%',
                 display: 'block', opacity: imageLoaded ? 1 : 0.3,
                 borderRadius: '6px',
+                WebkitTouchCallout: 'none', WebkitUserSelect: 'none',
               }}
               draggable={false}
             />
