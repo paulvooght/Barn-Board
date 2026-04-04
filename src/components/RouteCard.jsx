@@ -67,15 +67,6 @@ export default function RouteCard({ route, sent, communityRating, ratingCount, c
             }}>
               {route.name}
             </span>
-            {route.description && (
-              <span style={{
-                fontSize: '11px', color: 'var(--text-muted)', fontStyle: 'italic',
-                whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                display: 'block', lineHeight: 1.3,
-              }}>
-                {route.description}
-              </span>
-            )}
           </div>
         </div>
       </div>
