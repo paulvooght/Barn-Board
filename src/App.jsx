@@ -1135,7 +1135,11 @@ export default function App() {
       <div style={{ fontFamily: "'Kodchasan', sans-serif", color: '#0047FF', fontWeight: 700, fontSize: 18 }}>BARN BOARD</div>
     </div>
   );
-  if (!user) return <AuthView />;
+  if (!user) return (
+    <Suspense fallback={<div style={{ minHeight: '100vh', background: '#FFAB94' }} />}>
+      <AuthView />
+    </Suspense>
+  );
 
   return (
     <>
@@ -1573,6 +1577,7 @@ export default function App() {
         </div>
       )}
 
+      <Suspense fallback={<div style={{ padding: '40px 16px', textAlign: 'center', color: '#1A0A00', opacity: 0.4, fontSize: 13 }}>Loading...</div>}>
       {/* ── Route form (below board in create mode) ── */}
       {view === 'create' && (
         <RouteForm
@@ -1715,6 +1720,7 @@ export default function App() {
           } : undefined}
         />
       )}
+      </Suspense>
     </>
   );
 }
