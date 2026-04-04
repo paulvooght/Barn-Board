@@ -36,12 +36,12 @@ export default function AuthView() {
   return (
     <div style={{
       minHeight: '100dvh', background: '#FFAB94',
-      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
-      overflowY: 'auto', WebkitOverflowScrolling: 'touch',
+      padding: 20, overflowY: 'auto', WebkitOverflowScrolling: 'touch',
     }}>
       <div style={{
         background: 'white', borderRadius: 16, padding: '32px 24px',
-        width: '100%', maxWidth: 360, boxShadow: '0 4px 24px rgba(0,0,0,0.08)',
+        width: '100%', maxWidth: 360, margin: '25vh auto 0',
+        boxShadow: '0 4px 24px rgba(0,0,0,0.08)',
       }}>
         <div style={{ textAlign: 'center', marginBottom: 28 }}>
           <div style={{ fontFamily: "'Kodchasan', sans-serif", fontWeight: 700, fontSize: 22, color: '#0047FF', letterSpacing: 1 }}>
