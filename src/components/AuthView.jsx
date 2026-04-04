@@ -1,5 +1,8 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
+
+// Detect iOS PWA standalone mode
+const isStandalone = window.navigator.standalone === true;
 
 export default function AuthView() {
   const [email, setEmail]       = useState('');
@@ -29,11 +32,18 @@ export default function AuthView() {
     setLoading(false);
   };
 
-  // iOS PWA standalone mode can block native input focus.
-  // Explicit tap handler on the label ensures focus reaches the input.
-  const tapToFocus = (ref) => () => {
-    if (ref.current) ref.current.focus();
-  };
+  // iOS PWA standalone: readonly trick to force keyboard appearance
+  const iosFocus = useCallback((ref) => (e) => {
+    if (!isStandalone || !ref.current) return;
+    e.preventDefault();
+    const el = ref.current;
+    el.setAttribute('readonly', 'readonly');
+    el.focus();
+    setTimeout(() => {
+      el.removeAttribute('readonly');
+      el.focus();
+    }, 50);
+  }, []);
 
   const input = {
     width: '100%', padding: '10px 14px', borderRadius: 8,
@@ -64,13 +74,13 @@ export default function AuthView() {
 
         <form onSubmit={handleSubmit}>
           <label style={{ display: 'block', marginBottom: 12 }}
-            onTouchEnd={tapToFocus(emailRef)} onClick={tapToFocus(emailRef)}>
+            onTouchEnd={iosFocus(emailRef)}>
             <input ref={emailRef} type="email" inputMode="email" autoComplete="email"
               placeholder="Email" value={email}
               onChange={e => setEmail(e.target.value)} required style={input} />
           </label>
           <label style={{ display: 'block', marginBottom: 20 }}
-            onTouchEnd={tapToFocus(passRef)} onClick={tapToFocus(passRef)}>
+            onTouchEnd={iosFocus(passRef)}>
             <input ref={passRef} type="password" inputMode="text" autoComplete="current-password"
               placeholder="Password" value={password}
               onChange={e => setPassword(e.target.value)} required style={input} />

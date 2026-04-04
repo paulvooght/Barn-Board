@@ -14,20 +14,7 @@
   </head>
   <body>
     <div id="root"></div>
-    <script>
-      // iOS PWA standalone: readonly trick forces keyboard to appear on focus
-      document.addEventListener('touchend', function(e) {
-        var el = e.target;
-        if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
-          el.setAttribute('readonly', 'readonly');
-          el.focus();
-          setTimeout(function() {
-            el.removeAttribute('readonly');
-            el.focus();
-          }, 50);
-        }
-      }, { passive: true });
-    </script>
+    <script></script>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
