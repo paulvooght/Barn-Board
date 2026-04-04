@@ -9,7 +9,7 @@ function clamp(val, min, max) {
   return Math.max(min, Math.min(max, val));
 }
 
-export default function BoardView({ holds, selection, onHoldTap, interactive, dimBoard, imgSrc, holdSnapshots, children }) {
+export default function BoardView({ holds, selection, onHoldTap, interactive, dimBoard, imgSrc, imgSrcSet, imgSizes, holdSnapshots, children }) {
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imgSize, setImgSize]         = useState({ w: 1200, h: 900 });
   const [scale, setScale]             = useState(1);
@@ -317,6 +317,8 @@ export default function BoardView({ holds, selection, onHoldTap, interactive, di
           }}>
           <img
             src={imgSrc || '/Barn_Set_01_V4.jpg'}
+            srcSet={imgSrcSet}
+            sizes={imgSizes}
             alt="Climbing board"
             onLoad={(e) => {
               setImgSize({ w: e.target.naturalWidth, h: e.target.naturalHeight });

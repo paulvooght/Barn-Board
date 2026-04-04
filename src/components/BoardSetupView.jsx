@@ -68,7 +68,7 @@ function positivityLabel(val) {
   return 'Very juggy';
 }
 
-export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc, initialManagerMode, onManagerModeChange, onEditHold }) {
+export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc, imgSrcSet, imgSizes, initialManagerMode, onManagerModeChange, onEditHold }) {
   const { state: holds, setState: setHolds, undo, redo, canUndo, canRedo } = useUndoRedo(initialHolds);
 
   const [managerMode, setManagerMode] = useState(initialManagerMode || 'boundaries'); // 'boundaries' | 'metadata'
@@ -1263,6 +1263,8 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
           }}>
             <img
               src={imgSrc || '/Barn_Set_01_V4.jpg'}
+              srcSet={imgSrcSet}
+              sizes={imgSizes}
               alt="Climbing board"
               onLoad={(e) => {
                 setImgSize({ w: e.target.naturalWidth, h: e.target.naturalHeight });
@@ -1366,7 +1368,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
             overflow: 'hidden', pointerEvents: 'none', zIndex: 300,
             background: '#1a0a00',
           }}>
-            <img src={imgSrc || '/Barn_Set_01_V4.jpg'} alt="" draggable={false}
+            <img src={imgSrc || '/Barn_Set_01_V4.jpg'} srcSet={imgSrcSet} sizes={imgSizes} alt="" draggable={false}
               style={{ position: 'absolute', width: magW, height: magH, left: imgLeft, top: imgTop, pointerEvents: 'none' }}
             />
             {poly && poly.length >= 3 && (

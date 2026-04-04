@@ -55,7 +55,7 @@ const COLOR_OPTIONS = [
 
 const HOLD_TYPE_OPTIONS = ['Jug', 'Mini Jug', 'Crimp', 'Half Crimp', 'Pinch', 'Sloper', 'Edge', 'Pocket', 'Undercut', 'Volume', 'Macro'];
 
-export default function HoldEditorView({ mode, hold, allHolds, imgSrc, onSave, onCancel, onDelete }) {
+export default function HoldEditorView({ mode, hold, allHolds, imgSrc, imgSrcSet, imgSizes, onSave, onCancel, onDelete }) {
   const defaultMeta = {
     color: 'black', size: 'medium', area: 0, notes: '',
     verified: true, name: '', holdTypes: [], positivity: 0, material: '',
@@ -510,6 +510,8 @@ export default function HoldEditorView({ mode, hold, allHolds, imgSrc, onSave, o
         }}>
           <img
             src={imgSrc}
+            srcSet={imgSrcSet}
+            sizes={imgSizes}
             alt="Climbing board"
             onLoad={(e) => {
               setImgSize({ w: e.target.naturalWidth, h: e.target.naturalHeight });
