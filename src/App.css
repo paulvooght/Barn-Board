@@ -54,6 +54,12 @@ input, select, button {
   font-family: var(--font-body);
 }
 
+input, textarea, select {
+  -webkit-user-select: text;
+  user-select: text;
+  touch-action: manipulation;
+}
+
 input:focus, select:focus {
   outline: none;
   border-color: var(--accent) !important;

@@ -35,8 +35,9 @@ export default function AuthView() {
 
   return (
     <div style={{
-      minHeight: '100vh', background: '#FFAB94',
+      minHeight: '100dvh', background: '#FFAB94',
       display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
+      overflowY: 'auto', WebkitOverflowScrolling: 'touch',
     }}>
       <div style={{
         background: 'white', borderRadius: 16, padding: '32px 24px',
