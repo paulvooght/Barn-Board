@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 
 // Detect iOS PWA standalone mode
@@ -13,6 +13,33 @@ export default function AuthView() {
   const [message, setMessage]   = useState('');
   const emailRef = useRef(null);
   const passRef = useRef(null);
+
+  // iOS PWA standalone: attach native touchstart handlers that use the
+  // readonly trick to force the keyboard open. Must be native (not React
+  // synthetic) so the focus happens within the original user gesture.
+  useEffect(() => {
+    if (!isStandalone) return;
+
+    const forceKeyboard = (e) => {
+      const el = e.currentTarget;
+      el.setAttribute('readonly', 'readonly');
+      el.focus();
+      requestAnimationFrame(() => {
+        el.removeAttribute('readonly');
+        el.focus();
+      });
+    };
+
+    const emailEl = emailRef.current;
+    const passEl = passRef.current;
+    if (emailEl) emailEl.addEventListener('touchstart', forceKeyboard, { passive: true });
+    if (passEl) passEl.addEventListener('touchstart', forceKeyboard, { passive: true });
+
+    return () => {
+      if (emailEl) emailEl.removeEventListener('touchstart', forceKeyboard);
+      if (passEl) passEl.removeEventListener('touchstart', forceKeyboard);
+    };
+  }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -31,19 +58,6 @@ export default function AuthView() {
     }
     setLoading(false);
   };
-
-  // iOS PWA standalone: readonly trick to force keyboard appearance
-  const iosFocus = useCallback((ref) => (e) => {
-    if (!isStandalone || !ref.current) return;
-    e.preventDefault();
-    const el = ref.current;
-    el.setAttribute('readonly', 'readonly');
-    el.focus();
-    setTimeout(() => {
-      el.removeAttribute('readonly');
-      el.focus();
-    }, 50);
-  }, []);
 
   const input = {
     width: '100%', padding: '10px 14px', borderRadius: 8,
@@ -73,18 +87,16 @@ export default function AuthView() {
         </div>
 
         <form onSubmit={handleSubmit}>
-          <label style={{ display: 'block', marginBottom: 12 }}
-            onTouchEnd={iosFocus(emailRef)}>
+          <div style={{ marginBottom: 12 }}>
             <input ref={emailRef} type="email" inputMode="email" autoComplete="email"
               placeholder="Email" value={email}
               onChange={e => setEmail(e.target.value)} required style={input} />
-          </label>
-          <label style={{ display: 'block', marginBottom: 20 }}
-            onTouchEnd={iosFocus(passRef)}>
+          </div>
+          <div style={{ marginBottom: 20 }}>
             <input ref={passRef} type="password" inputMode="text" autoComplete="current-password"
               placeholder="Password" value={password}
               onChange={e => setPassword(e.target.value)} required style={input} />
-          </label>
+          </div>
 
           {error   && <div style={{ color: '#f87171', fontSize: 13, marginBottom: 10, fontFamily: 'DM Sans, sans-serif' }}>{error}</div>}
           {message && <div style={{ color: '#22a870', fontSize: 13, marginBottom: 10, fontFamily: 'DM Sans, sans-serif' }}>{message}</div>}
