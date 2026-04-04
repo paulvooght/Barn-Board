@@ -378,8 +378,8 @@ export default function RouteList({
           onClick={handleOpenBrowse}
           style={{
             ...playlistTileStyle,
-            border: showBrowse ? '2px solid var(--accent)' : '1.5px solid var(--border)',
-            background: showBrowse ? 'var(--accent-dim)' : 'var(--bg-card)',
+            border: showBrowse ? '2px solid var(--accent)' : '1.5px dashed var(--border)',
+            background: showBrowse ? 'var(--accent-dim)' : 'transparent',
           }}
         >
           <div style={{ fontSize: '16px', lineHeight: 1 }}>🔍</div>

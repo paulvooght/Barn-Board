@@ -1124,7 +1124,7 @@ export default function App() {
     <>
       {/* ── Header ── */}
       <header style={{
-        padding: isHome ? '20px 16px 14px' : '10px 16px 8px',
+        padding: isHome ? '20px 16px 24px' : '10px 16px 8px',
         borderBottom: '1px solid var(--border)',
         display: 'flex',
         justifyContent: 'space-between',
@@ -1146,7 +1146,7 @@ export default function App() {
             letterSpacing: isHome ? '-1px' : '-0.3px',
             lineHeight: isHome ? 1.05 : 1,
           }}>
-            BARN BOARD
+            {isHome ? <><span style={{ display: 'block' }}>BARN</span><span style={{ display: 'block' }}>BOARD</span></> : 'BARN BOARD'}
           </h1>
           <div style={{
             fontSize: isHome ? '10px' : '8px',
