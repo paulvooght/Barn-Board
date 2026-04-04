@@ -53,11 +53,13 @@ export default function AuthView() {
 
         <form onSubmit={handleSubmit}>
           <div style={{ marginBottom: 12 }}>
-            <input type="email" placeholder="Email" value={email}
+            <input type="email" inputMode="email" autoComplete="email"
+              placeholder="Email" value={email}
               onChange={e => setEmail(e.target.value)} required style={input} />
           </div>
           <div style={{ marginBottom: 20 }}>
-            <input type="password" placeholder="Password" value={password}
+            <input type="password" inputMode="text" autoComplete="current-password"
+              placeholder="Password" value={password}
               onChange={e => setPassword(e.target.value)} required style={input} />
           </div>
 
