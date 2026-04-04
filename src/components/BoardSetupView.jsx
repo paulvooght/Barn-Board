@@ -1317,21 +1317,10 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
         const imgLeft = -(vtxImgFracX * magW) + LOUPE_SIZE / 2;
         const imgTop  = -(vtxImgFracY * magH) + LOUPE_SIZE / 2;
 
-        // Adjacent vertex positions for boundary lines
+        // Full polygon + vertices overlay — same coordinate system as main board SVG
         const hold = holds.find(h => h.id === draggingVertex.holdId);
         const poly = hold?.polygon;
         const idx = draggingVertex.vertexIdx;
-        let prevLoupe = null, nextLoupe = null;
-        if (poly && poly.length >= 3) {
-          const N = poly.length;
-          const toLoupe = (bx, by) => ({
-            x: ((boardRegion.left / 100) + (bx / 100) * (boardRegion.width / 100)) * magW + imgLeft,
-            y: ((boardRegion.top / 100) + (by / 100) * (boardRegion.height / 100)) * magH + imgTop,
-          });
-          prevLoupe = toLoupe(poly[(idx - 1 + N) % N][0], poly[(idx - 1 + N) % N][1]);
-          nextLoupe = toLoupe(poly[(idx + 1) % N][0], poly[(idx + 1) % N][1]);
-        }
-        const center = LOUPE_SIZE / 2;
 
         const loupeLeft = clamp(clientX - LOUPE_SIZE / 2, 4, window.innerWidth - LOUPE_SIZE - 4);
         const loupeTop  = clamp(clientY - OFFSET_ABOVE - LOUPE_SIZE, 4, clientY - OFFSET_ABOVE);
@@ -1349,19 +1338,27 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
             <img src={imgSrc || '/Barn_Set_01_V4.jpg'} alt="" draggable={false}
               style={{ position: 'absolute', width: magW, height: magH, left: imgLeft, top: imgTop, pointerEvents: 'none' }}
             />
-            {prevLoupe && nextLoupe && (
-              <svg width={LOUPE_SIZE} height={LOUPE_SIZE}
-                style={{ position: 'absolute', top: 0, left: 0, pointerEvents: 'none' }}
+            {poly && poly.length >= 3 && (
+              <svg
+                viewBox={`0 0 ${imgSize.w} ${imgSize.h}`}
+                preserveAspectRatio="none"
+                style={{ position: 'absolute', left: imgLeft, top: imgTop, width: magW, height: magH, pointerEvents: 'none' }}
               >
-                <line x1={prevLoupe.x} y1={prevLoupe.y} x2={center} y2={center}
-                  stroke="rgba(0,71,255,0.7)" strokeWidth={2} />
-                <line x1={center} y1={center} x2={nextLoupe.x} y2={nextLoupe.y}
-                  stroke="rgba(0,71,255,0.7)" strokeWidth={2} />
+                <polygon
+                  points={poly.map(([x, y]) => `${toSvgX(x)},${toSvgY(y)}`).join(' ')}
+                  fill="none" stroke="#0047FF" strokeWidth={10}
+                  strokeLinejoin="round"
+                />
+                {poly.map(([x, y], i) => (
+                  <circle key={i}
+                    cx={toSvgX(x)} cy={toSvgY(y)} r={8}
+                    fill={i === idx ? '#0047FF' : '#fff'}
+                    stroke={i === idx ? '#fff' : '#0047FF'}
+                    strokeWidth={2}
+                  />
+                ))}
               </svg>
             )}
-            <div style={{ position: 'absolute', left: center - 1, top: 0, width: 2, height: LOUPE_SIZE, background: 'rgba(0,71,255,0.5)', pointerEvents: 'none' }} />
-            <div style={{ position: 'absolute', left: 0, top: center - 1, width: LOUPE_SIZE, height: 2, background: 'rgba(0,71,255,0.5)', pointerEvents: 'none' }} />
-            <div style={{ position: 'absolute', left: center - 3, top: center - 3, width: 6, height: 6, borderRadius: '50%', background: '#0047FF', border: '1px solid white', pointerEvents: 'none' }} />
           </div>
         );
       })()}
