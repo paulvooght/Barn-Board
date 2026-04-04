@@ -8,6 +8,7 @@ import Settings from './components/Settings';
 import HoldEditorView from './components/HoldEditorView';
 import SessionSummary from './components/SessionSummary';
 import AuthView from './components/AuthView';
+import Icon from './components/Icon';
 import { useLocalStorage } from './hooks/useLocalStorage';
 import { useCustomHolds } from './hooks/useCustomHolds';
 import { supabase, ADMIN_EMAIL } from './lib/supabase';
@@ -452,6 +453,7 @@ export default function App() {
   const [techniques, setTechniques] = useState([]);
   const [styles, setStyles]         = useState([]);
   const [setter, setSetter]         = useState('');
+  const [description, setDescription] = useState('');
   const [youtubeUrl, setYoutubeUrl] = useState('');
 
   const grades = settings.gradeSystem === 'V' ? V_GRADES : FONT_GRADES;
@@ -466,6 +468,7 @@ export default function App() {
     setTechniques([]);
     setStyles([]);
     setSetter('');
+    setDescription('');
     setYoutubeUrl('');
     setSelectionMode(SELECTION_MODES.HAND);
     setEditingRouteId(null);
@@ -622,6 +625,7 @@ export default function App() {
           grade: routeGrade,
           angle: routeAngle,
           setter: setter.trim(),
+          description: description.trim() || undefined,
           youtubeUrl: youtubeUrl.trim() || undefined,
           holds: currentHolds,
           holdSnapshots,
@@ -637,6 +641,7 @@ export default function App() {
         grade: routeGrade,
         angle: routeAngle,
         setter: setter.trim(),
+        description: description.trim() || undefined,
         creatorId: user?.id,
         youtubeUrl: youtubeUrl.trim() || undefined,
         holds: currentHolds,
@@ -708,6 +713,7 @@ export default function App() {
       setTechniques(r.techniques || []);
       setStyles(r.styles || []);
       setSetter(r.setter || '');
+      setDescription(r.description || '');
       setYoutubeUrl(r.youtubeUrl || '');
       setHoldSelection({ ...(r.holds || {}) });
       setSelectionMode(SELECTION_MODES.HAND);
@@ -1128,7 +1134,7 @@ export default function App() {
         borderBottom: '1px solid var(--border)',
         display: 'flex',
         justifyContent: 'space-between',
-        alignItems: 'center',
+        alignItems: 'flex-start',
         background: 'var(--bg-primary)',
         position: 'sticky',
         top: 0,
@@ -1862,9 +1868,9 @@ function ViewRouteHeader({ route, sent, angleSends, isCreator, grades, gradeSyst
           {hasVideo && (
             <a href={route.youtubeUrl} target="_blank" rel="noopener noreferrer"
               onClick={e => e.stopPropagation()}
-              style={{ flexShrink: 0, display: 'flex', alignItems: 'center', textDecoration: 'none', fontSize: '16px', opacity: 0.45 }}
+              style={{ flexShrink: 0, display: 'flex', alignItems: 'center', textDecoration: 'none', opacity: 0.45 }}
             >
-              🎥
+              <Icon name="video" size={16}/>
             </a>
           )}
         </div>

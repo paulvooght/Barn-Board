@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <title>Generate Barn Board Icons</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Kodchasan:wght@700&display=swap" rel="stylesheet"/>
+  <style>
+    body { font-family: sans-serif; background: #1a1a1a; color: #eee; padding: 32px; }
+    .row { display: flex; gap: 24px; flex-wrap: wrap; margin-top: 24px; align-items: flex-start; }
+    .tile { text-align: center; }
+    .tile canvas { border-radius: 20%; display: block; }
+    .tile span { font-size: 11px; color: #888; margin-top: 6px; display: block; }
+    p { color: #aaa; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <h2>Barn Board — PWA Icon Generator</h2>
+  <p>Wait for "Done!" below — 3 PNG files will download automatically.<br/>
+     Move them into <code>public/</code> replacing the existing icons.</p>
+  <div class="row" id="canvases"></div>
+  <div id="status" style="margin-top:24px; font-weight:700;"></div>
+
+  <script>
+    const BG   = '#FFAB94';
+    const FG   = '#0047FF';
+
+    const sizes = [
+      { name: 'icon-192.png',         px: 192, fontSize: 72  },
+      { name: 'icon-512.png',         px: 512, fontSize: 192 },
+      { name: 'apple-touch-icon.png', px: 180, fontSize: 68  },
+    ];
+
+    function drawIcon(px, fontSize) {
+      const canvas = document.createElement('canvas');
+      canvas.width  = px;
+      canvas.height = px;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = BG;
+      ctx.fillRect(0, 0, px, px);
+      ctx.fillStyle    = FG;
+      ctx.font         = `700 ${fontSize}px 'Kodchasan', sans-serif`;
+      ctx.textAlign    = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('BB', px / 2, px / 2);
+      return canvas;
+    }
+
+    function download(canvas, filename) {
+      const a = document.createElement('a');
+      a.download = filename;
+      a.href = canvas.toDataURL('image/png');
+      a.click();
+    }
+
+    document.fonts.ready.then(() => {
+      setTimeout(() => {
+        const container = document.getElementById('canvases');
+
+        sizes.forEach(({ name, px, fontSize }, i) => {
+          const canvas = drawIcon(px, fontSize);
+          const preview = drawIcon(Math.min(px, 120), Math.min(fontSize, 45));
+
+          const tile = document.createElement('div');
+          tile.className = 'tile';
+          preview.style.width  = '120px';
+          preview.style.height = '120px';
+          tile.appendChild(preview);
+          const label = document.createElement('span');
+          label.textContent = name;
+          tile.appendChild(label);
+          container.appendChild(tile);
+
+          setTimeout(() => download(canvas, name), i * 400);
+        });
+
+        setTimeout(() => {
+          document.getElementById('status').style.color = '#4ade80';
+          document.getElementById('status').textContent = '✓ Done! Move the 3 downloaded PNGs into public/';
+        }, sizes.length * 400 + 200);
+      }, 600);
+    });
+  </script>
+</body>
+</html>

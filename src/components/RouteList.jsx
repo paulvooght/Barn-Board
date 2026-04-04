@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react';
 import RouteCard from './RouteCard';
+import Icon from './Icon';
 import { HOLD_TYPES, STYLES } from '../utils/constants';
 
 const SORT_OPTIONS = [
@@ -382,7 +383,7 @@ export default function RouteList({
             background: showBrowse ? 'var(--accent-dim)' : 'transparent',
           }}
         >
-          <div style={{ fontSize: '16px', lineHeight: 1 }}>🔍</div>
+          <div style={{ lineHeight: 1, color: showBrowse ? 'var(--accent)' : 'var(--text-dim)' }}><Icon name="search" size={18}/></div>
           <div style={{ fontSize: '9px', fontWeight: 600, color: showBrowse ? 'var(--accent)' : 'var(--text-dim)', marginTop: '2px' }}>Browse</div>
         </button>
       </div>
@@ -509,7 +510,7 @@ export default function RouteList({
                 title="Tap to rename"
               >
                 {pl.name}
-                <span style={{ marginLeft: '4px', fontSize: '10px', color: 'var(--text-dim)' }}>✏</span>
+                <span style={{ marginLeft: '4px', color: 'var(--text-dim)' }}><Icon name="pencil" size={10}/></span>
                 <span style={{
                   marginLeft: '6px', fontSize: '11px', color: 'var(--text-dim)', fontWeight: 500,
                 }}>
@@ -530,7 +531,7 @@ export default function RouteList({
                     fontSize: '11px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '3px',
                   }}
                 >
-                  <span style={{ fontSize: '12px' }}>{pl.shared ? '🔗' : '🔒'}</span>
+                  <Icon name={pl.shared ? 'link' : 'lock'} size={12}/>
                   <span>{pl.shared ? 'Public' : 'Private'}</span>
                 </button>
               )}

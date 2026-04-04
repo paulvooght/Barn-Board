@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import holdsData from '../data/holds.json';
+import Icon from './Icon';
 import { MATERIALS } from '../utils/constants';
 
 const { boardRegion } = holdsData;
@@ -457,7 +458,10 @@ export default function HoldEditorView({ mode, hold, allHolds, imgSrc, onSave, o
               color: drawMode ? 'var(--accent)' : 'var(--text-secondary)',
             }}
           >
-            {drawMode ? '✏ Draw' : '✋ Navigate'}
+            {drawMode
+              ? <><Icon name="pencil" size={12} style={{ marginRight: 4 }}/>Draw</>
+              : <><Icon name="hand" size={12} style={{ marginRight: 4 }}/>Navigate</>
+            }
           </button>
           <div style={{ fontSize: '11px', color: 'var(--text-muted)', letterSpacing: '0.5px' }}>
             {instruction}

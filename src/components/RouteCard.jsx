@@ -1,4 +1,5 @@
 import { getYouTubeId } from '../utils/constants';
+import Icon from './Icon';
 
 export default function RouteCard({ route, sent, communityRating, ratingCount, communityGrade, onView, onRate, onToggleSent, missingHoldCount, onRemoveFromPlaylist }) {
   const displayRating = Math.round(communityRating || 0);
@@ -90,7 +91,7 @@ export default function RouteCard({ route, sent, communityRating, ratingCount, c
             </span>
           )}
           {hasVideo && (
-            <span title="Has beta video" style={{ fontSize: '12px', opacity: 0.45 }}>🎥</span>
+            <span title="Has beta video" style={{ opacity: 0.45 }}><Icon name="video" size={12}/></span>
           )}
           {hasAngleGrades && (
             <span
