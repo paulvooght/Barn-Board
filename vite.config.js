@@ -8,10 +8,9 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       workbox: {
-        // Minimal SW for now — precache only the app shell.
-        // To add offline support later: add runtimeCaching rules here
-        // for board images, Supabase API calls, and fonts.
         globPatterns: ['**/*.{js,css,html}'],
+        clientsClaim: true,
+        skipWaiting: true,
       },
       manifest: {
         name: 'Barn Board',
