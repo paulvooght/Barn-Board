@@ -63,9 +63,10 @@ export default function RouteCard({ route, sent, communityRating, ratingCount, c
             <span style={{
               fontWeight: 700, color: 'var(--text-primary)', fontSize: '16px',
               whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-              lineHeight: 1.2, display: 'block',
+              lineHeight: 1.2, display: 'flex', alignItems: 'center', gap: '5px',
             }}>
               {route.name}
+              {hasVideo && <Icon name="video" size={13} style={{ opacity: 0.4, flexShrink: 0 }}/>}
             </span>
           </div>
         </div>
@@ -91,9 +92,6 @@ export default function RouteCard({ route, sent, communityRating, ratingCount, c
             >
               ⚠ {missingHoldCount}
             </span>
-          )}
-          {hasVideo && (
-            <span title="Has beta video" style={{ opacity: 0.45 }}><Icon name="video" size={12}/></span>
           )}
           {hasAngleGrades && (
             <span
