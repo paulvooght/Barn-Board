@@ -733,7 +733,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
   function handleTouchEnd(e) {
     if (lassoActiveRef.current) { lassoActiveRef.current = false; finishLasso(); pinchRef.current.active = false; panDragRef.current.active = false; return; }
     if (draggingHold) { setDraggingHold(null); moveMultiLastRef.current = null; pinchRef.current.active = false; panDragRef.current.active = false; return; }
-    if (draggingVertex) {
+    if (draggingVertexRef.current) {
       const wasTap = !vertexDragActiveRef.current;
       setDraggingVertex(null); draggingVertexRef.current = null; touchPosRef.current = null; dragVertexPctRef.current = null;
       vertexDragStartRef.current = null; vertexDragActiveRef.current = false;
@@ -915,12 +915,16 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
 
 
   return (
-    <div style={{
-      position: 'fixed', inset: 0, zIndex: 200,
-      background: 'var(--bg-primary)',
-      display: 'flex', flexDirection: 'column',
-      overflow: 'hidden',
-    }}>
+    <div
+      onContextMenu={(e) => e.preventDefault()}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 200,
+        background: 'var(--bg-primary)',
+        display: 'flex', flexDirection: 'column',
+        overflow: 'hidden',
+        WebkitTouchCallout: 'none', WebkitUserSelect: 'none',
+      }}
+    >
       {/* Header */}
       <div style={{
         padding: '10px 16px',
@@ -1241,9 +1245,11 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
           onMouseUp={handleMouseUp}
           onMouseLeave={handleMouseUp}
           onDoubleClick={isZoomed ? resetZoom : undefined}
+          onContextMenu={(e) => e.preventDefault()}
           style={{
             width: '100%', height: '100%',
             touchAction: 'none', userSelect: 'none',
+            WebkitTouchCallout: 'none', WebkitUserSelect: 'none',
             cursor: cursorStyle, overflow: 'hidden',
           }}
         >
