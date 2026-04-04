@@ -59,13 +59,24 @@ export default function RouteCard({ route, sent, communityRating, ratingCount, c
               </span>
             )}
           </div>
-          <span style={{
-            fontWeight: 700, color: 'var(--text-primary)', fontSize: '16px',
-            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-            lineHeight: 1.2,
-          }}>
-            {route.name}
-          </span>
+          <div style={{ minWidth: 0 }}>
+            <span style={{
+              fontWeight: 700, color: 'var(--text-primary)', fontSize: '16px',
+              whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+              lineHeight: 1.2, display: 'block',
+            }}>
+              {route.name}
+            </span>
+            {route.description && (
+              <span style={{
+                fontSize: '11px', color: 'var(--text-muted)', fontStyle: 'italic',
+                whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                display: 'block', lineHeight: 1.3,
+              }}>
+                {route.description}
+              </span>
+            )}
+          </div>
         </div>
       </div>
 

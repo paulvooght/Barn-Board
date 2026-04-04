@@ -7,6 +7,7 @@ export default function RouteForm({
   grade, setGrade,
   angle, setAngle,
   setter, setSetter,
+  description, setDescription,
   youtubeUrl, setYoutubeUrl,
   holdTypes, setHoldTypes,
   autoHoldTypes,
@@ -61,6 +62,18 @@ export default function RouteForm({
           value={setter}
           onChange={e => setSetter(e.target.value)}
           placeholder="e.g. Paul"
+          style={inputStyle}
+        />
+      </div>
+
+      {/* Description */}
+      <div style={{ marginBottom: '14px' }}>
+        <label style={labelStyle}>Description</label>
+        <input
+          type="text"
+          value={description}
+          onChange={e => setDescription(e.target.value)}
+          placeholder="e.g. Any feet, campus only"
           style={inputStyle}
         />
       </div>
