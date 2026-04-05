@@ -40,7 +40,7 @@
       const ctx = canvas.getContext('2d');
       ctx.fillStyle = BG;
       ctx.fillRect(0, 0, px, px);
-      const borderW = Math.round(px * 0.025); // ~2.5% of icon size
+      const borderW = Math.round(px * 0.02); // ~2% of icon size
       ctx.strokeStyle = BORDER;
       ctx.lineWidth   = borderW * 2; // strokeRect draws half inside, half outside — double so full width is inside
       ctx.strokeRect(borderW, borderW, px - borderW * 2, px - borderW * 2);
