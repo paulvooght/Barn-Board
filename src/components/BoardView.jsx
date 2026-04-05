@@ -14,7 +14,9 @@ export default function BoardView({ holds, selection, onHoldTap, interactive, di
   const [imgSize, setImgSize]         = useState({ w: 1200, h: 900 });
   const [scale, setScale]             = useState(1);
   const [pan, setPan]                 = useState({ x: 0, y: 0 });
+  const [pxScale, setPxScale]         = useState(1);
 
+  const imgRef          = useRef(null);
   const containerRef    = useRef(null);
   const scaleRef        = useRef(1);
   const panRef          = useRef({ x: 0, y: 0 });
@@ -29,6 +31,19 @@ export default function BoardView({ holds, selection, onHoldTap, interactive, di
 
   useEffect(() => { scaleRef.current = scale; }, [scale]);
   useEffect(() => { panRef.current = pan; }, [pan]);
+
+  useEffect(() => {
+    const img = imgRef.current;
+    if (!img || !imageLoaded || !imgSize.w) return;
+    const update = () => {
+      const w = img.offsetWidth;
+      if (w > 0) setPxScale(imgSize.w / w);
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(img);
+    return () => observer.disconnect();
+  }, [imageLoaded, imgSize.w]);
 
   function doZoom(newScale, pivotX, pivotY) {
     const el = containerRef.current;
@@ -315,13 +330,18 @@ export default function BoardView({ holds, selection, onHoldTap, interactive, di
             lineHeight: 0,
           }}>
           <img
+            ref={imgRef}
             src={imgSrc || '/Barn_Set_01_V5.jpg'}
             srcSet={imgSrcSet}
             sizes={imgSizes}
             alt="Climbing board"
             onLoad={(e) => {
-              setImgSize({ w: e.target.naturalWidth, h: e.target.naturalHeight });
+              const nw = e.target.naturalWidth;
+              const nh = e.target.naturalHeight;
+              setImgSize({ w: nw, h: nh });
               setImageLoaded(true);
+              const rw = e.target.offsetWidth;
+              if (rw > 0) setPxScale(nw / rw);
             }}
             style={{
               width: '100%',
@@ -353,11 +373,12 @@ export default function BoardView({ holds, selection, onHoldTap, interactive, di
                     {selectedHolds.map(hold => {
                       if (hold.polygon?.length >= 3) {
                         const pts = hold.polygon.map(([x, y]) => `${toX(x)},${toY(y)}`).join(' ');
-                        return <polygon key={hold.id} points={pts} fill="black" stroke="black" strokeWidth={16} strokeLinejoin="round" />;
+                        return <polygon key={hold.id} points={pts} fill="black" stroke="black" strokeWidth={Math.round(5 * pxScale)} strokeLinejoin="round" />;
                       }
                       const w = hold.w_pct !== undefined ? hold.w_pct : hold.r * 2;
                       const h = hold.h_pct !== undefined ? hold.h_pct : hold.r * 2;
-                      return <ellipse key={hold.id} cx={toX(hold.cx)} cy={toY(hold.cy)} rx={Math.max((w / 100) * bW / 2 + 8, 10)} ry={Math.max((h / 100) * bH / 2 + 8, 10)} fill="black" />;
+                      const m = Math.round(2.5 * pxScale);
+                      return <ellipse key={hold.id} cx={toX(hold.cx)} cy={toY(hold.cy)} rx={Math.max((w / 100) * bW / 2 + m, m)} ry={Math.max((h / 100) * bH / 2 + m, m)} fill="black" />;
                     })}
                   </mask>
                 </defs>
@@ -390,6 +411,7 @@ export default function BoardView({ holds, selection, onHoldTap, interactive, di
                   selection={selection}
                   onTap={onHoldTap}
                   interactive={interactive}
+                  pxScale={pxScale}
                 />
               ))}
               {/* Ghost outlines for missing/deleted holds */}
@@ -408,7 +430,7 @@ export default function BoardView({ holds, selection, onHoldTap, interactive, di
                     const pts = snap.polygon.map(([x, y]) => `${gX(x)},${gY(y)}`).join(' ');
                     return (
                       <g key={`ghost-${id}`} style={{ pointerEvents: 'none' }}>
-                        <polygon points={pts} fill="none" stroke="#FF1493" strokeWidth={6} strokeDasharray="10 6" strokeLinejoin="round" opacity={0.8} />
+                        <polygon points={pts} fill="none" stroke="#FF1493" strokeWidth={Math.round(2 * pxScale)} strokeDasharray={`${Math.round(3.5 * pxScale)} ${Math.round(2 * pxScale)}`} strokeLinejoin="round" opacity={0.8} />
                         <text x={gX(snap.cx)} y={gY(snap.cy)} textAnchor="middle" dominantBaseline="central"
                           fontSize={Math.max(bWidth * 0.018, 14)} fontWeight="900" fill="#FF1493"
                           style={{ pointerEvents: 'none' }}
@@ -422,7 +444,7 @@ export default function BoardView({ holds, selection, onHoldTap, interactive, di
                   const ry = Math.max((h / 100) * bHeight / 2, 4);
                   return (
                     <g key={`ghost-${id}`} style={{ pointerEvents: 'none' }}>
-                      <ellipse cx={gX(snap.cx)} cy={gY(snap.cy)} rx={rx} ry={ry} fill="none" stroke="#FF1493" strokeWidth={6} strokeDasharray="10 6" opacity={0.8} />
+                      <ellipse cx={gX(snap.cx)} cy={gY(snap.cy)} rx={rx} ry={ry} fill="none" stroke="#FF1493" strokeWidth={Math.round(2 * pxScale)} strokeDasharray={`${Math.round(3.5 * pxScale)} ${Math.round(2 * pxScale)}`} opacity={0.8} />
                       <text x={gX(snap.cx)} y={gY(snap.cy)} textAnchor="middle" dominantBaseline="central"
                         fontSize={Math.max(bWidth * 0.018, 14)} fontWeight="900" fill="#FF1493"
                         style={{ pointerEvents: 'none' }}

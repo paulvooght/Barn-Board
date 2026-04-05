@@ -106,6 +106,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
   // Image / zoom / pan
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imgSize, setImgSize] = useState({ w: 1200, h: 900 });
+  const [pxScale, setPxScale] = useState(1);
   const [scale, setScale] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
 
@@ -120,6 +121,20 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
 
   useEffect(() => { scaleRef.current = scale; }, [scale]);
   useEffect(() => { panRef.current = pan; }, [pan]);
+
+  useEffect(() => {
+    const svg = svgRef.current;
+    if (!svg || !imgSize.w) return;
+    const update = () => {
+      const rect = svg.getBoundingClientRect();
+      const s = Math.min(rect.width / imgSize.w, rect.height / imgSize.h);
+      if (s > 0) setPxScale(1 / s);
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(svg);
+    return () => observer.disconnect();
+  }, [imgSize.w, imgSize.h]);
 
   // ─── Coordinate conversion ──────────────────────────────────────────
   const bLeft = imgSize.w * boardRegion.left / 100;
@@ -816,7 +831,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
     // Always use brand blue for outlines — hold color visible through image cutout, not from outline tint
     const selectedColor = '#0047FF';
     // Thicker lines for confirmed (high) holds
-    const lineWidth = (isSel || isInspected) ? 10 : isHigh ? 10 : 4;
+    const lineWidth = (isSel || isInspected) ? Math.round(2 * pxScale) : isHigh ? Math.round(2 * pxScale) : Math.round(1 * pxScale);
 
     if (!hasPoly) {
       const cx = toSvgX(hold.cx);
@@ -832,7 +847,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
             fill={highlighted ? `${selectedColor}25` : fillColor}
             stroke={highlighted ? selectedColor : outlineColor}
             strokeWidth={lineWidth}
-            strokeDasharray={!highlighted && !isHigh ? '8 5' : 'none'}
+            strokeDasharray={!highlighted && !isHigh ? `${Math.round(3 * pxScale)} ${Math.round(2 * pxScale)}` : 'none'}
             style={{ pointerEvents: 'none' }}
           />
         </g>
@@ -846,7 +861,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
       <g key={hold.id}>
         {highlighted && (
           <polygon points={pts}
-            fill="none" stroke={`${selectedColor}40`} strokeWidth={10}
+            fill="none" stroke={`${selectedColor}40`} strokeWidth={Math.round(3.5 * pxScale)}
             strokeLinejoin="round" style={{ pointerEvents: 'none' }}
           />
         )}
@@ -855,13 +870,13 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
           stroke={highlighted ? selectedColor : outlineColor}
           strokeWidth={lineWidth}
           strokeLinejoin="round"
-          strokeDasharray={!highlighted && !isHigh ? '8 5' : 'none'}
+          strokeDasharray={!highlighted && !isHigh ? `${Math.round(3 * pxScale)} ${Math.round(2 * pxScale)}` : 'none'}
           style={{ pointerEvents: 'none' }}
         />
         {showVertices && activeTool === TOOLS.SELECT && hold.polygon.map(([x, y], idx) => {
           const sx = toSvgX(x), sy = toSvgY(y);
           const svgScale = getSvgScale();
-          const vr = 8;           // Fixed in SVG space — scales with content like the hold outlines
+          const vr = Math.round(3 * pxScale);
           const hitR = 30 / svgScale;  // Screen-space — stays ~30px for touch targeting regardless of zoom
           return (
             <g key={idx} style={{ cursor: 'move' }}
@@ -872,7 +887,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
               <circle cx={sx} cy={sy} r={vr}
                 fill={idx === 0 ? selectedColor : '#fff'}
                 stroke={idx === 0 ? '#fff' : selectedColor}
-                strokeWidth={2}
+                strokeWidth={Math.max(Math.round(0.7 * pxScale), 1)}
                 style={{ pointerEvents: 'none' }}
               />
             </g>
@@ -890,21 +905,21 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
         {drawClosed ? (
           <polygon points={pts.join(' ')}
             fill="rgba(0,71,255,0.15)" stroke="#0047FF"
-            strokeWidth={2.5} strokeDasharray="6 3"
+            strokeWidth={Math.round(1 * pxScale)} strokeDasharray={`${Math.round(2.5 * pxScale)} ${Math.round(1.5 * pxScale)}`}
           />
         ) : drawPoints.length >= 2 ? (
           <polyline points={pts.join(' ')}
             fill="none" stroke="#0047FF"
-            strokeWidth={2} strokeDasharray="5 3"
+            strokeWidth={Math.round(1 * pxScale)} strokeDasharray={`${Math.round(2 * pxScale)} ${Math.round(1.5 * pxScale)}`}
           />
         ) : null}
         {drawMode === 'polygon' && drawPoints.map(([x, y], idx) => (
           <circle key={idx}
             cx={toSvgX(x)} cy={toSvgY(y)}
-            r={idx === 0 ? 12 : 6}
+            r={idx === 0 ? Math.round(4 * pxScale) : Math.round(2.5 * pxScale)}
             fill={idx === 0 ? '#0047FF' : '#fff'}
             stroke={idx === 0 ? '#fff' : '#0047FF'}
-            strokeWidth={2}
+            strokeWidth={Math.max(Math.round(0.7 * pxScale), 1)}
           />
         ))}
       </g>
@@ -1296,16 +1311,19 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
                       {inspected.polygon?.length >= 3 ? (
                         <polygon
                           points={inspected.polygon.map(([x, y]) => `${toSvgX(x)},${toSvgY(y)}`).join(' ')}
-                          fill="black" stroke="black" strokeWidth={16} strokeLinejoin="round"
+                          fill="black" stroke="black" strokeWidth={Math.round(5 * pxScale)} strokeLinejoin="round"
                         />
-                      ) : (
-                        <ellipse
-                          cx={toSvgX(inspected.cx)} cy={toSvgY(inspected.cy)}
-                          rx={Math.max(((inspected.w_pct || inspected.r * 2 || 4) / 100) * bW / 2 + 8, 10)}
-                          ry={Math.max(((inspected.h_pct || inspected.r * 2 || 4) / 100) * bH / 2 + 8, 10)}
-                          fill="black"
-                        />
-                      )}
+                      ) : (() => {
+                        const m = Math.round(2.5 * pxScale);
+                        return (
+                          <ellipse
+                            cx={toSvgX(inspected.cx)} cy={toSvgY(inspected.cy)}
+                            rx={Math.max(((inspected.w_pct || inspected.r * 2 || 4) / 100) * bW / 2 + m, m)}
+                            ry={Math.max(((inspected.h_pct || inspected.r * 2 || 4) / 100) * bH / 2 + m, m)}
+                            fill="black"
+                          />
+                        );
+                      })()}
                     </mask>
                   </defs>
                   <rect width={imgSize.w} height={imgSize.h} fill="white" mask="url(#metadata-hold-mask)" />
@@ -1379,15 +1397,15 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
               >
                 <polygon
                   points={poly.map(([x, y]) => `${toSvgX(x)},${toSvgY(y)}`).join(' ')}
-                  fill="none" stroke="#0047FF" strokeWidth={10}
+                  fill="none" stroke="#0047FF" strokeWidth={Math.round(3 * pxScale)}
                   strokeLinejoin="round"
                 />
                 {poly.map(([x, y], i) => (
                   <circle key={i}
-                    cx={toSvgX(x)} cy={toSvgY(y)} r={8}
+                    cx={toSvgX(x)} cy={toSvgY(y)} r={Math.round(3 * pxScale)}
                     fill={i === idx ? '#0047FF' : '#fff'}
                     stroke={i === idx ? '#fff' : '#0047FF'}
-                    strokeWidth={2}
+                    strokeWidth={Math.max(Math.round(0.7 * pxScale), 1)}
                   />
                 ))}
               </svg>
