@@ -670,7 +670,7 @@ export default function App() {
     if (savedRoutes) flushRoutesToSupabase(savedRoutes);
     resetCreate();
     setView('routes');
-  }, [routeName, routeGrade, routeAngle, setter, description, holdTypes, techniques, styles, setRoutes, resetCreate, editingRouteId, logRouteCreated, allHolds, flushRoutesToSupabase]);
+  }, [routeName, routeGrade, routeAngle, setter, description, youtubeUrl, holdTypes, techniques, styles, setRoutes, resetCreate, editingRouteId, logRouteCreated, allHolds, flushRoutesToSupabase]);
 
   const viewRoute = useCallback((route) => {
     // Defensive: always read the latest version of this route from localStorage
