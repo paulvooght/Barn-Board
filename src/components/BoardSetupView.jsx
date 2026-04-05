@@ -1262,7 +1262,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
             display: 'flex', justifyContent: 'center', alignItems: 'flex-start',
           }}>
             <img
-              src={imgSrc || '/Barn_Set_01_V4.jpg'}
+              src={imgSrc || '/Barn_Set_01_V5.jpg'}
               srcSet={imgSrcSet}
               sizes={imgSizes}
               alt="Climbing board"
@@ -1368,7 +1368,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
             overflow: 'hidden', pointerEvents: 'none', zIndex: 300,
             background: '#1a0a00',
           }}>
-            <img src={imgSrc || '/Barn_Set_01_V4.jpg'} srcSet={imgSrcSet} sizes={imgSizes} alt="" draggable={false}
+            <img src={imgSrc || '/Barn_Set_01_V5.jpg'} srcSet={imgSrcSet} sizes={imgSizes} alt="" draggable={false}
               style={{ position: 'absolute', width: magW, height: magH, left: imgLeft, top: imgTop, pointerEvents: 'none' }}
             />
             {poly && poly.length >= 3 && (

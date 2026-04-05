@@ -10,8 +10,8 @@ export default defineConfig({
       workbox: {
         globPatterns: ['**/*.{js,css,html,jpg,png}'],
         globIgnores: [
-          '**/Barn_Set_01_V4.jpg',
-          '**/Barn_Set_01_V5.jpg',
+          '**/Barn_Set_01_V4*.jpg',
+          '**/Barn_Set_01_V5*.jpg',
           '**/Barn_Board_Reset_02_C.jpg',
           '**/Barn_Board_Reset_03_fake.jpg',
           '**/Barn_Set_01_V3A.JPG',

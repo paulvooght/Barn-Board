@@ -137,11 +137,11 @@ export function getYouTubeThumbnail(url) {
   return id ? `https://img.youtube.com/vi/${id}/mqdefault.jpg` : null;
 }
 
-export const DEFAULT_BOARD_IMAGE = '/Barn_Set_01_V4.jpg';
+export const DEFAULT_BOARD_IMAGE = '/Barn_Set_01_V5.jpg';
 export const DEFAULT_BOARD_SRCSET =
-  '/Barn_Set_01_V4-800w.jpg 800w, ' +
-  '/Barn_Set_01_V4-1200w.jpg 1200w, ' +
-  '/Barn_Set_01_V4-2000w.jpg 2000w';
+  '/Barn_Set_01_V5-800w.jpg 800w, ' +
+  '/Barn_Set_01_V5-1200w.jpg 1200w, ' +
+  '/Barn_Set_01_V5-2000w.jpg 2000w';
 export const DEFAULT_BOARD_SIZES = '100vw';
 
 export const BOARD_SPECS = {
