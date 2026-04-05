@@ -6,7 +6,7 @@ import { MODE_COLORS } from '../utils/constants';
  * Route view: bold colored outlines, tinted fill, large labels.
  * The board image is dimmed separately (BoardView) so these pop.
  */
-export default function HoldOverlay({ hold, boardRegion, imgSize, selection, onTap, interactive, pxScale = 1 }) {
+export default function HoldOverlay({ hold, boardRegion, imgSize, selection, onTap, interactive }) {
   const selType  = selection?.[hold.id];
   const isSelected = !!selType;
   const color    = isSelected ? MODE_COLORS[selType] : null;
@@ -46,9 +46,9 @@ export default function HoldOverlay({ hold, boardRegion, imgSize, selection, onT
     );
   }
 
-  // ── Selected hold styling — scaled to consistent screen-pixel size ──
-  const strokeW = Math.round(4 * pxScale);
-  const glowW = Math.round(7 * pxScale);
+  // ── Selected hold styling ──
+  const strokeW = 10;
+  const glowW = 18;
   const fillColor = 'transparent';
   const glowColor = `${color}44`;
 
@@ -74,7 +74,7 @@ export default function HoldOverlay({ hold, boardRegion, imgSize, selection, onT
       {hasPolygon ? (
         <polygon points={polyPoints} fill="none" stroke={glowColor} strokeWidth={glowW} strokeLinejoin="round" />
       ) : (
-        <ellipse cx={cx} cy={cy} rx={rx + Math.round(2.5 * pxScale)} ry={ry + Math.round(2.5 * pxScale)} fill="none" stroke={glowColor} strokeWidth={glowW} />
+        <ellipse cx={cx} cy={cy} rx={rx + 6} ry={ry + 6} fill="none" stroke={glowColor} strokeWidth={glowW} />
       )}
 
       {/* Layer 2: Outline (no fill) */}
@@ -117,7 +117,7 @@ export default function HoldOverlay({ hold, boardRegion, imgSize, selection, onT
           r={Math.max(bW * 0.006, 4)}
           fill="#fff"
           stroke={color}
-          strokeWidth={Math.max(Math.round(pxScale), 1)}
+          strokeWidth={2}
           style={{ filter: 'drop-shadow(0 1px 3px rgba(26,10,0,0.7))' }}
         />
       )}
