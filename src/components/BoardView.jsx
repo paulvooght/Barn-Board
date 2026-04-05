@@ -373,11 +373,11 @@ export default function BoardView({ holds, selection, onHoldTap, interactive, di
                     {selectedHolds.map(hold => {
                       if (hold.polygon?.length >= 3) {
                         const pts = hold.polygon.map(([x, y]) => `${toX(x)},${toY(y)}`).join(' ');
-                        return <polygon key={hold.id} points={pts} fill="black" stroke="black" strokeWidth={Math.round(5 * pxScale)} strokeLinejoin="round" />;
+                        return <polygon key={hold.id} points={pts} fill="black" stroke="black" strokeWidth={Math.round(2 * pxScale)} strokeLinejoin="round" />;
                       }
                       const w = hold.w_pct !== undefined ? hold.w_pct : hold.r * 2;
                       const h = hold.h_pct !== undefined ? hold.h_pct : hold.r * 2;
-                      const m = Math.round(2.5 * pxScale);
+                      const m = Math.round(1 * pxScale);
                       return <ellipse key={hold.id} cx={toX(hold.cx)} cy={toY(hold.cy)} rx={Math.max((w / 100) * bW / 2 + m, m)} ry={Math.max((h / 100) * bH / 2 + m, m)} fill="black" />;
                     })}
                   </mask>

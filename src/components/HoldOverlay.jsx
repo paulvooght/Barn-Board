@@ -48,7 +48,7 @@ export default function HoldOverlay({ hold, boardRegion, imgSize, selection, onT
 
   // ── Selected hold styling ──
   const strokeW = Math.round(1.5 * pxScale);
-  const glowW = Math.round(2.5 * pxScale);
+  const glowW = Math.round(1.5 * pxScale);
   const fillColor = 'transparent';
   const glowColor = `${color}44`;
 
@@ -74,7 +74,7 @@ export default function HoldOverlay({ hold, boardRegion, imgSize, selection, onT
       {hasPolygon ? (
         <polygon points={polyPoints} fill="none" stroke={glowColor} strokeWidth={glowW} strokeLinejoin="round" />
       ) : (
-        <ellipse cx={cx} cy={cy} rx={rx + Math.round(1 * pxScale)} ry={ry + Math.round(1 * pxScale)} fill="none" stroke={glowColor} strokeWidth={glowW} />
+        <ellipse cx={cx} cy={cy} rx={rx + Math.max(Math.round(0.5 * pxScale), 1)} ry={ry + Math.max(Math.round(0.5 * pxScale), 1)} fill="none" stroke={glowColor} strokeWidth={glowW} />
       )}
 
       {/* Layer 2: Outline (no fill) */}
