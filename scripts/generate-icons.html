@@ -23,8 +23,9 @@
   <div id="status" style="margin-top:24px; font-weight:700;"></div>
 
   <script>
-    const BG   = '#FFAB94';
-    const FG   = '#0047FF';
+    const BG     = '#FFAB94';
+    const FG     = '#0047FF';
+    const BORDER = '#FFE800';
 
     const sizes = [
       { name: 'icon-192.png',         px: 192, fontSize: 72  },
@@ -39,6 +40,10 @@
       const ctx = canvas.getContext('2d');
       ctx.fillStyle = BG;
       ctx.fillRect(0, 0, px, px);
+      const borderW = Math.round(px * 0.025); // ~2.5% of icon size
+      ctx.strokeStyle = BORDER;
+      ctx.lineWidth   = borderW * 2; // strokeRect draws half inside, half outside — double so full width is inside
+      ctx.strokeRect(borderW, borderW, px - borderW * 2, px - borderW * 2);
       ctx.fillStyle    = FG;
       ctx.font         = `700 ${fontSize}px 'Kodchasan', sans-serif`;
       ctx.textAlign    = 'center';
