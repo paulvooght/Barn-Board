@@ -47,8 +47,8 @@ export default function HoldOverlay({ hold, boardRegion, imgSize, selection, onT
   }
 
   // ── Selected hold styling ──
-  const strokeW = Math.round(2 * pxScale);
-  const glowW = Math.round(3.5 * pxScale);
+  const strokeW = Math.round(1.5 * pxScale);
+  const glowW = Math.round(2.5 * pxScale);
   const fillColor = 'transparent';
   const glowColor = `${color}44`;
 
@@ -58,9 +58,9 @@ export default function HoldOverlay({ hold, boardRegion, imgSize, selection, onT
               : selType === 'handOnly' ? 'HAND'
               : null;
 
-  const fontSize = Math.max(bW * 0.014, 10);
+  const fontSize = Math.max(bW * 0.010, 8);
   const pillW = fontSize * (label ? label.length * 0.7 + 1.2 : 0);
-  const pillH = fontSize * 1.6;
+  const pillH = fontSize * 1.5;
 
   // Bottom of the hold shape in SVG coords — label goes below this
   const bottomY = hasPolygon
@@ -74,7 +74,7 @@ export default function HoldOverlay({ hold, boardRegion, imgSize, selection, onT
       {hasPolygon ? (
         <polygon points={polyPoints} fill="none" stroke={glowColor} strokeWidth={glowW} strokeLinejoin="round" />
       ) : (
-        <ellipse cx={cx} cy={cy} rx={rx + Math.round(1.5 * pxScale)} ry={ry + Math.round(1.5 * pxScale)} fill="none" stroke={glowColor} strokeWidth={glowW} />
+        <ellipse cx={cx} cy={cy} rx={rx + Math.round(1 * pxScale)} ry={ry + Math.round(1 * pxScale)} fill="none" stroke={glowColor} strokeWidth={glowW} />
       )}
 
       {/* Layer 2: Outline (no fill) */}
