@@ -47,8 +47,8 @@ export default function HoldOverlay({ hold, boardRegion, imgSize, selection, onT
   }
 
   // ── Selected hold styling ──
-  const strokeW = Math.round(1.5 * pxScale);
-  const glowW = Math.round(1.5 * pxScale);
+  const strokeW = Math.max(Math.round(1 * pxScale), 1);
+  const glowW = Math.max(Math.round(1 * pxScale), 1);
   const fillColor = 'transparent';
   const glowColor = `${color}44`;
 
@@ -58,15 +58,15 @@ export default function HoldOverlay({ hold, boardRegion, imgSize, selection, onT
               : selType === 'handOnly' ? 'HAND'
               : null;
 
-  const fontSize = Math.max(bW * 0.010, 8);
-  const pillW = fontSize * (label ? label.length * 0.7 + 1.2 : 0);
-  const pillH = fontSize * 1.5;
+  const fontSize = Math.max(bW * 0.007, 6);
+  const pillW = fontSize * (label ? label.length * 0.65 + 1.1 : 0);
+  const pillH = fontSize * 1.4;
 
   // Bottom of the hold shape in SVG coords — label goes below this
   const bottomY = hasPolygon
     ? Math.max(...hold.polygon.map(([, y]) => toSvgY(y)))
     : cy + ry;
-  const labelY = bottomY + strokeW / 2 + pillH / 2 + 6; // gap below outline
+  const labelY = bottomY + strokeW / 2 + pillH / 2 + 3; // gap below outline
 
   return (
     <g style={{ pointerEvents: 'none' }}>
@@ -114,7 +114,7 @@ export default function HoldOverlay({ hold, boardRegion, imgSize, selection, onT
       {!label && (
         <circle
           cx={cx} cy={cy}
-          r={Math.max(bW * 0.006, 4)}
+          r={Math.max(bW * 0.004, 3)}
           fill="#fff"
           stroke={color}
           strokeWidth={Math.max(Math.round(0.7 * pxScale), 1)}
