@@ -428,7 +428,6 @@ export default function BoardImageUpdateView({ currentImgSrc, currentImageName, 
             ref={fileInputRef}
             type="file"
             accept="image/*"
-            capture="environment"
             onChange={handleFileChange}
             style={{ display: 'none' }}
           />
