@@ -92,14 +92,15 @@ export default function App() {
   const hasLoadedOnce = useRef(false);
 
   const loadDataFromSupabase = useCallback(async (userId, isFirstLoad) => {
-    // Fire all 6 queries in parallel — biggest startup speedup
-    const [routeResult, urdResult, ratingResult, gradeResult, sessionResult, plResult] = await Promise.all([
+    // Fire all queries in parallel — biggest startup speedup
+    const [routeResult, urdResult, ratingResult, gradeResult, sessionResult, plResult, imgConfigResult] = await Promise.all([
       supabase.from('routes').select('id, user_id, data').order('created_at', { ascending: false }),
       supabase.from('user_route_data').select('route_id, sent, rating, angle_sends, grade_suggestions').eq('user_id', userId),
       supabase.from('user_route_data').select('route_id, rating').gt('rating', 0),
       supabase.from('user_route_data').select('route_id, grade_suggestions').not('grade_suggestions', 'eq', '{}'),
       supabase.from('sessions').select('data').eq('user_id', userId).order('created_at', { ascending: false }),
       supabase.from('board_settings').select('data').eq('key', `playlists_${userId}`).maybeSingle(),
+      supabase.from('board_settings').select('data').eq('key', 'board_image_config').maybeSingle(),
     ]);
 
     // a) Routes
@@ -220,8 +221,13 @@ export default function App() {
       }
     }
 
+    // g) Board image config
+    if (imgConfigResult.data) {
+      setBoardImageConfig(imgConfigResult.data.data);
+    }
+
     setDataReady(true);
-  }, [setRoutes, setSessions, setPlaylists]);
+  }, [setRoutes, setSessions, setPlaylists, setBoardImageConfig]);
 
   // Initial load on login
   useEffect(() => {
@@ -465,10 +471,16 @@ export default function App() {
 
   const grades = settings.gradeSystem === 'V' ? V_GRADES : FONT_GRADES;
   const gradeIndex = settings.gradeSystem === 'font' ? FONT_GRADE_INDEX : V_GRADE_INDEX;
-  const imgSrc = settings.boardImage || DEFAULT_BOARD_IMAGE;
-  const isDefaultImage = !settings.boardImage || settings.boardImage === DEFAULT_BOARD_IMAGE;
-  const imgSrcSet = isDefaultImage ? DEFAULT_BOARD_SRCSET : undefined;
-  const imgSizes = isDefaultImage ? DEFAULT_BOARD_SIZES : undefined;
+
+  // Board image config — loaded from Supabase board_settings, falls back to static defaults
+  const [boardImageConfig, setBoardImageConfig] = useState(null);
+  const imgSrc = boardImageConfig
+    ? `${boardImageConfig.baseUrl}/${boardImageConfig.imageName}.jpg`
+    : DEFAULT_BOARD_IMAGE;
+  const imgSrcSet = boardImageConfig
+    ? `${boardImageConfig.baseUrl}/${boardImageConfig.imageName}-800w.jpg 800w, ${boardImageConfig.baseUrl}/${boardImageConfig.imageName}-1200w.jpg 1200w, ${boardImageConfig.baseUrl}/${boardImageConfig.imageName}-2000w.jpg 2000w`
+    : DEFAULT_BOARD_SRCSET;
+  const imgSizes = DEFAULT_BOARD_SIZES;
 
   const resetCreate = useCallback(() => {
     setHoldSelection({});
@@ -1649,6 +1661,7 @@ export default function App() {
           userEmail={user?.email}
           onSignOut={() => supabase.auth.signOut()}
           onViewSession={(session) => { setCompletedSession(session); setView('sessionSummary'); }}
+          onUpdateBoardImage={() => setView('updateBoardImage')}
         />
       )}
 

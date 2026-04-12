@@ -8,40 +8,13 @@ import holdsData from '../data/holds.json';
  *   allHolds                 — merged hold array from useCustomHolds
  *   onSetupBoard()           — open the Hold Manager
  */
-export default function Settings({ settings, updateSettings, allHolds, onSetupBoard, sessions = [], routes = [], isAdmin = true, userEmail, onSignOut, onViewSession }) {
+export default function Settings({ settings, updateSettings, allHolds, onSetupBoard, sessions = [], routes = [], isAdmin = true, userEmail, onSignOut, onViewSession, onUpdateBoardImage }) {
   const totalHolds    = allHolds.length;
   const customCount   = allHolds.filter(h => h.custom).length;
   const verifiedCount = allHolds.filter(h => h.verified).length;
   const [showChart, setShowChart] = useState(false);
   const [showSessions, setShowSessions] = useState(false);
   const [showBeta, setShowBeta] = useState(false);
-
-  // Board image state
-  const currentImage = settings.boardImage || '/Barn_Set_01_V5.jpg';
-  const currentFilename = currentImage.replace(/^\//, '');
-  const [showImageInput, setShowImageInput] = useState(false);
-  const [imageInput, setImageInput] = useState(currentFilename);
-  const [imageError, setImageError] = useState('');
-  const [imageSuccess, setImageSuccess] = useState(false);
-
-  const handleSetImage = () => {
-    const filename = imageInput.trim();
-    if (!filename) return;
-    const path = filename.startsWith('/') ? filename : `/${filename}`;
-    setImageError('');
-    setImageSuccess(false);
-    const img = new Image();
-    img.onload = () => {
-      updateSettings('boardImage', path);
-      setImageSuccess(true);
-      setImageError('');
-      setTimeout(() => setImageSuccess(false), 2000);
-    };
-    img.onerror = () => {
-      setImageError(`Could not load "${filename}" — check the filename and that it's in the public folder`);
-    };
-    img.src = path;
-  };
 
   return (
     <div style={{ padding: '16px 12px' }}>
@@ -162,75 +135,22 @@ export default function Settings({ settings, updateSettings, allHolds, onSetupBo
         </div>
       )}
 
-      {/* ── Update Board Image ── */}
-      <div style={{ marginBottom: '16px' }}>
-        <button
-          onClick={() => { setShowImageInput(prev => !prev); setImageError(''); setImageSuccess(false); setImageInput(currentFilename); }}
-          style={{
-            width: '100%', padding: '12px 16px', borderRadius: '12px',
-            border: '1px solid var(--border)', background: 'var(--bg-card)',
-            boxShadow: '0 2px 8px rgba(26,10,0,0.06)',
-            cursor: 'pointer', display: 'flex', justifyContent: 'space-between',
-            alignItems: 'center',
-          }}
-        >
-          <div>
-            <span style={{
-              fontSize: '11px', fontWeight: 800, color: 'var(--accent)',
-              letterSpacing: '1.5px', textTransform: 'uppercase',
-            }}>
-              Update Board Image
-            </span>
-            <div style={{ fontSize: '10px', color: 'var(--text-dim)', marginTop: '2px', fontFamily: 'var(--font-heading)', textAlign: 'left' }}>
-              {currentFilename}
-            </div>
-          </div>
-          <span style={{ fontSize: '12px', color: 'var(--text-dim)' }}>
-            {showImageInput ? '▾' : '▸'}
-          </span>
-        </button>
-
-        {showImageInput && (
-          <div style={{
-            padding: '12px 14px', borderRadius: '0 0 12px 12px',
-            border: '1px solid var(--border)', borderTop: 'none',
-            background: 'var(--bg-card)',
-          }}>
-            <div style={{ display: 'flex', gap: '6px', marginBottom: '6px' }}>
-              <input
-                type="text"
-                value={imageInput}
-                onChange={e => { setImageInput(e.target.value); setImageError(''); setImageSuccess(false); }}
-                placeholder="e.g. Barn_Board_Reset_03.jpg"
-                style={{
-                  flex: 1, padding: '8px 10px', borderRadius: '8px', fontSize: '12px',
-                  border: '1.5px solid var(--border)', background: 'var(--bg-input)',
-                  fontFamily: 'var(--font-heading)',
-                }}
-              />
-              <button
-                onClick={handleSetImage}
-                style={{
-                  padding: '8px 14px', borderRadius: '8px', fontSize: '12px', fontWeight: 700,
-                  cursor: 'pointer', border: 'none',
-                  background: 'var(--accent)', color: '#fff',
-                }}
-              >
-                Set
-              </button>
-            </div>
-            {imageError && (
-              <div style={{ fontSize: '11px', color: '#DC2626', marginTop: '4px' }}>{imageError}</div>
-            )}
-            {imageSuccess && (
-              <div style={{ fontSize: '11px', color: '#16A34A', marginTop: '4px' }}>Board image updated</div>
-            )}
-            <div style={{ fontSize: '10px', color: 'var(--text-dim)', marginTop: '6px' }}>
-              Place your board photo in the public folder, then enter the filename.
-            </div>
-          </div>
-        )}
-      </div>
+      {/* ── Update Board Image (admin only) ── */}
+      {isAdmin && onUpdateBoardImage && (
+        <div style={{ marginBottom: '12px' }}>
+          <button
+            onClick={onUpdateBoardImage}
+            style={{
+              width: '100%', padding: '12px', borderRadius: '10px', fontSize: '14px',
+              fontWeight: 700, cursor: 'pointer', border: 'none',
+              background: 'var(--accent)', color: '#fff',
+              letterSpacing: '0.5px',
+            }}
+          >
+            Update Board Image
+          </button>
+        </div>
+      )}
 
       {/* ── Session History ── */}
       <div style={{ marginBottom: '16px' }}>
