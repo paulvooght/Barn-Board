@@ -312,6 +312,7 @@ export default function BoardImageUpdateView({ currentImgSrc, currentImageName, 
   const [imageName, setImageName] = useState(() => autoIncrementName(currentImageName || 'Barn_Set_01_V5'));
   const [nameError, setNameError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
 
   const stepLabels = { upload: 'Step 1 of 3 — Upload', crop: 'Step 2 of 3 — Crop', confirm: 'Step 3 of 3 — Confirm' };
 
@@ -368,6 +369,7 @@ export default function BoardImageUpdateView({ currentImgSrc, currentImageName, 
     const err = validateName(imageName);
     if (err) { setNameError(err); return; }
     setSaving(true);
+    setSaveError('');
     try {
       const full = await canvasToBlob(croppedCanvas, JPEG_QUALITY);
       const w2000 = await resizeToBlob(croppedCanvas, 2000, JPEG_QUALITY);
@@ -376,6 +378,7 @@ export default function BoardImageUpdateView({ currentImgSrc, currentImageName, 
       await onSave({ imageName: imageName.trim(), imageBlobs: { full, w2000, w1200, w800 } });
     } catch (err) {
       console.error('[BoardImageUpdate] Save failed:', err);
+      setSaveError('Upload failed. Please check your connection and try again.');
       setSaving(false);
     }
   };
@@ -567,7 +570,7 @@ export default function BoardImageUpdateView({ currentImgSrc, currentImageName, 
           </div>
 
           <div style={{ display: 'flex', gap: '10px' }}>
-            <button onClick={() => setStep('crop')} style={secondaryBtnStyle} disabled={saving}>
+            <button onClick={() => { setStep('crop'); setSaveError(''); }} style={secondaryBtnStyle} disabled={saving}>
               ← Back
             </button>
             <button
@@ -583,6 +586,11 @@ export default function BoardImageUpdateView({ currentImgSrc, currentImageName, 
               {saving ? 'Saving…' : 'Save'}
             </button>
           </div>
+          {saveError && (
+            <div style={{ marginTop: '10px', padding: '10px', borderRadius: '8px', background: '#fef2f2', color: '#dc2626', fontSize: '13px' }}>
+              {saveError}
+            </div>
+          )}
         </div>
       )}
     </div>

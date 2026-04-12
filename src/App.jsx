@@ -1056,9 +1056,42 @@ export default function App() {
   const handleSetupBoard = () => setView('setupBoard');
 
   const handleBoardImageSave = async ({ imageName, imageBlobs }) => {
-    // TODO: Task 3 will implement Supabase upload here
-    console.log('Board image save:', imageName, imageBlobs);
-    setView('settings');
+    try {
+      // 1. Ensure bucket exists (createBucket returns error if exists — that's fine)
+      await supabase.storage.createBucket('board-images', { public: true }).catch(() => {});
+
+      // 2. Upload all sizes in parallel
+      const baseUrl = `${import.meta.env.VITE_SUPABASE_URL}/storage/v1/object/public/board-images`;
+      const uploads = [
+        supabase.storage.from('board-images').upload(`${imageName}.jpg`, imageBlobs.full, { contentType: 'image/jpeg', upsert: true }),
+        supabase.storage.from('board-images').upload(`${imageName}-2000w.jpg`, imageBlobs.w2000, { contentType: 'image/jpeg', upsert: true }),
+        supabase.storage.from('board-images').upload(`${imageName}-1200w.jpg`, imageBlobs.w1200, { contentType: 'image/jpeg', upsert: true }),
+        supabase.storage.from('board-images').upload(`${imageName}-800w.jpg`, imageBlobs.w800, { contentType: 'image/jpeg', upsert: true }),
+      ];
+      const results = await Promise.all(uploads);
+
+      // Check for upload errors
+      const errors = results.filter(r => r.error);
+      if (errors.length > 0) {
+        console.error('[BoardImage] Upload errors:', errors.map(r => r.error));
+        throw new Error(`Failed to upload ${errors.length} image(s)`);
+      }
+
+      // 3. Save config to board_settings
+      const config = { imageName, baseUrl, updatedAt: new Date().toISOString() };
+      const { error: settingsError } = await supabase
+        .from('board_settings')
+        .upsert({ key: 'board_image_config', data: config });
+      if (settingsError) throw settingsError;
+
+      // 4. Update local state and return to settings
+      setBoardImageConfig(config);
+      setView('settings');
+    } catch (err) {
+      console.error('[BoardImage] Save failed:', err);
+      // Re-throw so the wizard can catch it and show error state
+      throw err;
+    }
   };
   const handleSetupSave = async (newHolds) => {
     // Build a map of old hold IDs → new hold IDs so we can update routes
