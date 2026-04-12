@@ -128,7 +128,9 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
     const update = () => {
       const rect = svg.getBoundingClientRect();
       const s = Math.min(rect.width / imgSize.w, rect.height / imgSize.h);
-      if (s > 0) setPxScale(1 / s);
+      // On small screens, elements feel proportionally larger — scale down to compensate
+      const screenFactor = window.innerWidth < 600 ? 0.65 : 1;
+      if (s > 0) setPxScale((1 / s) * screenFactor);
     };
     update();
     const observer = new ResizeObserver(update);
