@@ -39,6 +39,7 @@ export default function App() {
   const [userRouteData, setUserRouteData] = useState({}); // { [routeId]: { sent, rating, angleSends } }
   const [communityRatings, setCommunityRatings] = useState({}); // { [routeId]: { avg, count } }
   const [communityGrades, setCommunityGrades]   = useState({}); // { [routeId]: { headline: {consensus, votes, count}, angles: {...} } }
+  const [boardImageConfig, setBoardImageConfig] = useState(null);
   const [settings, setSettings] = useLocalStorage('barnboard_settings', { gradeSystem: 'V' });
 
   // Active session state (persisted so it survives page reload)
@@ -473,8 +474,7 @@ export default function App() {
   const grades = settings.gradeSystem === 'V' ? V_GRADES : FONT_GRADES;
   const gradeIndex = settings.gradeSystem === 'font' ? FONT_GRADE_INDEX : V_GRADE_INDEX;
 
-  // Board image config — loaded from Supabase board_settings, falls back to static defaults
-  const [boardImageConfig, setBoardImageConfig] = useState(null);
+  // Board image — derive URLs from config (loaded in loadDataFromSupabase), fall back to static defaults
   const imgSrc = boardImageConfig
     ? `${boardImageConfig.baseUrl}/${boardImageConfig.imageName}.jpg`
     : DEFAULT_BOARD_IMAGE;
