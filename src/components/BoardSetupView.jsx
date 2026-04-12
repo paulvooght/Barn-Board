@@ -831,7 +831,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
     // Always use brand blue for outlines — hold color visible through image cutout, not from outline tint
     const selectedColor = '#0047FF';
     // Thicker lines for confirmed (high) holds
-    const lineWidth = (isSel || isInspected) ? Math.round(5 * pxScale) : isHigh ? Math.round(4 * pxScale) : Math.round(2 * pxScale);
+    const lineWidth = (isSel || isInspected) ? Math.round(5 * pxScale) : isHigh ? Math.max(Math.round(1.5 * pxScale), 1) : Math.max(Math.round(1 * pxScale), 1);
 
     if (!hasPoly) {
       const cx = toSvgX(hold.cx);
