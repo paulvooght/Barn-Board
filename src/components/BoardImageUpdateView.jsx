@@ -378,7 +378,8 @@ export default function BoardImageUpdateView({ currentImgSrc, currentImageName, 
       await onSave({ imageName: imageName.trim(), imageBlobs: { full, w2000, w1200, w800 } });
     } catch (err) {
       console.error('[BoardImageUpdate] Save failed:', err);
-      setSaveError('Upload failed. Please check your connection and try again.');
+      const msg = err?.message || String(err);
+      setSaveError(`Upload failed: ${msg}`);
       setSaving(false);
     }
   };

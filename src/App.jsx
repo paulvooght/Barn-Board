@@ -1074,7 +1074,8 @@ export default function App() {
       const errors = results.filter(r => r.error);
       if (errors.length > 0) {
         console.error('[BoardImage] Upload errors:', errors.map(r => r.error));
-        throw new Error(`Failed to upload ${errors.length} image(s)`);
+        const firstErr = errors[0].error;
+        throw new Error(firstErr.message || firstErr.error || `Failed to upload ${errors.length} image(s)`);
       }
 
       // 3. Save config to board_settings
