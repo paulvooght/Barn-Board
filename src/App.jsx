@@ -10,6 +10,7 @@ const Settings = lazy(() => import('./components/Settings'));
 const HoldEditorView = lazy(() => import('./components/HoldEditorView'));
 const SessionSummary = lazy(() => import('./components/SessionSummary'));
 const AuthView = lazy(() => import('./components/AuthView'));
+const BoardImageUpdateView = lazy(() => import('./components/BoardImageUpdateView'));
 import { useLocalStorage } from './hooks/useLocalStorage';
 import { useCustomHolds } from './hooks/useCustomHolds';
 import { supabase, ADMIN_EMAIL } from './lib/supabase';
@@ -1053,6 +1054,12 @@ export default function App() {
   const handleGoToHoldSelect = () => setView('holdSelect');
 
   const handleSetupBoard = () => setView('setupBoard');
+
+  const handleBoardImageSave = async ({ imageName, imageBlobs }) => {
+    // TODO: Task 3 will implement Supabase upload here
+    console.log('Board image save:', imageName, imageBlobs);
+    setView('settings');
+  };
   const handleSetupSave = async (newHolds) => {
     // Build a map of old hold IDs → new hold IDs so we can update routes
     const idMap = {};
@@ -1662,6 +1669,16 @@ export default function App() {
           onSignOut={() => supabase.auth.signOut()}
           onViewSession={(session) => { setCompletedSession(session); setView('sessionSummary'); }}
           onUpdateBoardImage={() => setView('updateBoardImage')}
+        />
+      )}
+
+      {/* ── Update Board Image wizard ── */}
+      {view === 'updateBoardImage' && (
+        <BoardImageUpdateView
+          currentImgSrc={imgSrc}
+          currentImageName={boardImageConfig?.imageName || 'Barn_Set_01_V5'}
+          onSave={handleBoardImageSave}
+          onCancel={() => setView('settings')}
         />
       )}
 
