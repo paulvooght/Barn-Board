@@ -831,7 +831,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
     // Always use brand blue for outlines — hold color visible through image cutout, not from outline tint
     const selectedColor = '#0047FF';
     // Thicker lines for confirmed (high) holds
-    const lineWidth = (isSel || isInspected) ? Math.round(5 * pxScale) : isHigh ? Math.max(Math.round(1.5 * pxScale), 1) : Math.max(Math.round(1 * pxScale), 1);
+    const lineWidth = (isSel || isInspected) ? Math.round(3 * pxScale) : isHigh ? Math.max(Math.round(1.5 * pxScale), 1) : Math.max(Math.round(1 * pxScale), 1);
 
     if (!hasPoly) {
       const cx = toSvgX(hold.cx);
@@ -861,7 +861,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
       <g key={hold.id}>
         {highlighted && (
           <polygon points={pts}
-            fill="none" stroke={`${selectedColor}40`} strokeWidth={Math.round(7 * pxScale)}
+            fill="none" stroke={`${selectedColor}40`} strokeWidth={Math.round(5 * pxScale)}
             strokeLinejoin="round" style={{ pointerEvents: 'none' }}
           />
         )}
@@ -876,7 +876,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
         {showVertices && activeTool === TOOLS.SELECT && hold.polygon.map(([x, y], idx) => {
           const sx = toSvgX(x), sy = toSvgY(y);
           const svgScale = getSvgScale();
-          const vr = Math.round(7 * pxScale);
+          const vr = Math.round(4 * pxScale);
           const hitR = 30 / svgScale;  // Screen-space — stays ~30px for touch targeting regardless of zoom
           return (
             <g key={idx} style={{ cursor: 'move' }}
@@ -887,7 +887,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
               <circle cx={sx} cy={sy} r={vr}
                 fill={idx === 0 ? selectedColor : '#fff'}
                 stroke={idx === 0 ? '#fff' : selectedColor}
-                strokeWidth={Math.max(Math.round(2 * pxScale), 1)}
+                strokeWidth={Math.max(Math.round(1.5 * pxScale), 1)}
                 style={{ pointerEvents: 'none' }}
               />
             </g>
@@ -905,21 +905,21 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
         {drawClosed ? (
           <polygon points={pts.join(' ')}
             fill="rgba(0,71,255,0.15)" stroke="#0047FF"
-            strokeWidth={Math.round(3 * pxScale)} strokeDasharray={`${Math.round(6 * pxScale)} ${Math.round(4 * pxScale)}`}
+            strokeWidth={Math.round(2 * pxScale)} strokeDasharray={`${Math.round(5 * pxScale)} ${Math.round(3 * pxScale)}`}
           />
         ) : drawPoints.length >= 2 ? (
           <polyline points={pts.join(' ')}
             fill="none" stroke="#0047FF"
-            strokeWidth={Math.round(3 * pxScale)} strokeDasharray={`${Math.round(5 * pxScale)} ${Math.round(3 * pxScale)}`}
+            strokeWidth={Math.round(2 * pxScale)} strokeDasharray={`${Math.round(4 * pxScale)} ${Math.round(3 * pxScale)}`}
           />
         ) : null}
         {drawMode === 'polygon' && drawPoints.map(([x, y], idx) => (
           <circle key={idx}
             cx={toSvgX(x)} cy={toSvgY(y)}
-            r={idx === 0 ? Math.round(10 * pxScale) : Math.round(5 * pxScale)}
+            r={idx === 0 ? Math.round(6 * pxScale) : Math.round(3 * pxScale)}
             fill={idx === 0 ? '#0047FF' : '#fff'}
             stroke={idx === 0 ? '#fff' : '#0047FF'}
-            strokeWidth={Math.max(Math.round(2 * pxScale), 1)}
+            strokeWidth={Math.max(Math.round(1.5 * pxScale), 1)}
           />
         ))}
       </g>
@@ -1397,15 +1397,15 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
               >
                 <polygon
                   points={poly.map(([x, y]) => `${toSvgX(x)},${toSvgY(y)}`).join(' ')}
-                  fill="none" stroke="#0047FF" strokeWidth={Math.round(5 * pxScale)}
+                  fill="none" stroke="#0047FF" strokeWidth={Math.round(3 * pxScale)}
                   strokeLinejoin="round"
                 />
                 {poly.map(([x, y], i) => (
                   <circle key={i}
-                    cx={toSvgX(x)} cy={toSvgY(y)} r={Math.round(7 * pxScale)}
+                    cx={toSvgX(x)} cy={toSvgY(y)} r={Math.round(4 * pxScale)}
                     fill={i === idx ? '#0047FF' : '#fff'}
                     stroke={i === idx ? '#fff' : '#0047FF'}
-                    strokeWidth={Math.max(Math.round(2 * pxScale), 1)}
+                    strokeWidth={Math.max(Math.round(1.5 * pxScale), 1)}
                   />
                 ))}
               </svg>
