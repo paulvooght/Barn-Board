@@ -127,7 +127,9 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
     if (!svg || !imgSize.w) return;
     const update = () => {
       const rect = svg.getBoundingClientRect();
-      const s = Math.min(rect.width / imgSize.w, rect.height / imgSize.h);
+      // getBoundingClientRect includes CSS transform — divide out zoom to get base ratio
+      const zoom = scaleRef.current || 1;
+      const s = Math.min(rect.width / zoom / imgSize.w, rect.height / zoom / imgSize.h);
       if (s > 0) setPxScale(1 / s);
     };
     update();
@@ -830,37 +832,27 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
       : isHigh ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.06)';
     // Always use brand blue for outlines — hold color visible through image cutout, not from outline tint
     const selectedColor = '#0047FF';
-    // All outlines + vertices zoom-independent: fixed screen size at any zoom level
-    // Green (unselected high): thin. Selected: medium. Medium confidence: very thin.
-    const lineWidth = (isSel || isInspected) ? Math.max(Math.round(2.5 * pxScale), 1) : isHigh ? Math.max(Math.round(0.7 * pxScale), 1) : Math.max(Math.round(0.5 * pxScale), 1);
-    const invZoom = 1 / scale;
-
-    // Compute centroid for inverse-zoom anchor
-    let anchorX, anchorY;
-    if (!hasPoly) {
-      anchorX = toSvgX(hold.cx);
-      anchorY = toSvgY(hold.cy);
-    } else {
-      const svgPts = hold.polygon.map(([x, y]) => [toSvgX(x), toSvgY(y)]);
-      anchorX = svgPts.reduce((s, p) => s + p[0], 0) / svgPts.length;
-      anchorY = svgPts.reduce((s, p) => s + p[1], 0) / svgPts.length;
-    }
+    // zPx = zoom-compensated pxScale: N * zPx SVG units = N screen pixels at any zoom
+    // pxScale converts screen px → SVG units at 1x zoom. Dividing by scale compensates for CSS zoom.
+    const zPx = pxScale / scale;
+    // Green: very thin. Selected: medium. Medium confidence: hairline.
+    const lineWidth = (isSel || isInspected) ? Math.max(Math.round(2.5 * zPx), 1) : isHigh ? Math.max(Math.round(0.7 * zPx), 1) : Math.max(Math.round(0.5 * zPx), 1);
 
     if (!hasPoly) {
-      const cx = anchorX;
-      const cy = anchorY;
+      const cx = toSvgX(hold.cx);
+      const cy = toSvgY(hold.cy);
       const w = hold.w_pct || hold.r * 2 || 4;
       const h = hold.h_pct || hold.r * 2 || 4;
       const rx = Math.max((w / 100) * bW / 2, 4);
       const ry = Math.max((h / 100) * bH / 2, 4);
       const highlighted = isSel || isInspected;
       return (
-        <g key={hold.id} transform={`translate(${anchorX},${anchorY}) scale(${invZoom}) translate(${-anchorX},${-anchorY})`}>
+        <g key={hold.id}>
           <ellipse cx={cx} cy={cy} rx={rx} ry={ry}
             fill={highlighted ? `${selectedColor}25` : fillColor}
             stroke={highlighted ? selectedColor : outlineColor}
             strokeWidth={lineWidth}
-            strokeDasharray={!highlighted && !isHigh ? `${Math.round(6 * pxScale)} ${Math.round(4 * pxScale)}` : 'none'}
+            strokeDasharray={!highlighted && !isHigh ? `${Math.round(6 * zPx)} ${Math.round(4 * zPx)}` : 'none'}
             style={{ pointerEvents: 'none' }}
           />
         </g>
@@ -871,10 +863,10 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
     const highlighted = isSel || isInspected;
 
     return (
-      <g key={hold.id} transform={`translate(${anchorX},${anchorY}) scale(${invZoom}) translate(${-anchorX},${-anchorY})`}>
+      <g key={hold.id}>
         {highlighted && (
           <polygon points={pts}
-            fill="none" stroke={`${selectedColor}40`} strokeWidth={Math.round(4 * pxScale)}
+            fill="none" stroke={`${selectedColor}40`} strokeWidth={Math.round(4 * zPx)}
             strokeLinejoin="round" style={{ pointerEvents: 'none' }}
           />
         )}
@@ -883,13 +875,13 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
           stroke={highlighted ? selectedColor : outlineColor}
           strokeWidth={lineWidth}
           strokeLinejoin="round"
-          strokeDasharray={!highlighted && !isHigh ? `${Math.round(6 * pxScale)} ${Math.round(4 * pxScale)}` : 'none'}
+          strokeDasharray={!highlighted && !isHigh ? `${Math.round(6 * zPx)} ${Math.round(4 * zPx)}` : 'none'}
           style={{ pointerEvents: 'none' }}
         />
         {showVertices && activeTool === TOOLS.SELECT && hold.polygon.map(([x, y], idx) => {
           const sx = toSvgX(x), sy = toSvgY(y);
           const svgScale = getSvgScale();
-          const vr = Math.round(3.5 * pxScale);
+          const vr = Math.round(3.5 * zPx);
           const hitR = 30 / svgScale;
           return (
             <g key={idx} style={{ cursor: 'move' }}
@@ -900,7 +892,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
               <circle cx={sx} cy={sy} r={vr}
                 fill={idx === 0 ? selectedColor : '#fff'}
                 stroke={idx === 0 ? '#fff' : selectedColor}
-                strokeWidth={Math.max(Math.round(1.5 * pxScale), 1)}
+                strokeWidth={Math.max(Math.round(1.5 * zPx), 1)}
                 style={{ pointerEvents: 'none' }}
               />
             </g>
@@ -912,23 +904,19 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
 
   function renderDrawingState() {
     if (activeTool !== TOOLS.DRAW || drawPoints.length === 0) return null;
-    const invZoom = 1 / scale;
+    const zPx = pxScale / scale;
     const pts = drawPoints.map(([x, y]) => `${toSvgX(x)},${toSvgY(y)}`);
-    // Anchor inverse-zoom on centroid of draw points
-    const ax = pts.reduce((s, p) => s + parseFloat(p), 0) / pts.length || 0;
-    const ay = drawPoints.reduce((s, [, y]) => s + toSvgY(y), 0) / drawPoints.length || 0;
-    const cx0 = toSvgX(drawPoints[0][0]), cy0 = toSvgY(drawPoints[0][1]);
     return (
-      <g style={{ pointerEvents: 'none' }} transform={`translate(${cx0},${cy0}) scale(${invZoom}) translate(${-cx0},${-cy0})`}>
+      <g style={{ pointerEvents: 'none' }}>
         {drawClosed ? (
           <polygon points={pts.join(' ')}
             fill="rgba(0,71,255,0.15)" stroke="#0047FF"
-            strokeWidth={Math.round(1.5 * pxScale)} strokeDasharray={`${Math.round(5 * pxScale)} ${Math.round(3 * pxScale)}`}
+            strokeWidth={Math.round(1.5 * zPx)} strokeDasharray={`${Math.round(5 * zPx)} ${Math.round(3 * zPx)}`}
           />
         ) : drawPoints.length >= 2 ? (
           <polyline points={pts.join(' ')}
             fill="none" stroke="#0047FF"
-            strokeWidth={Math.round(1.5 * pxScale)} strokeDasharray={`${Math.round(4 * pxScale)} ${Math.round(3 * pxScale)}`}
+            strokeWidth={Math.round(1.5 * zPx)} strokeDasharray={`${Math.round(4 * zPx)} ${Math.round(3 * zPx)}`}
           />
         ) : null}
         {drawMode === 'polygon' && drawPoints.map(([x, y], idx) => {
@@ -936,10 +924,10 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
           return (
             <circle key={idx}
               cx={sx} cy={sy}
-              r={idx === 0 ? Math.round(4 * pxScale) : Math.round(2.5 * pxScale)}
+              r={idx === 0 ? Math.round(4 * zPx) : Math.round(2.5 * zPx)}
               fill={idx === 0 ? '#0047FF' : '#fff'}
               stroke={idx === 0 ? '#fff' : '#0047FF'}
-              strokeWidth={Math.max(Math.round(1 * pxScale), 1)}
+              strokeWidth={Math.max(Math.round(1 * zPx), 1)}
             />
           );
         })}
