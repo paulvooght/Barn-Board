@@ -419,6 +419,8 @@ function AlignStep({ croppedCanvas, currentImgSrc, onNext, onBack }) {
   }, [oldImgSize]);
 
   // ── Track display scale via ResizeObserver ─────────────────────────────────
+  // Deps include pins so it re-runs when workspace first renders (guard passes)
+  const workspaceVisible = oldImgSize !== null && pins !== null;
   useEffect(() => {
     const el = containerRef.current;
     if (!el || !wsW) return;
@@ -430,7 +432,7 @@ function AlignStep({ croppedCanvas, currentImgSrc, onNext, onBack }) {
     const ro = new ResizeObserver(update);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [wsW]);
+  }, [wsW, workspaceVisible]);
 
   // ── Warp helper (runs after drag ends) ────────────────────────────────────
   const runWarp = useCallback((currentPins) => {
@@ -521,6 +523,11 @@ function AlignStep({ croppedCanvas, currentImgSrc, onNext, onBack }) {
     };
   }, [handleMove, handleEnd]);
 
+  // Active warp display canvas: use warpCanvas if available, else original crop
+  // MUST be before the early return — useMemo is a hook (rules of hooks)
+  const displayCanvas = warpCanvas || croppedCanvas;
+  const displaySrc = useMemo(() => displayCanvas.toDataURL('image/jpeg', 0.85), [displayCanvas]);
+
   // ── Apply final warp and advance ──────────────────────────────────────────
   const handleNext = () => {
     if (!pins || !oldImgSize) { onNext(croppedCanvas); return; }
@@ -543,11 +550,6 @@ function AlignStep({ croppedCanvas, currentImgSrc, onNext, onBack }) {
 
   const PIN_RADIUS = 10; // visual radius (px on screen)
   const PIN_HIT = 22;    // half of 44px hit target
-
-  // Active warp display canvas: use warpCanvas if available, else original crop
-  const displayCanvas = warpCanvas || croppedCanvas;
-  // Memoize toDataURL — avoids re-encoding on every pin drag render
-  const displaySrc = useMemo(() => displayCanvas.toDataURL('image/jpeg', 0.85), [displayCanvas]);
 
   return (
     <div>
