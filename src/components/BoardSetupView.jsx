@@ -1363,7 +1363,9 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
 
       {/* Vertex drag magnifier loupe — touch only */}
       {draggingVertex && touchPosRef.current && dragVertexPctRef.current && (() => {
-        const LOUPE_SIZE = 150;
+        const LOUPE_W = 180;
+        const LOUPE_H = 120;
+        const LOUPE_RADIUS = 20;
         const MAGNIFICATION = 3 * scale;
         const OFFSET_ABOVE = 80;
 
@@ -1373,25 +1375,32 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
         const vtxImgFracX = (boardRegion.left / 100) + (vtxBoardX / 100) * (boardRegion.width / 100);
         const vtxImgFracY = (boardRegion.top / 100) + (vtxBoardY / 100) * (boardRegion.height / 100);
 
-        const magW = LOUPE_SIZE * MAGNIFICATION;
+        const magW = LOUPE_W * MAGNIFICATION;
         const magH = magW * (imgSize.h / imgSize.w);
 
-        const imgLeft = -(vtxImgFracX * magW) + LOUPE_SIZE / 2;
-        const imgTop  = -(vtxImgFracY * magH) + LOUPE_SIZE / 2;
+        const imgLeft = -(vtxImgFracX * magW) + LOUPE_W / 2;
+        const imgTop  = -(vtxImgFracY * magH) + LOUPE_H / 2;
 
         // Full polygon + vertices overlay — same coordinate system as main board SVG
         const hold = holds.find(h => h.id === draggingVertex.holdId);
         const poly = hold?.polygon;
         const idx = draggingVertex.vertexIdx;
 
-        const loupeLeft = clamp(clientX - LOUPE_SIZE / 2, 4, window.innerWidth - LOUPE_SIZE - 4);
-        const loupeTop  = clamp(clientY - OFFSET_ABOVE - LOUPE_SIZE, 4, clientY - OFFSET_ABOVE);
+        const loupeLeft = clamp(clientX - LOUPE_W / 2, 4, window.innerWidth - LOUPE_W - 4);
+        const loupeTop  = clamp(clientY - OFFSET_ABOVE - LOUPE_H, 4, clientY - OFFSET_ABOVE);
+
+        // Loupe pxScale: match main board proportions at the loupe's magnification
+        // The loupe renders imgSize.w SVG units across magW CSS pixels
+        const loupePxScale = imgSize.w / magW;
+        // Apply same DPR normalization as main view
+        const dprFactor = 2 / (window.devicePixelRatio || 2);
+        const lPx = loupePxScale * dprFactor;
 
         return (
           <div style={{
             position: 'fixed', left: loupeLeft, top: loupeTop,
-            width: LOUPE_SIZE, height: LOUPE_SIZE,
-            borderRadius: '50%',
+            width: LOUPE_W, height: LOUPE_H,
+            borderRadius: `${LOUPE_RADIUS}px`,
             border: '2px solid rgba(255,255,255,0.9)',
             boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
             overflow: 'hidden', pointerEvents: 'none', zIndex: 300,
@@ -1408,15 +1417,15 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
               >
                 <polygon
                   points={poly.map(([x, y]) => `${toSvgX(x)},${toSvgY(y)}`).join(' ')}
-                  fill="none" stroke="#0047FF" strokeWidth={Math.round(3 * pxScale)}
+                  fill="none" stroke="#0047FF" strokeWidth={Math.max(Math.round(2.5 * lPx), 1)}
                   strokeLinejoin="round"
                 />
                 {poly.map(([x, y], i) => (
                   <circle key={i}
-                    cx={toSvgX(x)} cy={toSvgY(y)} r={Math.round(4 * pxScale)}
+                    cx={toSvgX(x)} cy={toSvgY(y)} r={Math.round(3.5 * lPx)}
                     fill={i === idx ? '#0047FF' : '#fff'}
                     stroke={i === idx ? '#fff' : '#0047FF'}
-                    strokeWidth={Math.max(Math.round(1.5 * pxScale), 1)}
+                    strokeWidth={Math.max(Math.round(1.5 * lPx), 1)}
                   />
                 ))}
               </svg>
