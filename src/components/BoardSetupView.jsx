@@ -881,7 +881,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
         {showVertices && activeTool === TOOLS.SELECT && hold.polygon.map(([x, y], idx) => {
           const sx = toSvgX(x), sy = toSvgY(y);
           const svgScale = getSvgScale();
-          const vr = Math.round(3.5 * zPx);
+          const vr = Math.round(3.5 * pxScale);
           const hitR = 30 / svgScale;
           return (
             <g key={idx} style={{ cursor: 'move' }}
@@ -892,7 +892,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
               <circle cx={sx} cy={sy} r={vr}
                 fill={idx === 0 ? selectedColor : '#fff'}
                 stroke={idx === 0 ? '#fff' : selectedColor}
-                strokeWidth={Math.max(Math.round(1.5 * zPx), 1)}
+                strokeWidth={Math.max(Math.round(1.5 * pxScale), 1)}
                 style={{ pointerEvents: 'none' }}
               />
             </g>
@@ -924,10 +924,10 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
           return (
             <circle key={idx}
               cx={sx} cy={sy}
-              r={idx === 0 ? Math.round(4 * zPx) : Math.round(2.5 * zPx)}
+              r={idx === 0 ? Math.round(4 * pxScale) : Math.round(2.5 * pxScale)}
               fill={idx === 0 ? '#0047FF' : '#fff'}
               stroke={idx === 0 ? '#fff' : '#0047FF'}
-              strokeWidth={Math.max(Math.round(1 * zPx), 1)}
+              strokeWidth={Math.max(Math.round(1 * pxScale), 1)}
             />
           );
         })}
