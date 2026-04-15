@@ -50,6 +50,11 @@ function CropStep({ imageDataUrl, imageWidth, imageHeight, onNext, onBack }) {
   const [crop, setCrop] = useState(() => initCrop(imageWidth, imageHeight));
   const [displayScale, setDisplayScale] = useState(1);
 
+  // Loupe state
+  const loupePosRef = useRef(null);      // { clientX, clientY }
+  const isTouchDragRef = useRef(false);
+  const [showLoupe, setShowLoupe] = useState(false);
+
   // Recalculate display scale when container resizes
   useEffect(() => {
     const el = containerRef.current;
@@ -96,8 +101,11 @@ function CropStep({ imageDataUrl, imageWidth, imageHeight, onNext, onBack }) {
     if (e.touches) {
       lastTouchTimeRef.current = Date.now();
       e.stopPropagation();
+      isTouchDragRef.current = true;
+      setShowLoupe(true);
     } else {
       if (Date.now() - lastTouchTimeRef.current < 500) return;
+      isTouchDragRef.current = false;
     }
     const pos = getEventPos(e);
     dragRef.current = { type, startX: pos.x, startY: pos.y, startCrop: { ...crop } };
@@ -131,10 +139,16 @@ function CropStep({ imageDataUrl, imageWidth, imageHeight, onNext, onBack }) {
         return;
     }
     setCrop(clampCrop(next, imageWidth, imageHeight));
+    if (isTouchDragRef.current) {
+      loupePosRef.current = { clientX: pos.x, clientY: pos.y };
+    }
   }, [displayScale, imageWidth, imageHeight]);
 
   const handleMoveEnd = useCallback(() => {
     dragRef.current = null;
+    loupePosRef.current = null;
+    isTouchDragRef.current = false;
+    setShowLoupe(false);
   }, []);
 
   useEffect(() => {
@@ -263,17 +277,63 @@ function CropStep({ imageDataUrl, imageWidth, imageHeight, onNext, onBack }) {
           Next →
         </button>
       </div>
+
+      {/* Loupe magnifier — only on corner drags during touch */}
+      {showLoupe && dragRef.current && dragRef.current.type !== 'move' && loupePosRef.current && (() => {
+        const LOUPE_W = 180;
+        const LOUPE_H = 120;
+        const LOUPE_RADIUS = 60;
+        const MAGNIFICATION = 3;
+        const OFFSET_ABOVE = 80;
+
+        const { clientX, clientY } = loupePosRef.current;
+
+        // Get current handle position in image fraction coords
+        let imgFracX, imgFracY;
+        switch (dragRef.current.type) {
+          case 'tl': imgFracX = crop.x / imageWidth; imgFracY = crop.y / imageHeight; break;
+          case 'tr': imgFracX = (crop.x + crop.w) / imageWidth; imgFracY = crop.y / imageHeight; break;
+          case 'bl': imgFracX = crop.x / imageWidth; imgFracY = (crop.y + crop.h) / imageHeight; break;
+          case 'br': imgFracX = (crop.x + crop.w) / imageWidth; imgFracY = (crop.y + crop.h) / imageHeight; break;
+          default: return null;
+        }
+
+        const magW = LOUPE_W * MAGNIFICATION;
+        const magH = magW * (imageHeight / imageWidth);
+        const imgLeft = -(imgFracX * magW) + LOUPE_W / 2;
+        const imgTop = -(imgFracY * magH) + LOUPE_H / 2;
+
+        const clamp = (v, min, max) => Math.max(min, Math.min(v, max));
+        const loupeLeft = clamp(clientX - LOUPE_W / 2, 4, window.innerWidth - LOUPE_W - 4);
+        const loupeTop = clamp(clientY - OFFSET_ABOVE - LOUPE_H, 4, clientY - OFFSET_ABOVE);
+
+        return (
+          <div key="loupe" style={{
+            position: 'fixed', left: loupeLeft, top: loupeTop,
+            width: LOUPE_W, height: LOUPE_H,
+            borderRadius: `${LOUPE_RADIUS}px`,
+            border: '2px solid rgba(255,255,255,0.9)',
+            boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
+            overflow: 'hidden', pointerEvents: 'none', zIndex: 300,
+            background: '#1a0a00',
+          }}>
+            <img src={imageDataUrl} alt="" draggable={false}
+              style={{ position: 'absolute', width: magW, height: magH, left: imgLeft, top: imgTop, pointerEvents: 'none' }}
+            />
+          </div>
+        );
+      })()}
     </div>
   );
 }
 
 // ─── Perspective warp helper ─────────────────────────────────────────────────
 // srcQuad / dstQuad: arrays of 4 [x, y] points in source-canvas / dest-canvas coords
-// Returns a new canvas of the same size as sourceCanvas
+// Returns a new canvas. If outW/outH are provided, uses them for output dimensions.
 
-function perspectiveWarp(sourceCanvas, srcQuad, dstQuad) {
-  const W = sourceCanvas.width;
-  const H = sourceCanvas.height;
+function perspectiveWarp(sourceCanvas, srcQuad, dstQuad, outW, outH) {
+  const W = outW || sourceCanvas.width;
+  const H = outH || sourceCanvas.height;
   const out = document.createElement('canvas');
   out.width = W;
   out.height = H;
@@ -378,8 +438,9 @@ function computePerspectiveCSS(w, h, dst) {
 }
 
 // ─── Align step component ─────────────────────────────────────────────────────
+// phase: 'align' | 'trim'
 
-function AlignStep({ croppedCanvas, currentImgSrc, onNext, onSkip, onBack }) {
+function AlignStep({ croppedCanvas, currentImgSrc, phase, onAlignDone, onTrimDone, onSkip, onBack }) {
   const containerRef = useRef(null);
   const lastTouchTimeRef = useRef(0);
 
@@ -396,8 +457,15 @@ function AlignStep({ croppedCanvas, currentImgSrc, onNext, onSkip, onBack }) {
   // Initialised once we know oldImgSize + croppedCanvas sizes
   const [pins, setPins] = useState(null);
 
+  // Trim rect in workspace units: { x, y, w, h }
+  const [trimRect, setTrimRect] = useState(null);
+
+  // Loupe state
+  const loupePosRef = useRef(null);
+  const isTouchDragRef = useRef(false);
+  const [showLoupe, setShowLoupe] = useState(false);
+
   // Drag state via ref (avoid stale closures)
-  // { pinIdx, startClientX, startClientY, startPinX, startPinY }
   const dragRef = useRef(null);
 
   // ── Load old image dimensions ──────────────────────────────────────────────
@@ -441,6 +509,14 @@ function AlignStep({ croppedCanvas, currentImgSrc, onNext, onSkip, onBack }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [oldImgSize]);
 
+  // ── Init trim rect when entering trim phase ────────────────────────────────
+  useEffect(() => {
+    if (phase === 'trim' && oldImgSize) {
+      setTrimRect({ x: oldOffX, y: oldOffY, w: oldImgSize.w, h: oldImgSize.h });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase]);
+
   // ── Track display scale via ResizeObserver ─────────────────────────────────
   // Deps include pins so it re-runs when workspace first renders (guard passes)
   const workspaceVisible = oldImgSize !== null && pins !== null;
@@ -463,22 +539,43 @@ function AlignStep({ croppedCanvas, currentImgSrc, onNext, onSkip, onBack }) {
       lastTouchTimeRef.current = Date.now();
       e.stopPropagation();
       e.preventDefault();
+      isTouchDragRef.current = true;
+      setShowLoupe(true);
       const t = e.touches[0];
       dragRef.current = {
-        pinIdx,
-        startClientX: t.clientX,
-        startClientY: t.clientY,
-        startPinX: pins[pinIdx].x,
-        startPinY: pins[pinIdx].y,
+        kind: 'pin', pinIdx,
+        startClientX: t.clientX, startClientY: t.clientY,
+        startPinX: pins[pinIdx].x, startPinY: pins[pinIdx].y,
       };
     } else {
       if (Date.now() - lastTouchTimeRef.current < 500) return;
       dragRef.current = {
-        pinIdx,
-        startClientX: e.clientX,
-        startClientY: e.clientY,
-        startPinX: pins[pinIdx].x,
-        startPinY: pins[pinIdx].y,
+        kind: 'pin', pinIdx,
+        startClientX: e.clientX, startClientY: e.clientY,
+        startPinX: pins[pinIdx].x, startPinY: pins[pinIdx].y,
+      };
+    }
+  };
+
+  const startTrimDrag = (e, type) => {
+    if (e.touches) {
+      lastTouchTimeRef.current = Date.now();
+      e.stopPropagation();
+      e.preventDefault();
+      isTouchDragRef.current = true;
+      setShowLoupe(true);
+      const t = e.touches[0];
+      dragRef.current = {
+        kind: 'trim', type,
+        startClientX: t.clientX, startClientY: t.clientY,
+        startRect: { ...trimRect },
+      };
+    } else {
+      if (Date.now() - lastTouchTimeRef.current < 500) return;
+      dragRef.current = {
+        kind: 'trim', type,
+        startClientX: e.clientX, startClientY: e.clientY,
+        startRect: { ...trimRect },
       };
     }
   };
@@ -487,19 +584,45 @@ function AlignStep({ croppedCanvas, currentImgSrc, onNext, onSkip, onBack }) {
     if (!dragRef.current) return;
     const clientX = e.touches ? e.touches[0].clientX : e.clientX;
     const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-    const dx = (clientX - dragRef.current.startClientX) / displayScale;
-    const dy = (clientY - dragRef.current.startClientY) / displayScale;
-    const idx = dragRef.current.pinIdx;
-    setPins(prev => {
-      const next = prev.map((p, i) =>
+
+    if (isTouchDragRef.current) {
+      loupePosRef.current = { clientX, clientY };
+    }
+
+    if (dragRef.current.kind === 'pin') {
+      const dx = (clientX - dragRef.current.startClientX) / displayScale;
+      const dy = (clientY - dragRef.current.startClientY) / displayScale;
+      const idx = dragRef.current.pinIdx;
+      setPins(prev => prev.map((p, i) =>
         i === idx ? { x: dragRef.current.startPinX + dx, y: dragRef.current.startPinY + dy } : p
-      );
-      return next;
-    });
-  }, [displayScale]);
+      ));
+    } else if (dragRef.current.kind === 'trim') {
+      const dx = (clientX - dragRef.current.startClientX) / displayScale;
+      const dy = (clientY - dragRef.current.startClientY) / displayScale;
+      const sr = dragRef.current.startRect;
+      let next;
+      switch (dragRef.current.type) {
+        case 'move': next = { x: sr.x + dx, y: sr.y + dy, w: sr.w, h: sr.h }; break;
+        case 'tl': next = { x: sr.x + dx, y: sr.y + dy, w: sr.w - dx, h: sr.h - dy }; break;
+        case 'tr': next = { x: sr.x, y: sr.y + dy, w: sr.w + dx, h: sr.h - dy }; break;
+        case 'bl': next = { x: sr.x + dx, y: sr.y, w: sr.w - dx, h: sr.h + dy }; break;
+        case 'br': next = { x: sr.x, y: sr.y, w: sr.w + dx, h: sr.h + dy }; break;
+        default: return;
+      }
+      setTrimRect({
+        x: Math.max(0, next.x), y: Math.max(0, next.y),
+        w: Math.max(10, Math.min(next.w, wsW)), h: Math.max(10, Math.min(next.h, wsH)),
+      });
+    }
+  }, [displayScale, wsW, wsH]);
 
   const handleEnd = useCallback(() => {
     dragRef.current = null;
+    loupePosRef.current = null;
+    if (isTouchDragRef.current) {
+      isTouchDragRef.current = false;
+      setShowLoupe(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -518,15 +641,20 @@ function AlignStep({ croppedCanvas, currentImgSrc, onNext, onSkip, onBack }) {
   // Memoize cropped image src — MUST be before early return (rules of hooks)
   const croppedSrc = useMemo(() => croppedCanvas.toDataURL('image/jpeg', 0.85), [croppedCanvas]);
 
-  // ── Apply final warp and advance ──────────────────────────────────────────
-  const handleNext = () => {
-    if (!pins || !oldImgSize) { onNext(croppedCanvas); return; }
-    const cw = croppedCanvas.width;
-    const ch = croppedCanvas.height;
+  // ── Apply final warp and advance (align phase) ─────────────────────────────
+  const handleAlignNext = () => {
+    onAlignDone();
+  };
+
+  // ── Apply warp + crop (trim phase) ────────────────────────────────────────
+  const handleTrimNext = () => {
+    if (!pins || !trimRect) return;
     const srcQuad = pins.map(p => [p.x - cropOffX, p.y - cropOffY]);
-    const dstQuad = [[0, 0], [cw, 0], [0, ch], [cw, ch]];
-    const warped = perspectiveWarp(croppedCanvas, srcQuad, dstQuad);
-    onNext(warped);
+    const dstQuad = pins.map(p => [p.x - trimRect.x, p.y - trimRect.y]);
+    const outW = Math.round(trimRect.w);
+    const outH = Math.round(trimRect.h);
+    const warped = perspectiveWarp(croppedCanvas, srcQuad, dstQuad, outW, outH);
+    onTrimDone(warped);
   };
 
   // ── Nothing to show until old image loads ─────────────────────────────────
@@ -544,7 +672,10 @@ function AlignStep({ croppedCanvas, currentImgSrc, onNext, onSkip, onBack }) {
   return (
     <div>
       <p style={{ margin: '0 0 12px', fontSize: '13px', color: 'rgba(26,10,0,0.6)', lineHeight: 1.5 }}>
-        Drag the corner pins to align the new image with the current board image underneath.
+        {phase === 'align'
+          ? 'Drag the corner pins to align the new image with the current board image underneath.'
+          : 'Adjust the crop rectangle to frame the board area, then tap Next.'
+        }
       </p>
 
       {/* Workspace */}
@@ -602,8 +733,8 @@ function AlignStep({ croppedCanvas, currentImgSrc, onNext, onSkip, onBack }) {
           }}
         />
 
-        {/* Corner pins */}
-        {pins.map((pin, idx) => {
+        {/* Corner pins — only in align phase */}
+        {phase === 'align' && pins.map((pin, idx) => {
           const screenX = pin.x * displayScale;
           const screenY = pin.y * displayScale;
           return (
@@ -635,40 +766,173 @@ function AlignStep({ croppedCanvas, currentImgSrc, onNext, onSkip, onBack }) {
             </div>
           );
         })}
+
+        {/* Trim crop rect — only in trim phase */}
+        {phase === 'trim' && trimRect && (() => {
+          const tx = trimRect.x * displayScale;
+          const ty = trimRect.y * displayScale;
+          const tw = trimRect.w * displayScale;
+          const th = trimRect.h * displayScale;
+          const totalW = wsW * displayScale;
+          const totalH = wsH * displayScale;
+          const HANDLE_SIZE = 22;
+
+          const corners = [
+            { key: 'tl', cx: tx, cy: ty },
+            { key: 'tr', cx: tx + tw, cy: ty },
+            { key: 'bl', cx: tx, cy: ty + th },
+            { key: 'br', cx: tx + tw, cy: ty + th },
+          ];
+
+          return (
+            <>
+              {/* Dim overlay around crop rect */}
+              <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}
+                viewBox={`0 0 ${totalW} ${totalH}`} preserveAspectRatio="none">
+                <rect x={0} y={0} width={totalW} height={ty} fill="rgba(0,0,0,0.5)" />
+                <rect x={0} y={ty + th} width={totalW} height={totalH - ty - th} fill="rgba(0,0,0,0.5)" />
+                <rect x={0} y={ty} width={tx} height={th} fill="rgba(0,0,0,0.5)" />
+                <rect x={tx + tw} y={ty} width={totalW - tx - tw} height={th} fill="rgba(0,0,0,0.5)" />
+                <rect x={tx} y={ty} width={tw} height={th} fill="none" stroke="white" strokeWidth="2" />
+              </svg>
+
+              {/* Draggable crop body */}
+              <div
+                onMouseDown={(e) => startTrimDrag(e, 'move')}
+                onTouchStart={(e) => startTrimDrag(e, 'move')}
+                style={{
+                  position: 'absolute', left: tx, top: ty, width: tw, height: th,
+                  cursor: 'move', touchAction: 'none',
+                }}
+              />
+
+              {/* Corner handles */}
+              {corners.map(({ key, cx, cy }) => (
+                <div
+                  key={key}
+                  onMouseDown={(e) => { e.stopPropagation(); startTrimDrag(e, key); }}
+                  onTouchStart={(e) => { e.stopPropagation(); startTrimDrag(e, key); }}
+                  style={{
+                    position: 'absolute', left: cx - HANDLE_SIZE, top: cy - HANDLE_SIZE,
+                    width: HANDLE_SIZE * 2, height: HANDLE_SIZE * 2,
+                    cursor: key === 'tl' || key === 'br' ? 'nwse-resize' : 'nesw-resize',
+                    touchAction: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}
+                >
+                  <div style={{
+                    width: 16, height: 16, borderRadius: '50%',
+                    background: 'white', boxShadow: '0 1px 4px rgba(0,0,0,0.4)',
+                    border: '2px solid #0047FF',
+                  }} />
+                </div>
+              ))}
+            </>
+          );
+        })()}
       </div>
 
-      {/* Background opacity slider */}
-      <div style={{ marginTop: '14px' }}>
-        <label style={{
-          display: 'block',
-          marginBottom: '5px',
-          fontSize: '11px',
-          fontWeight: 700,
-          letterSpacing: '1px',
-          textTransform: 'uppercase',
-          color: 'rgba(26,10,0,0.55)',
-          fontFamily: 'Space Mono, monospace',
-        }}>
-          New image opacity — {Math.round(fgOpacity * 100)}%
-        </label>
-        <input
-          type="range"
-          min={0}
-          max={100}
-          value={Math.round(fgOpacity * 100)}
-          onChange={(e) => setFgOpacity(Number(e.target.value) / 100)}
-          style={{ width: '100%', accentColor: '#0047FF' }}
-        />
-      </div>
+      {/* Background opacity slider — only in align phase */}
+      {phase === 'align' && (
+        <div style={{ marginTop: '14px' }}>
+          <label style={{
+            display: 'block',
+            marginBottom: '5px',
+            fontSize: '11px',
+            fontWeight: 700,
+            letterSpacing: '1px',
+            textTransform: 'uppercase',
+            color: 'rgba(26,10,0,0.55)',
+            fontFamily: 'Space Mono, monospace',
+          }}>
+            New image opacity — {Math.round(fgOpacity * 100)}%
+          </label>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            value={Math.round(fgOpacity * 100)}
+            onChange={(e) => setFgOpacity(Number(e.target.value) / 100)}
+            style={{ width: '100%', accentColor: '#0047FF' }}
+          />
+        </div>
+      )}
 
       {/* Buttons */}
       <div style={{ display: 'flex', gap: '10px', marginTop: '16px' }}>
         <button onClick={onBack} style={secondaryBtnStyle}>← Back</button>
-        <button onClick={onSkip} style={secondaryBtnStyle}>Skip</button>
-        <button onClick={handleNext} style={{ ...primaryBtnStyle, flex: 1 }}>
+        {phase === 'align' && (
+          <button onClick={onSkip} style={secondaryBtnStyle}>Skip</button>
+        )}
+        <button
+          onClick={phase === 'align' ? handleAlignNext : handleTrimNext}
+          style={{ ...primaryBtnStyle, flex: 1 }}
+        >
           Next →
         </button>
       </div>
+
+      {/* Loupe magnifier — shown during touch drags (not 'move' drags) */}
+      {showLoupe && dragRef.current && loupePosRef.current && (() => {
+        // Don't show loupe for 'move' drags (trim body drag)
+        if (dragRef.current.kind === 'trim' && dragRef.current.type === 'move') return null;
+
+        const LOUPE_W = 180;
+        const LOUPE_H = 120;
+        const LOUPE_RADIUS = 60;
+        const MAGNIFICATION = 3;
+        const OFFSET_ABOVE = 80;
+
+        const { clientX, clientY } = loupePosRef.current;
+
+        // Get the point of interest in workspace fraction coords
+        let wsFracX, wsFracY;
+        if (dragRef.current.kind === 'pin') {
+          const pin = pins[dragRef.current.pinIdx];
+          wsFracX = pin.x / wsW;
+          wsFracY = pin.y / wsH;
+        } else {
+          // trim handle
+          const tr = trimRect;
+          if (!tr) return null;
+          switch (dragRef.current.type) {
+            case 'tl': wsFracX = tr.x / wsW; wsFracY = tr.y / wsH; break;
+            case 'tr': wsFracX = (tr.x + tr.w) / wsW; wsFracY = tr.y / wsH; break;
+            case 'bl': wsFracX = tr.x / wsW; wsFracY = (tr.y + tr.h) / wsH; break;
+            case 'br': wsFracX = (tr.x + tr.w) / wsW; wsFracY = (tr.y + tr.h) / wsH; break;
+            default: return null;
+          }
+        }
+
+        // Convert to old image fraction (loupe shows old image)
+        // Old image is at (oldOffX, oldOffY) in workspace, size oldImgSize
+        const oldImgFracX = (wsFracX * wsW - oldOffX) / oldImgSize.w;
+        const oldImgFracY = (wsFracY * wsH - oldOffY) / oldImgSize.h;
+
+        const magW = LOUPE_W * MAGNIFICATION;
+        const magH = magW * (oldImgSize.h / oldImgSize.w);
+        const imgLeft = -(oldImgFracX * magW) + LOUPE_W / 2;
+        const imgTop = -(oldImgFracY * magH) + LOUPE_H / 2;
+
+        const clamp = (v, min, max) => Math.max(min, Math.min(v, max));
+        const loupeLeft = clamp(clientX - LOUPE_W / 2, 4, window.innerWidth - LOUPE_W - 4);
+        const loupeTop = clamp(clientY - OFFSET_ABOVE - LOUPE_H, 4, clientY - OFFSET_ABOVE);
+
+        return (
+          <div key="loupe" style={{
+            position: 'fixed', left: loupeLeft, top: loupeTop,
+            width: LOUPE_W, height: LOUPE_H,
+            borderRadius: `${LOUPE_RADIUS}px`,
+            border: '2px solid rgba(255,255,255,0.9)',
+            boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
+            overflow: 'hidden', pointerEvents: 'none', zIndex: 300,
+            background: '#1a0a00',
+          }}>
+            <img src={currentImgSrc} alt="" draggable={false}
+              style={{ position: 'absolute', width: magW, height: magH, left: imgLeft, top: imgTop, pointerEvents: 'none' }}
+            />
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -713,9 +977,6 @@ export default function BoardImageUpdateView({ currentImgSrc, currentImageName, 
 
   // Crop → Align: original crop preserved so align can re-read it on "back"
   const [originalCropCanvas, setOriginalCropCanvas] = useState(null);
-
-  // Align → Trim: warped image as data URL for the CropStep-based trim
-  const [trimImageData, setTrimImageData] = useState(null); // { dataUrl, width, height }
 
   // Final canvas for confirm/save (set by trim step, or by skip)
   const [croppedCanvas, setCroppedCanvas] = useState(null);
@@ -907,32 +1168,16 @@ export default function BoardImageUpdateView({ currentImgSrc, currentImageName, 
         />
       )}
 
-      {/* ── Step 3: Align ── */}
-      {step === 'align' && originalCropCanvas && (
+      {/* ── Steps 3-4: Align + Trim (shared AlignStep component, different phase) ── */}
+      {(step === 'align' || step === 'trim') && originalCropCanvas && (
         <AlignStep
           croppedCanvas={originalCropCanvas}
           currentImgSrc={currentImgSrc}
-          onNext={(warpedCanvas) => {
-            setTrimImageData({
-              dataUrl: warpedCanvas.toDataURL('image/jpeg', JPEG_QUALITY),
-              width: warpedCanvas.width,
-              height: warpedCanvas.height,
-            });
-            setStep('trim');
-          }}
+          phase={step}
+          onAlignDone={() => setStep('trim')}
+          onTrimDone={(canvas) => { setCroppedCanvas(canvas); setStep('confirm'); }}
           onSkip={() => { setCroppedCanvas(originalCropCanvas); setStep('confirm'); }}
-          onBack={() => setStep('crop')}
-        />
-      )}
-
-      {/* ── Step 4: Trim ── */}
-      {step === 'trim' && trimImageData && (
-        <CropStep
-          imageDataUrl={trimImageData.dataUrl}
-          imageWidth={trimImageData.width}
-          imageHeight={trimImageData.height}
-          onNext={(canvas) => { setCroppedCanvas(canvas); setStep('confirm'); }}
-          onBack={() => setStep('align')}
+          onBack={() => setStep(step === 'trim' ? 'align' : 'crop')}
         />
       )}
 
