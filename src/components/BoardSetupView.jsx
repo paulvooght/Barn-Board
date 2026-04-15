@@ -1420,14 +1420,6 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
                   fill="none" stroke="#0047FF" strokeWidth={Math.max(Math.round(2.5 * pxScale), 1)}
                   strokeLinejoin="round"
                 />
-                {poly.map(([x, y], i) => (
-                  <circle key={i}
-                    cx={toSvgX(x)} cy={toSvgY(y)} r={Math.round(3.5 * pxScale)}
-                    fill={i === idx ? '#0047FF' : '#fff'}
-                    stroke={i === idx ? '#fff' : '#0047FF'}
-                    strokeWidth={Math.max(Math.round(1.5 * pxScale), 1)}
-                  />
-                ))}
               </svg>
             )}
           </div>
