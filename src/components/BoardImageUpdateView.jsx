@@ -350,6 +350,33 @@ function perspectiveWarp(sourceCanvas, srcQuad, dstQuad) {
   return out;
 }
 
+// ─── CSS perspective transform from 4-corner mapping ─────────────────────────
+// Computes a CSS matrix3d that maps an element's corners (0,0)→(w,0)→(0,h)→(w,h)
+// to arbitrary destination points dst = [[x,y], ...] for [TL, TR, BL, BR].
+
+function computePerspectiveCSS(w, h, dst) {
+  const [dx0, dy0] = dst[0];
+  const [dx1, dy1] = dst[1];
+  const [dx2, dy2] = dst[2];
+  const [dx3, dy3] = dst[3];
+
+  // Solve 2×2 system for perspective params
+  const a1 = (dx1 - dx3) * w, b1 = (dx2 - dx3) * h, c1 = dx3 - dx1 - dx2 + dx0;
+  const a2 = (dy1 - dy3) * w, b2 = (dy2 - dy3) * h, c2 = dy3 - dy1 - dy2 + dy0;
+  const det = a1 * b2 - a2 * b1;
+  if (Math.abs(det) < 1e-10) return 'none';
+
+  const g = (c1 * b2 - c2 * b1) / det;
+  const hh = (a1 * c2 - a2 * c1) / det;
+  const a = (dx1 - dx0) / w + dx1 * g;
+  const d = (dy1 - dy0) / w + dy1 * g;
+  const b = (dx2 - dx0) / h + dx2 * hh;
+  const e = (dy2 - dy0) / h + dy2 * hh;
+
+  // CSS matrix3d column-major
+  return `matrix3d(${a},${d},0,${g}, ${b},${e},0,${hh}, 0,0,1,0, ${dx0},${dy0},0,1)`;
+}
+
 // ─── Align step component ─────────────────────────────────────────────────────
 
 function AlignStep({ croppedCanvas, currentImgSrc, onNext, onBack }) {
@@ -364,9 +391,6 @@ function AlignStep({ croppedCanvas, currentImgSrc, onNext, onBack }) {
 
   // Background opacity (0–1)
   const [bgOpacity, setBgOpacity] = useState(0.5);
-
-  // Warp preview canvas (updated on pin release)
-  const [warpCanvas, setWarpCanvas] = useState(null);
 
   // Pin positions in WORKSPACE units (not screen pixels)
   // Initialised once we know oldImgSize + croppedCanvas sizes
@@ -414,7 +438,6 @@ function AlignStep({ croppedCanvas, currentImgSrc, onNext, onBack }) {
       { x: cropOffX,      y: cropOffY + ch },  // BL
       { x: cropOffX + cw, y: cropOffY + ch },  // BR
     ]);
-    setWarpCanvas(null);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [oldImgSize]);
 
@@ -433,31 +456,6 @@ function AlignStep({ croppedCanvas, currentImgSrc, onNext, onBack }) {
     ro.observe(el);
     return () => ro.disconnect();
   }, [wsW, workspaceVisible]);
-
-  // ── Warp helper (runs after drag ends) ────────────────────────────────────
-  const runWarp = useCallback((currentPins) => {
-    if (!currentPins || !oldImgSize) return;
-    const cw = croppedCanvas.width;
-    const ch = croppedCanvas.height;
-
-    // srcQuad: where the user placed each pin, mapped back to cropped-canvas coords
-    // pins are in workspace units; cropOffX/cropOffY is the placed origin
-    const srcQuad = currentPins.map(p => [
-      p.x - cropOffX,
-      p.y - cropOffY,
-    ]); // [TL, TR, BL, BR] in cropped-image pixels
-
-    // dstQuad: the 4 corners of the output canvas (same size as cropped)
-    const dstQuad = [
-      [0,  0 ],
-      [cw, 0 ],
-      [0,  ch],
-      [cw, ch],
-    ];
-
-    const warped = perspectiveWarp(croppedCanvas, srcQuad, dstQuad);
-    setWarpCanvas(warped);
-  }, [croppedCanvas, cropOffX, cropOffY, oldImgSize]);
 
   // ── Drag handlers ──────────────────────────────────────────────────────────
   const startDrag = (e, pinIdx) => {
@@ -501,14 +499,8 @@ function AlignStep({ croppedCanvas, currentImgSrc, onNext, onBack }) {
   }, [displayScale]);
 
   const handleEnd = useCallback(() => {
-    if (!dragRef.current) return;
     dragRef.current = null;
-    // Run warp on release — read current pins from state via functional update
-    setPins(current => {
-      runWarp(current);
-      return current;
-    });
-  }, [runWarp]);
+  }, []);
 
   useEffect(() => {
     window.addEventListener('mousemove', handleMove);
@@ -523,10 +515,8 @@ function AlignStep({ croppedCanvas, currentImgSrc, onNext, onBack }) {
     };
   }, [handleMove, handleEnd]);
 
-  // Active warp display canvas: use warpCanvas if available, else original crop
-  // MUST be before the early return — useMemo is a hook (rules of hooks)
-  const displayCanvas = warpCanvas || croppedCanvas;
-  const displaySrc = useMemo(() => displayCanvas.toDataURL('image/jpeg', 0.85), [displayCanvas]);
+  // Memoize cropped image src — MUST be before early return (rules of hooks)
+  const croppedSrc = useMemo(() => croppedCanvas.toDataURL('image/jpeg', 0.85), [croppedCanvas]);
 
   // ── Apply final warp and advance ──────────────────────────────────────────
   const handleNext = () => {
@@ -589,9 +579,9 @@ function AlignStep({ croppedCanvas, currentImgSrc, onNext, onBack }) {
           }}
         />
 
-        {/* New image overlay — rendered from canvas */}
+        {/* New image overlay — CSS matrix3d makes corners follow pins */}
         <img
-          src={displaySrc}
+          src={croppedSrc}
           alt="New board"
           draggable={false}
           style={{
@@ -601,6 +591,15 @@ function AlignStep({ croppedCanvas, currentImgSrc, onNext, onBack }) {
             width: `${(croppedCanvas.width / wsW) * 100}%`,
             opacity: 0.75,
             pointerEvents: 'none',
+            transformOrigin: '0 0',
+            transform: computePerspectiveCSS(
+              croppedCanvas.width * displayScale,
+              croppedCanvas.height * displayScale,
+              pins.map(p => [
+                (p.x - cropOffX) * displayScale,
+                (p.y - cropOffY) * displayScale,
+              ])
+            ),
           }}
         />
 
