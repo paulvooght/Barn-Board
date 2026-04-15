@@ -1365,7 +1365,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
       {draggingVertex && touchPosRef.current && dragVertexPctRef.current && (() => {
         const LOUPE_W = 180;
         const LOUPE_H = 120;
-        const LOUPE_RADIUS = 20;
+        const LOUPE_RADIUS = 60;
         const MAGNIFICATION = 3 * scale;
         const OFFSET_ABOVE = 80;
 
@@ -1417,15 +1417,15 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
               >
                 <polygon
                   points={poly.map(([x, y]) => `${toSvgX(x)},${toSvgY(y)}`).join(' ')}
-                  fill="none" stroke="#0047FF" strokeWidth={Math.max(Math.round(2.5 * lPx), 1)}
+                  fill="none" stroke="#0047FF" strokeWidth={Math.max(Math.round(2.5 * pxScale), 1)}
                   strokeLinejoin="round"
                 />
                 {poly.map(([x, y], i) => (
                   <circle key={i}
-                    cx={toSvgX(x)} cy={toSvgY(y)} r={Math.round(3.5 * lPx)}
+                    cx={toSvgX(x)} cy={toSvgY(y)} r={Math.round(3.5 * pxScale)}
                     fill={i === idx ? '#0047FF' : '#fff'}
                     stroke={i === idx ? '#fff' : '#0047FF'}
-                    strokeWidth={Math.max(Math.round(1.5 * lPx), 1)}
+                    strokeWidth={Math.max(Math.round(1.5 * pxScale), 1)}
                   />
                 ))}
               </svg>
