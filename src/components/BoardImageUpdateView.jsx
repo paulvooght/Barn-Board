@@ -379,7 +379,7 @@ function computePerspectiveCSS(w, h, dst) {
 
 // ─── Align step component ─────────────────────────────────────────────────────
 
-function AlignStep({ croppedCanvas, currentImgSrc, onNext, onBack }) {
+function AlignStep({ croppedCanvas, currentImgSrc, onNext, onSkip, onBack }) {
   const containerRef = useRef(null);
   const lastTouchTimeRef = useRef(0);
 
@@ -389,8 +389,8 @@ function AlignStep({ croppedCanvas, currentImgSrc, onNext, onBack }) {
   // Display scale: workspace-pixels per workspace-unit
   const [displayScale, setDisplayScale] = useState(1);
 
-  // Background opacity (0–1)
-  const [bgOpacity, setBgOpacity] = useState(0.5);
+  // Foreground (new image) opacity (0–1)
+  const [fgOpacity, setFgOpacity] = useState(0.7);
 
   // Pin positions in WORKSPACE units (not screen pixels)
   // Initialised once we know oldImgSize + croppedCanvas sizes
@@ -558,7 +558,7 @@ function AlignStep({ croppedCanvas, currentImgSrc, onNext, onBack }) {
           overflow: 'hidden',
           borderRadius: '10px',
           border: '1px solid rgba(26,10,0,0.12)',
-          background: '#111',
+          background: '#FFAB94',
         }}
       >
         {/* Aspect-ratio spacer */}
@@ -574,7 +574,6 @@ function AlignStep({ croppedCanvas, currentImgSrc, onNext, onBack }) {
             left: `${(oldOffX / wsW) * 100}%`,
             top: `${(oldOffY / wsH) * 100}%`,
             width: `${(oldImgSize.w / wsW) * 100}%`,
-            opacity: bgOpacity,
             pointerEvents: 'none',
           }}
         />
@@ -589,7 +588,7 @@ function AlignStep({ croppedCanvas, currentImgSrc, onNext, onBack }) {
             left: `${(cropOffX / wsW) * 100}%`,
             top: `${(cropOffY / wsH) * 100}%`,
             width: `${(croppedCanvas.width / wsW) * 100}%`,
-            opacity: 0.75,
+            opacity: fgOpacity,
             pointerEvents: 'none',
             transformOrigin: '0 0',
             transform: computePerspectiveCSS(
@@ -650,14 +649,14 @@ function AlignStep({ croppedCanvas, currentImgSrc, onNext, onBack }) {
           color: 'rgba(26,10,0,0.55)',
           fontFamily: 'Space Mono, monospace',
         }}>
-          Background opacity — {Math.round(bgOpacity * 100)}%
+          New image opacity — {Math.round(fgOpacity * 100)}%
         </label>
         <input
           type="range"
           min={0}
           max={100}
-          value={Math.round(bgOpacity * 100)}
-          onChange={(e) => setBgOpacity(Number(e.target.value) / 100)}
+          value={Math.round(fgOpacity * 100)}
+          onChange={(e) => setFgOpacity(Number(e.target.value) / 100)}
           style={{ width: '100%', accentColor: '#0047FF' }}
         />
       </div>
@@ -665,7 +664,7 @@ function AlignStep({ croppedCanvas, currentImgSrc, onNext, onBack }) {
       {/* Buttons */}
       <div style={{ display: 'flex', gap: '10px', marginTop: '16px' }}>
         <button onClick={onBack} style={secondaryBtnStyle}>← Back</button>
-        <button onClick={() => onNext(croppedCanvas)} style={secondaryBtnStyle}>Skip</button>
+        <button onClick={onSkip} style={secondaryBtnStyle}>Skip</button>
         <button onClick={handleNext} style={{ ...primaryBtnStyle, flex: 1 }}>
           Next →
         </button>
@@ -703,7 +702,7 @@ const secondaryBtnStyle = {
 // ─── Main wizard component ────────────────────────────────────────────────────
 
 export default function BoardImageUpdateView({ currentImgSrc, currentImageName, onSave, onCancel }) {
-  const [step, setStep] = useState('upload'); // 'upload' | 'crop' | 'align' | 'confirm'
+  const [step, setStep] = useState('upload'); // 'upload' | 'crop' | 'align' | 'trim' | 'confirm'
 
   // Upload step state
   const [uploadedDataUrl, setUploadedDataUrl] = useState(null);
@@ -712,7 +711,13 @@ export default function BoardImageUpdateView({ currentImgSrc, currentImageName, 
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef(null);
 
-  // Crop step state (canvas stored for confirm)
+  // Crop → Align: original crop preserved so align can re-read it on "back"
+  const [originalCropCanvas, setOriginalCropCanvas] = useState(null);
+
+  // Align → Trim: warped image as data URL for the CropStep-based trim
+  const [trimImageData, setTrimImageData] = useState(null); // { dataUrl, width, height }
+
+  // Final canvas for confirm/save (set by trim step, or by skip)
   const [croppedCanvas, setCroppedCanvas] = useState(null);
 
   // Confirm step state
@@ -721,7 +726,10 @@ export default function BoardImageUpdateView({ currentImgSrc, currentImageName, 
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
 
-  const stepLabels = { upload: 'Step 1 of 4 — Upload', crop: 'Step 2 of 4 — Crop', align: 'Step 3 of 4 — Align', confirm: 'Step 4 of 4 — Confirm' };
+  const stepLabels = {
+    upload: 'Step 1 of 5 — Upload', crop: 'Step 2 of 5 — Crop', align: 'Step 3 of 5 — Align',
+    trim: 'Step 4 of 5 — Trim', confirm: 'Step 5 of 5 — Confirm',
+  };
 
   // ── Upload step handlers ──────────────────────────────────────────────────
 
@@ -894,22 +902,41 @@ export default function BoardImageUpdateView({ currentImgSrc, currentImageName, 
           imageDataUrl={uploadedDataUrl}
           imageWidth={uploadedWidth}
           imageHeight={uploadedHeight}
-          onNext={(canvas) => { setCroppedCanvas(canvas); setStep('align'); }}
+          onNext={(canvas) => { setOriginalCropCanvas(canvas); setStep('align'); }}
           onBack={() => setStep('upload')}
         />
       )}
 
       {/* ── Step 3: Align ── */}
-      {step === 'align' && croppedCanvas && (
+      {step === 'align' && originalCropCanvas && (
         <AlignStep
-          croppedCanvas={croppedCanvas}
+          croppedCanvas={originalCropCanvas}
           currentImgSrc={currentImgSrc}
-          onNext={(warpedCanvas) => { setCroppedCanvas(warpedCanvas); setStep('confirm'); }}
+          onNext={(warpedCanvas) => {
+            setTrimImageData({
+              dataUrl: warpedCanvas.toDataURL('image/jpeg', JPEG_QUALITY),
+              width: warpedCanvas.width,
+              height: warpedCanvas.height,
+            });
+            setStep('trim');
+          }}
+          onSkip={() => { setCroppedCanvas(originalCropCanvas); setStep('confirm'); }}
           onBack={() => setStep('crop')}
         />
       )}
 
-      {/* ── Step 4: Confirm ── */}
+      {/* ── Step 4: Trim ── */}
+      {step === 'trim' && trimImageData && (
+        <CropStep
+          imageDataUrl={trimImageData.dataUrl}
+          imageWidth={trimImageData.width}
+          imageHeight={trimImageData.height}
+          onNext={(canvas) => { setCroppedCanvas(canvas); setStep('confirm'); }}
+          onBack={() => setStep('align')}
+        />
+      )}
+
+      {/* ── Step 5: Confirm ── */}
       {step === 'confirm' && croppedCanvas && (
         <div>
           {/* Side-by-side comparison */}
@@ -987,7 +1014,7 @@ export default function BoardImageUpdateView({ currentImgSrc, currentImageName, 
           </div>
 
           <div style={{ display: 'flex', gap: '10px' }}>
-            <button onClick={() => { setStep('align'); setSaveError(''); }} style={secondaryBtnStyle} disabled={saving}>
+            <button onClick={() => { setStep('trim'); setSaveError(''); }} style={secondaryBtnStyle} disabled={saving}>
               ← Back
             </button>
             <button
