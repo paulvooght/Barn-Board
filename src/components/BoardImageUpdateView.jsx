@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 
 // ─── Image helpers ────────────────────────────────────────────────────────────
 
@@ -546,6 +546,8 @@ function AlignStep({ croppedCanvas, currentImgSrc, onNext, onBack }) {
 
   // Active warp display canvas: use warpCanvas if available, else original crop
   const displayCanvas = warpCanvas || croppedCanvas;
+  // Memoize toDataURL — avoids re-encoding on every pin drag render
+  const displaySrc = useMemo(() => displayCanvas.toDataURL('image/jpeg', 0.85), [displayCanvas]);
 
   return (
     <div>
@@ -587,7 +589,7 @@ function AlignStep({ croppedCanvas, currentImgSrc, onNext, onBack }) {
 
         {/* New image overlay — rendered from canvas */}
         <img
-          src={displayCanvas.toDataURL('image/jpeg', 0.85)}
+          src={displaySrc}
           alt="New board"
           draggable={false}
           style={{

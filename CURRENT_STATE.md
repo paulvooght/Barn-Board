@@ -1,6 +1,6 @@
 # CURRENT_STATE.md — What's Working, What's Not, What's Fragile
 
-*Last updated: 2026-03-28*
+*Last updated: 2026-04-04*
 
 ## Genuinely Working
 
@@ -102,7 +102,7 @@
 - If the board photo changes, `boardRegion` must be recalibrated or hold positions break
 - The Python detection script outputs the correct boardRegion for each photo
 
-## Recent Important Changes (March 2026)
+## Recent Important Changes (March–April 2026)
 1. **Supabase integration** — migrated from pure localStorage to Supabase + localStorage cache
 2. **Auth system** — email/password with admin-only Hold Manager access
 3. **Multi-device sync** — tab visibility re-fetch
@@ -112,6 +112,7 @@
 7. **Session tracking improvements** — deduplication, stop button, summary fixes
 8. **Playlists** — create/manage route playlists with Supabase sync
 9. **Hold warning system** — ghost outlines, remove buttons, auto-strip on save
+10. **iOS PWA keyboard fix** — removed `maximum-scale=1.0`/`user-scalable=no` from viewport (suppressed keyboard in standalone mode); pinch-zoom now blocked via CSS `touch-action: pan-x pan-y` on `#root` instead
 
 ## Technical Debt
 - **App.jsx is too large** (~1900 lines) — could benefit from extracting Supabase sync, session tracking, and route management into custom hooks
@@ -147,3 +148,30 @@ The app is designed for multiple users sharing one board (see CLAUDE.md "Social 
 - **Setter search/filter** — filter route list by setter name to find favourite route-setters.
 - **Shared playlists** — playlists are currently private per user. Add option to share a playlist with other users.
 - **Per-user angle-grade sent tracking** — `angleGrades[].sent` should be per-user, not on the shared route record.
+
+## Board Image Update Feature (Session 1 — 2026-04-12)
+
+### What's Built
+- **Dynamic image loading** — board image URL loaded from `board_image_config` in `board_settings` table, with fallback to static files in `public/`
+- **Upload wizard** — `BoardImageUpdateView.jsx` — 3-step wizard (Upload → Crop → Confirm) accessible from Settings (admin only)
+- **Supabase Storage upload** — saves 4 responsive sizes (full, 2000w, 1200w, 800w) to `board-images` bucket
+- **Image rename** — user can name the image (auto-increments version, e.g. `Barn_Set_01_V6`)
+- **Error handling** — upload failures show user-friendly error in the wizard
+- **Multi-device sync** — `board_image_config` re-fetched on tab visibility change
+
+### What's Built (Session 2 — 2026-04-15)
+- **Perspective warp / align step** — 4-corner alignment step between crop and confirm (upload → crop → align → confirm)
+- `AlignStep` component in `BoardImageUpdateView.jsx` — oversized workspace (20% padding), 4 draggable corner pins, background opacity slider, Skip option
+- Canvas-based triangle mesh warp (10×10 grid = 200 triangles) — applies on pin release, renders in-place preview
+- Touch handling follows `lastTouchTimeRef` pattern, 44px hit targets, window-level move/end listeners
+
+### What's NOT Built Yet (Session 3)
+- Phone UX testing and polish
+- "Revert to previous image" option
+- Cache busting for new image URLs
+
+### Supabase Setup Required
+- A `board-images` Storage bucket must exist (the code attempts to create it on first upload, but Supabase may require manual creation via dashboard if RLS blocks `createBucket`)
+
+## Recent Changes
+- **2026-04-15** — Session 2: Added `AlignStep` perspective warp component to `BoardImageUpdateView.jsx`. Wizard is now 4 steps. `perspectiveWarp()` helper uses canvas triangle mesh. Memoized `toDataURL` to prevent jank during pin drag.
