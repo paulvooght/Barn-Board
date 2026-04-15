@@ -130,7 +130,9 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
       // getBoundingClientRect includes CSS transform — divide out zoom to get base ratio
       const zoom = scaleRef.current || 1;
       const s = Math.min(rect.width / zoom / imgSize.w, rect.height / zoom / imgSize.h);
-      if (s > 0) setPxScale(1 / s);
+      // Normalize to 2x display as baseline — 3x devices get thinner strokes to match 2x look
+      const dprFactor = 2 / (window.devicePixelRatio || 2);
+      if (s > 0) setPxScale((1 / s) * dprFactor);
     };
     update();
     const observer = new ResizeObserver(update);
