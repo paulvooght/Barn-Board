@@ -434,7 +434,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
   function finishLasso() {
     if (drawPoints.length < 5) { setDrawPoints([]); lassoActiveRef.current = false; return; }
     // Simplify with low tolerance for high detail (3x more vertices than default 0.5)
-    const simplified = simplifyPath(drawPoints, 0.15);
+    const simplified = simplifyPath(drawPoints, 0.4);
     if (simplified.length < 3) { setDrawPoints([]); lassoActiveRef.current = false; return; }
     const newHold = holdFromPolygon(simplified, `custom_${Date.now()}`);
     newHold.confidence = 'high';
@@ -461,6 +461,29 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
     const midY = r1((poly[i][1] + poly[j][1]) / 2);
     const newPoly = [...poly];
     newPoly.splice(j, 0, [midX, midY]);
+    setHolds(prev => prev.map(h => {
+      if (h.id !== selectedId) return h;
+      const [cx, cy] = centroid(newPoly);
+      const bb = boundingBox(newPoly);
+      return { ...h, polygon: newPoly, cx: r1(cx), cy: r1(cy), w_pct: r1(bb.w), h_pct: r1(bb.h) };
+    }));
+  }
+
+  function removeVertexFromSelected() {
+    if (!selectedHold?.polygon || selectedHold.polygon.length <= 3) return;
+    const poly = selectedHold.polygon;
+    // Remove the least significant vertex (smallest triangle area with its neighbors)
+    let minArea = Infinity;
+    let minIdx = -1;
+    for (let i = 0; i < poly.length; i++) {
+      const prev = poly[(i - 1 + poly.length) % poly.length];
+      const curr = poly[i];
+      const next = poly[(i + 1) % poly.length];
+      const area = Math.abs((next[0] - prev[0]) * (curr[1] - prev[1]) - (curr[0] - prev[0]) * (next[1] - prev[1])) / 2;
+      if (area < minArea) { minArea = area; minIdx = i; }
+    }
+    if (minIdx < 0) return;
+    const newPoly = poly.filter((_, i) => i !== minIdx);
     setHolds(prev => prev.map(h => {
       if (h.id !== selectedId) return h;
       const [cx, cy] = centroid(newPoly);
@@ -883,7 +906,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
         {showVertices && activeTool === TOOLS.SELECT && hold.polygon.map(([x, y], idx) => {
           const sx = toSvgX(x), sy = toSvgY(y);
           const svgScale = getSvgScale();
-          const vr = Math.round(3.5 * pxScale);
+          const vr = Math.round(2.0 * pxScale);
           const hitR = 30 / svgScale;
           return (
             <g key={idx} style={{ cursor: 'move' }}
@@ -916,10 +939,26 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
             strokeWidth={Math.round(1.5 * zPx)} strokeDasharray={`${Math.round(5 * zPx)} ${Math.round(3 * zPx)}`}
           />
         ) : drawPoints.length >= 2 ? (
-          <polyline points={pts.join(' ')}
-            fill="none" stroke="#0047FF"
-            strokeWidth={Math.round(1.5 * zPx)} strokeDasharray={`${Math.round(4 * zPx)} ${Math.round(3 * zPx)}`}
-          />
+          drawMode === 'lasso' ? (
+            <>
+              {/* White outline for contrast against dark board areas */}
+              <polyline points={pts.join(' ')}
+                fill="none" stroke="rgba(255,255,255,0.5)"
+                strokeWidth={Math.max(Math.round(3 * zPx), 2.5)}
+                strokeLinecap="round" strokeLinejoin="round"
+              />
+              <polyline points={pts.join(' ')}
+                fill="none" stroke="#0047FF"
+                strokeWidth={Math.max(Math.round(1.5 * zPx), 1.5)}
+                strokeLinecap="round" strokeLinejoin="round"
+              />
+            </>
+          ) : (
+            <polyline points={pts.join(' ')}
+              fill="none" stroke="#0047FF"
+              strokeWidth={Math.round(1.5 * zPx)} strokeDasharray={`${Math.round(4 * zPx)} ${Math.round(3 * zPx)}`}
+            />
+          )
         ) : null}
         {drawMode === 'polygon' && drawPoints.map(([x, y], idx) => {
           const sx = toSvgX(x), sy = toSvgY(y);
@@ -1206,6 +1245,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
             <>
               <button onClick={copySelected} style={secBtnStyle} disabled={!selectedHold?.polygon}>Copy</button>
               <button onClick={addVertexToSelected} style={secBtnStyle} disabled={!selectedHold?.polygon}>+ Vertex</button>
+              <button onClick={removeVertexFromSelected} style={secBtnStyle} disabled={!selectedHold?.polygon || selectedHold.polygon.length <= 3}>− Vertex</button>
               {selectedHold?.confidence === 'medium' && (
                 <button
                   onClick={() => setHolds(prev => prev.map(h => h.id === selectedId ? { ...h, confidence: 'high' } : h))}
@@ -1417,7 +1457,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
               >
                 <polygon
                   points={poly.map(([x, y]) => `${toSvgX(x)},${toSvgY(y)}`).join(' ')}
-                  fill="none" stroke="#0047FF" strokeWidth={Math.max(Math.round(2.5 * pxScale), 1)}
+                  fill="none" stroke="#0047FF" strokeWidth={Math.max(Math.round(2 * lPx), 1)}
                   strokeLinejoin="round"
                 />
               </svg>
