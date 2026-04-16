@@ -348,86 +348,120 @@ function CropStep({ imageDataUrl, imageWidth, imageHeight, onNext, onBack }) {
   );
 }
 
-// ─── Perspective warp helper ─────────────────────────────────────────────────
-// srcQuad / dstQuad: arrays of 4 [x, y] points in source-canvas / dest-canvas coords
-// Returns a new canvas. If outW/outH are provided, uses them for output dimensions.
+// ─── Homography solver ──────────────────────────────────────────────────────
+// Computes 3×3 homography matrix H that maps srcPts → dstPts.
+// srcPts, dstPts: arrays of 4 [x, y] in order [TL, TR, BL, BR].
+// Returns 9-element array [h0..h8] where h8 = 1.
+// Usage: dx = (h0*sx + h1*sy + h2) / (h6*sx + h7*sy + 1)
+//        dy = (h3*sx + h4*sy + h5) / (h6*sx + h7*sy + 1)
+
+function computeHomography(srcPts, dstPts) {
+  // Build 8×8 system: for each point pair (src[i] → dst[i]):
+  //   sx*h0 + sy*h1 + h2 - sx*dx*h6 - sy*dx*h7 = dx
+  //   sx*h3 + sy*h4 + h5 - sx*dy*h6 - sy*dy*h7 = dy
+  const n = 8;
+  const M = [];
+  for (let i = 0; i < 4; i++) {
+    const [sx, sy] = srcPts[i];
+    const [dx, dy] = dstPts[i];
+    M.push([sx, sy, 1, 0, 0, 0, -sx * dx, -sy * dx, dx]);
+    M.push([0, 0, 0, sx, sy, 1, -sx * dy, -sy * dy, dy]);
+  }
+
+  // Gaussian elimination with partial pivoting
+  for (let col = 0; col < n; col++) {
+    let maxVal = 0, maxRow = col;
+    for (let row = col; row < n; row++) {
+      if (Math.abs(M[row][col]) > maxVal) {
+        maxVal = Math.abs(M[row][col]);
+        maxRow = row;
+      }
+    }
+    [M[col], M[maxRow]] = [M[maxRow], M[col]];
+
+    const pivot = M[col][col];
+    if (Math.abs(pivot) < 1e-12) return [1, 0, 0, 0, 1, 0, 0, 0, 1]; // identity fallback
+
+    for (let j = col; j <= n; j++) M[col][j] /= pivot;
+    for (let row = 0; row < n; row++) {
+      if (row === col) continue;
+      const factor = M[row][col];
+      for (let j = col; j <= n; j++) M[row][j] -= factor * M[col][j];
+    }
+  }
+
+  const h = M.map(row => row[n]);
+  return [...h, 1]; // [h0, h1, h2, h3, h4, h5, h6, h7, 1]
+}
+
+// ─── Perspective warp helper (pixel-by-pixel homography) ─────────────────────
+// srcQuad / dstQuad: arrays of 4 [x, y] points [TL, TR, BL, BR].
+// For each output pixel, computes the inverse homography to find the source
+// pixel, then samples with bilinear interpolation. No triangle mesh artifacts.
 
 function perspectiveWarp(sourceCanvas, srcQuad, dstQuad, outW, outH) {
   const W = outW || sourceCanvas.width;
   const H = outH || sourceCanvas.height;
+  const sw = sourceCanvas.width;
+  const sh = sourceCanvas.height;
+
+  // Get source pixel data
+  const srcCtx = sourceCanvas.getContext('2d');
+  const srcData = srcCtx.getImageData(0, 0, sw, sh);
+  const src = srcData.data;
+
+  // Create output canvas
   const out = document.createElement('canvas');
   out.width = W;
   out.height = H;
-  const ctx = out.getContext('2d');
+  const outCtx = out.getContext('2d');
+  const outImgData = outCtx.createImageData(W, H);
+  const dst = outImgData.data;
 
-  const GRID = 10; // subdivisions per axis
+  // Compute inverse homography: maps output coords → source coords
+  const Hi = computeHomography(dstQuad, srcQuad);
 
-  // Bilinear interpolation within a quad: t,s ∈ [0,1]
-  const bilerp = (quad, s, t) => {
-    const [p00, p10, p01, p11] = quad; // TL, TR, BL, BR
-    return [
-      (1 - t) * ((1 - s) * p00[0] + s * p10[0]) + t * ((1 - s) * p01[0] + s * p11[0]),
-      (1 - t) * ((1 - s) * p00[1] + s * p10[1]) + t * ((1 - s) * p01[1] + s * p11[1]),
-    ];
-  };
+  for (let dy = 0; dy < H; dy++) {
+    for (let dx = 0; dx < W; dx++) {
+      // Apply inverse homography to get source position
+      const w = Hi[6] * dx + Hi[7] * dy + Hi[8];
+      if (Math.abs(w) < 1e-10) continue;
+      const sx = (Hi[0] * dx + Hi[1] * dy + Hi[2]) / w;
+      const sy = (Hi[3] * dx + Hi[4] * dy + Hi[5]) / w;
 
-  // srcQuad / dstQuad ordering: [TL, TR, BL, BR]
-  const drawTriangle = (sx0, sy0, sx1, sy1, sx2, sy2, dx0, dy0, dx1, dy1, dx2, dy2) => {
-    // Affine transform mapping src triangle → dest triangle
-    // Solve: [a c e; b d f] * [sx; sy; 1] = [dx; dy]
-    const denom = (sx1 - sx0) * (sy2 - sy0) - (sx2 - sx0) * (sy1 - sy0);
-    if (Math.abs(denom) < 1e-10) return;
+      // Skip pixels far outside source bounds
+      if (sx < -1 || sx > sw || sy < -1 || sy > sh) continue;
 
-    const a = ((dx1 - dx0) * (sy2 - sy0) - (dx2 - dx0) * (sy1 - sy0)) / denom;
-    const c = ((dx2 - dx0) * (sx1 - sx0) - (dx1 - dx0) * (sx2 - sx0)) / denom;
-    const e = dx0 - a * sx0 - c * sy0;
+      // Clamp to source bounds for edge pixels (prevents black edges)
+      const sxc = Math.max(0, Math.min(sx, sw - 1.001));
+      const syc = Math.max(0, Math.min(sy, sh - 1.001));
 
-    const b = ((dy1 - dy0) * (sy2 - sy0) - (dy2 - dy0) * (sy1 - sy0)) / denom;
-    const d = ((dy2 - dy0) * (sx1 - sx0) - (dy1 - dy0) * (sx2 - sx0)) / denom;
-    const f = dy0 - b * sx0 - d * sy0;
+      // Bilinear interpolation
+      const x0 = Math.floor(sxc);
+      const y0 = Math.floor(syc);
+      const x1 = Math.min(x0 + 1, sw - 1);
+      const y1 = Math.min(y0 + 1, sh - 1);
+      const fx = sxc - x0;
+      const fy = syc - y0;
 
-    ctx.save();
-    ctx.beginPath();
-    ctx.moveTo(dx0, dy0);
-    ctx.lineTo(dx1, dy1);
-    ctx.lineTo(dx2, dy2);
-    ctx.closePath();
-    ctx.clip();
-    ctx.setTransform(a, b, c, d, e, f);
-    ctx.drawImage(sourceCanvas, 0, 0);
-    ctx.restore();
-  };
+      const idx00 = (y0 * sw + x0) * 4;
+      const idx10 = (y0 * sw + x1) * 4;
+      const idx01 = (y1 * sw + x0) * 4;
+      const idx11 = (y1 * sw + x1) * 4;
+      const outIdx = (dy * W + dx) * 4;
 
-  for (let row = 0; row < GRID; row++) {
-    for (let col = 0; col < GRID; col++) {
-      const s0 = col / GRID, s1 = (col + 1) / GRID;
-      const t0 = row / GRID, t1 = (row + 1) / GRID;
-
-      // Source quad corners for this cell
-      const sTL = bilerp(srcQuad, s0, t0);
-      const sTR = bilerp(srcQuad, s1, t0);
-      const sBL = bilerp(srcQuad, s0, t1);
-      const sBR = bilerp(srcQuad, s1, t1);
-
-      // Destination quad corners for this cell
-      const dTL = bilerp(dstQuad, s0, t0);
-      const dTR = bilerp(dstQuad, s1, t0);
-      const dBL = bilerp(dstQuad, s0, t1);
-      const dBR = bilerp(dstQuad, s1, t1);
-
-      // Upper-left triangle: TL, TR, BL
-      drawTriangle(
-        sTL[0], sTL[1], sTR[0], sTR[1], sBL[0], sBL[1],
-        dTL[0], dTL[1], dTR[0], dTR[1], dBL[0], dBL[1],
-      );
-      // Lower-right triangle: TR, BR, BL
-      drawTriangle(
-        sTR[0], sTR[1], sBR[0], sBR[1], sBL[0], sBL[1],
-        dTR[0], dTR[1], dBR[0], dBR[1], dBL[0], dBL[1],
-      );
+      for (let c = 0; c < 4; c++) {
+        dst[outIdx + c] = Math.round(
+          (1 - fx) * (1 - fy) * src[idx00 + c] +
+          fx * (1 - fy) * src[idx10 + c] +
+          (1 - fx) * fy * src[idx01 + c] +
+          fx * fy * src[idx11 + c]
+        );
+      }
     }
   }
 
+  outCtx.putImageData(outImgData, 0, 0);
   return out;
 }
 
@@ -706,6 +740,12 @@ function AlignStep({ croppedCanvas, currentImgSrc, phase, onAlignDone, onTrimDon
       if (isTouchDragRef.current) {
         loupePosRef.current = { clientX, clientY };
       }
+    } else if (dragRef.current.kind === 'pan') {
+      const panX = dragRef.current.startPanX + (clientX - dragRef.current.startClientX);
+      const panY = dragRef.current.startPanY + (clientY - dragRef.current.startClientY);
+      const newZoom = { scale: zoomRef.current.scale, panX, panY };
+      setZoom(newZoom);
+      zoomRef.current = newZoom;
     }
   }, [displayScale, wsW, wsH]);
 
@@ -806,6 +846,17 @@ function AlignStep({ croppedCanvas, currentImgSrc, phase, onAlignDone, onTrimDon
               startPanY: zoomRef.current.panY,
               startMidX: midX,
               startMidY: midY,
+            };
+          } else if (e.touches.length === 1 && zoomRef.current.scale > 1) {
+            // Single finger on empty space while zoomed → start pan
+            lastTouchTimeRef.current = Date.now();
+            const t = e.touches[0];
+            dragRef.current = {
+              kind: 'pan',
+              startClientX: t.clientX,
+              startClientY: t.clientY,
+              startPanX: zoomRef.current.panX,
+              startPanY: zoomRef.current.panY,
             };
           }
         }}
@@ -1317,44 +1368,60 @@ export default function BoardImageUpdateView({ currentImgSrc, currentImageName, 
         />
       )}
 
-      {/* ── Steps 3-4: Align + Trim (shared AlignStep component, different phase) ── */}
-      {(step === 'align' || step === 'trim') && originalCropCanvas && (
-        <AlignStep
-          croppedCanvas={originalCropCanvas}
-          currentImgSrc={currentImgSrc}
-          phase={step}
-          onAlignDone={() => setStep('trim')}
-          onTrimDone={(canvas) => { setCroppedCanvas(canvas); setStep('confirm'); }}
-          onSkip={() => { setCroppedCanvas(originalCropCanvas); setStep('confirm'); }}
-          onBack={() => setStep(step === 'trim' ? 'align' : 'crop')}
-        />
+      {/* ── Steps 3-4: Align + Trim — kept mounted through confirm for "Back" state preservation ── */}
+      {(step === 'align' || step === 'trim' || step === 'confirm') && originalCropCanvas && (
+        <div style={{ display: step === 'confirm' ? 'none' : undefined }}>
+          <AlignStep
+            croppedCanvas={originalCropCanvas}
+            currentImgSrc={currentImgSrc}
+            phase={step === 'confirm' ? 'trim' : step}
+            onAlignDone={() => setStep('trim')}
+            onTrimDone={(canvas) => { setCroppedCanvas(canvas); setStep('confirm'); }}
+            onSkip={() => { setCroppedCanvas(originalCropCanvas); setStep('confirm'); }}
+            onBack={() => setStep(step === 'trim' ? 'align' : 'crop')}
+          />
+        </div>
       )}
 
       {/* ── Step 5: Confirm ── */}
       {step === 'confirm' && croppedCanvas && (
         <div>
-          {/* Side-by-side comparison */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '20px' }}>
-            <div>
-              <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'rgba(26,10,0,0.45)', marginBottom: '6px', textAlign: 'center', fontFamily: 'Space Mono, monospace' }}>
-                Current
-              </div>
-              <img
-                src={currentImgSrc}
-                alt="Current board"
-                style={{ width: '100%', borderRadius: '8px', display: 'block', border: '1px solid rgba(26,10,0,0.12)' }}
-              />
+          {/* Full-width preview of new image */}
+          <div style={{ marginBottom: '16px' }}>
+            <div style={{
+              fontSize: '10px', fontWeight: 700, letterSpacing: '1px',
+              textTransform: 'uppercase', color: '#0047FF', marginBottom: '6px',
+              textAlign: 'center', fontFamily: 'Space Mono, monospace',
+            }}>
+              New Board Image
             </div>
-            <div>
-              <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: '#0047FF', marginBottom: '6px', textAlign: 'center', fontFamily: 'Space Mono, monospace' }}>
-                New
-              </div>
-              <img
-                src={croppedCanvas.toDataURL('image/jpeg', JPEG_QUALITY)}
-                alt="New board"
-                style={{ width: '100%', borderRadius: '8px', display: 'block', border: '2px solid #0047FF' }}
-              />
+            <img
+              src={croppedCanvas.toDataURL('image/jpeg', JPEG_QUALITY)}
+              alt="New board preview"
+              style={{
+                width: '100%', borderRadius: '10px', display: 'block',
+                border: '2px solid #0047FF',
+              }}
+            />
+          </div>
+
+          {/* Small current image for reference */}
+          <div style={{ marginBottom: '16px' }}>
+            <div style={{
+              fontSize: '10px', fontWeight: 700, letterSpacing: '1px',
+              textTransform: 'uppercase', color: 'rgba(26,10,0,0.45)', marginBottom: '6px',
+              textAlign: 'center', fontFamily: 'Space Mono, monospace',
+            }}>
+              Current Image (for reference)
             </div>
+            <img
+              src={currentImgSrc}
+              alt="Current board"
+              style={{
+                width: '60%', borderRadius: '8px', display: 'block',
+                border: '1px solid rgba(26,10,0,0.12)', margin: '0 auto',
+              }}
+            />
           </div>
 
           {/* Name input */}
@@ -1409,7 +1476,7 @@ export default function BoardImageUpdateView({ currentImgSrc, currentImageName, 
 
           <div style={{ display: 'flex', gap: '10px' }}>
             <button onClick={() => { setStep('trim'); setSaveError(''); }} style={secondaryBtnStyle} disabled={saving}>
-              ← Back
+              ← Adjust
             </button>
             <button
               onClick={handleSave}
@@ -1421,7 +1488,7 @@ export default function BoardImageUpdateView({ currentImgSrc, currentImageName, 
                 cursor: (saving || !!nameError || !imageName.trim()) ? 'not-allowed' : 'pointer',
               }}
             >
-              {saving ? 'Saving…' : 'Save'}
+              {saving ? 'Saving…' : 'Save & Apply'}
             </button>
           </div>
           {saveError && (
