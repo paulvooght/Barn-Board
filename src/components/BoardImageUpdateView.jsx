@@ -460,11 +460,6 @@ function AlignStep({ croppedCanvas, currentImgSrc, phase, onAlignDone, onTrimDon
   // Trim rect in workspace units: { x, y, w, h }
   const [trimRect, setTrimRect] = useState(null);
 
-  // Loupe state
-  const loupePosRef = useRef(null);
-  const isTouchDragRef = useRef(false);
-  const [showLoupe, setShowLoupe] = useState(false);
-
   // Drag state via ref (avoid stale closures)
   const dragRef = useRef(null);
 
@@ -539,8 +534,6 @@ function AlignStep({ croppedCanvas, currentImgSrc, phase, onAlignDone, onTrimDon
       lastTouchTimeRef.current = Date.now();
       e.stopPropagation();
       e.preventDefault();
-      isTouchDragRef.current = true;
-      setShowLoupe(true);
       const t = e.touches[0];
       dragRef.current = {
         kind: 'pin', pinIdx,
@@ -562,8 +555,6 @@ function AlignStep({ croppedCanvas, currentImgSrc, phase, onAlignDone, onTrimDon
       lastTouchTimeRef.current = Date.now();
       e.stopPropagation();
       e.preventDefault();
-      isTouchDragRef.current = true;
-      setShowLoupe(true);
       const t = e.touches[0];
       dragRef.current = {
         kind: 'trim', type,
@@ -584,10 +575,6 @@ function AlignStep({ croppedCanvas, currentImgSrc, phase, onAlignDone, onTrimDon
     if (!dragRef.current) return;
     const clientX = e.touches ? e.touches[0].clientX : e.clientX;
     const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-
-    if (isTouchDragRef.current) {
-      loupePosRef.current = { clientX, clientY };
-    }
 
     if (dragRef.current.kind === 'pin') {
       const dx = (clientX - dragRef.current.startClientX) / displayScale;
@@ -618,11 +605,6 @@ function AlignStep({ croppedCanvas, currentImgSrc, phase, onAlignDone, onTrimDon
 
   const handleEnd = useCallback(() => {
     dragRef.current = null;
-    loupePosRef.current = null;
-    if (isTouchDragRef.current) {
-      isTouchDragRef.current = false;
-      setShowLoupe(false);
-    }
   }, []);
 
   useEffect(() => {
@@ -649,7 +631,11 @@ function AlignStep({ croppedCanvas, currentImgSrc, phase, onAlignDone, onTrimDon
   // ── Apply warp + crop (trim phase) ────────────────────────────────────────
   const handleTrimNext = () => {
     if (!pins || !trimRect) return;
-    const srcQuad = pins.map(p => [p.x - cropOffX, p.y - cropOffY]);
+    const cw = croppedCanvas.width;
+    const ch = croppedCanvas.height;
+    // Source quad = the 4 corners of the original cropped image [TL, TR, BL, BR]
+    const srcQuad = [[0, 0], [cw, 0], [0, ch], [cw, ch]];
+    // Dest quad = where those corners should land in the output (pin positions relative to trim rect)
     const dstQuad = pins.map(p => [p.x - trimRect.x, p.y - trimRect.y]);
     const outW = Math.round(trimRect.w);
     const outH = Math.round(trimRect.h);
@@ -871,68 +857,6 @@ function AlignStep({ croppedCanvas, currentImgSrc, phase, onAlignDone, onTrimDon
         </button>
       </div>
 
-      {/* Loupe magnifier — shown during touch drags (not 'move' drags) */}
-      {showLoupe && dragRef.current && loupePosRef.current && (() => {
-        // Don't show loupe for 'move' drags (trim body drag)
-        if (dragRef.current.kind === 'trim' && dragRef.current.type === 'move') return null;
-
-        const LOUPE_W = 180;
-        const LOUPE_H = 120;
-        const LOUPE_RADIUS = 60;
-        const MAGNIFICATION = 3;
-        const OFFSET_ABOVE = 80;
-
-        const { clientX, clientY } = loupePosRef.current;
-
-        // Get the point of interest in workspace fraction coords
-        let wsFracX, wsFracY;
-        if (dragRef.current.kind === 'pin') {
-          const pin = pins[dragRef.current.pinIdx];
-          wsFracX = pin.x / wsW;
-          wsFracY = pin.y / wsH;
-        } else {
-          // trim handle
-          const tr = trimRect;
-          if (!tr) return null;
-          switch (dragRef.current.type) {
-            case 'tl': wsFracX = tr.x / wsW; wsFracY = tr.y / wsH; break;
-            case 'tr': wsFracX = (tr.x + tr.w) / wsW; wsFracY = tr.y / wsH; break;
-            case 'bl': wsFracX = tr.x / wsW; wsFracY = (tr.y + tr.h) / wsH; break;
-            case 'br': wsFracX = (tr.x + tr.w) / wsW; wsFracY = (tr.y + tr.h) / wsH; break;
-            default: return null;
-          }
-        }
-
-        // Convert to old image fraction (loupe shows old image)
-        // Old image is at (oldOffX, oldOffY) in workspace, size oldImgSize
-        const oldImgFracX = (wsFracX * wsW - oldOffX) / oldImgSize.w;
-        const oldImgFracY = (wsFracY * wsH - oldOffY) / oldImgSize.h;
-
-        const magW = LOUPE_W * MAGNIFICATION;
-        const magH = magW * (oldImgSize.h / oldImgSize.w);
-        const imgLeft = -(oldImgFracX * magW) + LOUPE_W / 2;
-        const imgTop = -(oldImgFracY * magH) + LOUPE_H / 2;
-
-        const clamp = (v, min, max) => Math.max(min, Math.min(v, max));
-        const loupeLeft = clamp(clientX - LOUPE_W / 2, 4, window.innerWidth - LOUPE_W - 4);
-        const loupeTop = clamp(clientY - OFFSET_ABOVE - LOUPE_H, 4, clientY - OFFSET_ABOVE);
-
-        return (
-          <div key="loupe" style={{
-            position: 'fixed', left: loupeLeft, top: loupeTop,
-            width: LOUPE_W, height: LOUPE_H,
-            borderRadius: `${LOUPE_RADIUS}px`,
-            border: '2px solid rgba(255,255,255,0.9)',
-            boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
-            overflow: 'hidden', pointerEvents: 'none', zIndex: 300,
-            background: '#1a0a00',
-          }}>
-            <img src={currentImgSrc} alt="" draggable={false}
-              style={{ position: 'absolute', width: magW, height: magH, left: imgLeft, top: imgTop, pointerEvents: 'none' }}
-            />
-          </div>
-        );
-      })()}
     </div>
   );
 }
