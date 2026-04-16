@@ -881,19 +881,21 @@ function AlignStep({ croppedCanvas, currentImgSrc, phase, onAlignDone, onTrimDon
           {/* Aspect-ratio spacer */}
           <div style={{ paddingBottom: `${(wsH / wsW) * 100}%` }} />
 
-          {/* Old image — background layer */}
-          <img
-            src={currentImgSrc}
-            alt="Current board"
-            draggable={false}
-            style={{
-              position: 'absolute',
-              left: `${(oldOffX / wsW) * 100}%`,
-              top: `${(oldOffY / wsH) * 100}%`,
-              width: `${(oldImgSize.w / wsW) * 100}%`,
-              pointerEvents: 'none',
-            }}
-          />
+          {/* Old image — background layer (hidden in trim phase) */}
+          {phase === 'align' && (
+            <img
+              src={currentImgSrc}
+              alt="Current board"
+              draggable={false}
+              style={{
+                position: 'absolute',
+                left: `${(oldOffX / wsW) * 100}%`,
+                top: `${(oldOffY / wsH) * 100}%`,
+                width: `${(oldImgSize.w / wsW) * 100}%`,
+                pointerEvents: 'none',
+              }}
+            />
+          )}
 
           {/* New image overlay — CSS matrix3d makes corners follow pins */}
           <img
@@ -905,7 +907,7 @@ function AlignStep({ croppedCanvas, currentImgSrc, phase, onAlignDone, onTrimDon
               left: `${(cropOffX / wsW) * 100}%`,
               top: `${(cropOffY / wsH) * 100}%`,
               width: `${(croppedCanvas.width / wsW) * 100}%`,
-              opacity: fgOpacity,
+              opacity: phase === 'trim' ? 1 : fgOpacity,
               pointerEvents: 'none',
               transformOrigin: '0 0',
               transform: computePerspectiveCSS(
