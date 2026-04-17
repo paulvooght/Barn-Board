@@ -92,8 +92,7 @@ board → addHold / editHold (HoldEditorView — polygon + metadata editor)
 
 ### Board Image Coordinate System
 - Hold positions (`cx`, `cy`) are **percentages within the BOARD AREA** (0-100), not the full image
-- Board region within the photo is per-image: primary source is `boardImageConfig.boardRegion` in Supabase `board_settings` (set via the corner-marking wizard). Falls back to `boardRegion` in `holds.json` if the config doesn't have one.
-- App.jsx computes `effectiveBoardRegion = boardImageConfig?.boardRegion ?? holdsData.boardRegion` and passes it as a `boardRegion` prop to BoardView, BoardSetupView, HoldEditorView, HoldOverlay. `boardRegion` shape: `{ left, top, width, height }`
+- Board region within the photo defined in `holds.json`: `boardRegion: { left, top, width, height }` — single source of truth. The image-update wizard perspective-warps any new photo so the physical board fits this region exactly.
 - Conversion: `SVG_x = boardRegion.left% × imgW + (hold.cx / 100) × boardRegion.width% × imgW`
 - SVG overlays use `viewBox="0 0 naturalWidth naturalHeight"`
 - **BoardView** uses `preserveAspectRatio="none"` (image fills width)
