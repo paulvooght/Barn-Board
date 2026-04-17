@@ -1102,7 +1102,8 @@ function AlignStep({ croppedCanvas, currentImgSrc, initialPins, holds, onDone, o
         </button>
       </div>
 
-      {/* Loupe magnifier — shown during touch pin drags */}
+      {/* Loupe magnifier — shown during touch pin drags.
+          Mirrors the workspace layers (new image + hold overlay) zoomed in at the pin. */}
       {showLoupe && dragRef.current && dragRef.current.kind === 'pin' && loupePosRef.current && (() => {
         const LOUPE_W = 180;
         const LOUPE_H = 120;
@@ -1115,19 +1116,100 @@ function AlignStep({ croppedCanvas, currentImgSrc, initialPins, holds, onDone, o
         const pinPos = pinsRef.current?.[pinIdx];
         if (!pinPos) return null;
 
-        // Pin position as fraction of old image (can be <0 or >1 in bleed area)
-        const pinFracX = (pinPos.x - oldImgX) / oldW;
-        const pinFracY = (pinPos.y - oldImgY) / oldH;
+        // We render the workspace layers at displayScale*MAGNIFICATION, translated
+        // so that the pin appears at the loupe centre.
+        const s = displayScale * MAGNIFICATION;
+        const tx = LOUPE_W / 2 - pinPos.x * s;
+        const ty = LOUPE_H / 2 - pinPos.y * s;
 
-        // Show the old image in the loupe, centered on the pin position
-        const magW = LOUPE_W * MAGNIFICATION;
-        const magH = magW * (oldH / oldW);
-        const imgLeft = -(pinFracX * magW) + LOUPE_W / 2;
-        const imgTop  = -(pinFracY * magH) + LOUPE_H / 2;
+        // New image: positioned at the old-image region within workspace
+        const newImgLeft  = oldImgX * s + tx;
+        const newImgTop   = oldImgY * s + ty;
+        const newImgW     = oldW * s;
+        const newImgH     = oldH * s;
+
+        // Re-compute perspective CSS at loupe scale
+        const loupeCSS = computePerspectiveCSS(
+          newImgW,
+          newImgH,
+          pins.map(p => [
+            (p.x - oldImgX) * s,
+            (p.y - oldImgY) * s,
+          ])
+        );
+
+        // Old image (shown when toggle is on)
+        const oldImgLeft = oldImgX * s + tx;
+        const oldImgTop  = oldImgY * s + ty;
+        const oldImgW    = oldW * s;
+        const oldImgH    = oldH * s;
 
         const clamp = (v, min, max) => Math.max(min, Math.min(v, max));
         const loupeLeft = clamp(clientX - LOUPE_W / 2, 4, window.innerWidth - LOUPE_W - 4);
         const loupeTop  = clamp(clientY - OFFSET_ABOVE - LOUPE_H, 4, clientY - OFFSET_ABOVE);
+
+        // Hold overlay in loupe coordinate space
+        const loupeHoldSvg = holds && holds.length > 0 ? (() => {
+          // The hold SVG in the workspace uses viewBox 0 0 wsW wsH, preserveAspectRatio=none,
+          // and is absolutely positioned over the full workspace.
+          // In the loupe we place an SVG at the same translated/scaled position.
+          const svgW = wsW * s;
+          const svgH = wsH * s;
+          return (
+            <svg
+              style={{
+                position: 'absolute',
+                left: tx,
+                top: ty,
+                width: svgW,
+                height: svgH,
+                pointerEvents: 'none',
+              }}
+              viewBox={`0 0 ${wsW} ${wsH}`}
+              preserveAspectRatio="none"
+            >
+              {holds.map((hold) => {
+                const bLeft = oldImgX + oldW * br.left / 100;
+                const bTop  = oldImgY + oldH * br.top / 100;
+                const bW    = oldW * br.width / 100;
+                const bH    = oldH * br.height / 100;
+                const toX = (x_pct) => bLeft + (x_pct / 100) * bW;
+                const toY = (y_pct) => bTop  + (y_pct / 100) * bH;
+
+                const hasPolygon = hold.polygon && hold.polygon.length >= 3;
+                const polyPoints = hasPolygon
+                  ? hold.polygon.map(([px, py]) => `${toX(px)},${toY(py)}`).join(' ')
+                  : null;
+                const cx = toX(hold.cx);
+                const cy = toY(hold.cy);
+                const w = hold.w_pct !== undefined ? hold.w_pct : (hold.r || 2) * 2;
+                const h = hold.h_pct !== undefined ? hold.h_pct : (hold.r || 2) * 2;
+                const rx = Math.max((w / 100) * bW / 2, 2);
+                const ry = Math.max((h / 100) * bH / 2, 2);
+                return (
+                  <g key={hold.id} style={{ pointerEvents: 'none' }}>
+                    {hasPolygon ? (
+                      <polygon
+                        points={polyPoints}
+                        fill="rgba(34,211,238,0.12)"
+                        stroke="rgba(34,211,238,0.9)"
+                        strokeWidth={1.0}
+                        strokeLinejoin="round"
+                      />
+                    ) : (
+                      <ellipse
+                        cx={cx} cy={cy} rx={rx} ry={ry}
+                        fill="rgba(34,211,238,0.12)"
+                        stroke="rgba(34,211,238,0.9)"
+                        strokeWidth={1.0}
+                      />
+                    )}
+                  </g>
+                );
+              })}
+            </svg>
+          );
+        })() : null;
 
         return (
           <div key="align-loupe" style={{
@@ -1137,13 +1219,35 @@ function AlignStep({ croppedCanvas, currentImgSrc, initialPins, holds, onDone, o
             border: '2px solid rgba(255,255,255,0.9)',
             boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
             overflow: 'hidden', pointerEvents: 'none', zIndex: 300,
-            background: '#1a0a00',
+            background: '#2a2a2a',
           }}>
-            <img src={currentImgSrc} alt="" draggable={false}
-              style={{ position: 'absolute', width: magW, height: magH, left: imgLeft, top: imgTop, pointerEvents: 'none' }}
+            {/* Old image — only when "Show old image" toggle is on */}
+            {showOldImage && (
+              <img src={currentImgSrc} alt="" draggable={false}
+                style={{
+                  position: 'absolute',
+                  left: oldImgLeft, top: oldImgTop,
+                  width: oldImgW, height: oldImgH,
+                  opacity: 0.6,
+                  pointerEvents: 'none',
+                }}
+              />
+            )}
+            {/* New image with same perspective warp as workspace */}
+            <img src={croppedSrc} alt="" draggable={false}
+              style={{
+                position: 'absolute',
+                left: newImgLeft, top: newImgTop,
+                width: newImgW, height: newImgH,
+                transformOrigin: '0 0',
+                transform: loupeCSS,
+                pointerEvents: 'none',
+              }}
             />
+            {/* Hold outlines */}
+            {loupeHoldSvg}
+            {/* Crosshair */}
             <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}>
-              {/* Crosshair */}
               <line x1={LOUPE_W/2 - 12} y1={LOUPE_H/2} x2={LOUPE_W/2 + 12} y2={LOUPE_H/2}
                 stroke="white" strokeWidth="1.5" strokeOpacity="0.9" />
               <line x1={LOUPE_W/2} y1={LOUPE_H/2 - 12} x2={LOUPE_W/2} y2={LOUPE_H/2 + 12}
