@@ -504,7 +504,6 @@ function AlignStep({ croppedCanvas, currentImgSrc, initialPins, holds, onDone, o
   const [displayScale, setDisplayScale] = useState(1);
 
   // Show old image toggle — off by default; when on, renders old image at 60% opacity
-  const [showOldImage, setShowOldImage] = useState(false);
 
   // Pin positions in WORKSPACE units — [TL, TR, BL, BR]
   // Initialised once we know oldImgSize + croppedCanvas sizes
@@ -755,25 +754,15 @@ function AlignStep({ croppedCanvas, currentImgSrc, initialPins, holds, onDone, o
     const cw = croppedCanvas.width;
     const ch = croppedCanvas.height;
 
-    // srcQuad: where pins are in cropped canvas pixel coords.
-    // Pins are in workspace coords. The new image is displayed covering the old
-    // image region in the workspace: left=oldImgX, top=oldImgY, size=oldW×oldH.
-    // The cropped canvas pixels map linearly onto that region.
-    // So: pin workspace pos → fraction within old-image region → cropped canvas pixel.
-    //   pinCanvasX = ((pinWsX - oldImgX) / oldW) * cw
-    //   pinCanvasY = ((pinWsY - oldImgY) / oldH) * ch
-    const srcQuad = pins.map(p => [
-      ((p.x - oldImgX) / oldW) * cw,
-      ((p.y - oldImgY) / oldH) * ch,
-    ]);
-
-    // dstQuad: 4 corners of old image in old-image pixel coords [TL, TR, BL, BR]
-    const dstQuad = [
-      [0,    0],
-      [oldW, 0],
-      [0,    oldH],
-      [oldW, oldH],
-    ];
+    // srcQuad: source image corners in source pixel coords.
+    // dstQuad: pin positions in canvas-window output coords (relative to old image origin).
+    // perspectiveWarp computes Hi = computeHomography(dstQuad, srcQuad) and for each
+    // output pixel (dx, dy) in [0, oldW] × [0, oldH], uses Hi to sample the source.
+    // This matches what the CSS matrix3d preview does: source corners → pin positions.
+    // At rest (pins at canvas corners), dstQuad = [[0,0],[oldW,0],[0,oldH],[oldW,oldH]]
+    // and the warp degenerates to a plain resize of the source into oldW × oldH — correct.
+    const srcQuad = [[0, 0], [cw, 0], [0, ch], [cw, ch]];
+    const dstQuad = pins.map(p => [p.x - oldImgX, p.y - oldImgY]);
 
     const warped = perspectiveWarp(croppedCanvas, srcQuad, dstQuad, oldW, oldH);
 
@@ -872,24 +861,7 @@ function AlignStep({ croppedCanvas, currentImgSrc, initialPins, holds, onDone, o
           {/* Aspect-ratio spacer — based on full workspace (1.5× old image) */}
           <div style={{ paddingBottom: `${(wsH / wsW) * 100}%` }} />
 
-          {/* Base layer — old image at its position, only visible when "Show old image" is on */}
-          {showOldImage && (
-            <img
-              src={currentImgSrc}
-              alt="Current board"
-              draggable={false}
-              style={{
-                position: 'absolute',
-                left: `${(oldImgX / wsW) * 100}%`,
-                top: `${(oldImgY / wsH) * 100}%`,
-                width: `${(oldW / wsW) * 100}%`,
-                opacity: 0.6,
-                pointerEvents: 'none',
-              }}
-            />
-          )}
-
-          {/* Foreground layer — new image with matrix3d perspective warp.
+          {/* New image with matrix3d perspective warp.
               The image element is sized to the old-image region within workspace.
               computePerspectiveCSS receives the old-image region size in screen px
               and the pin positions relative to that region's top-left. */}
@@ -1057,21 +1029,6 @@ function AlignStep({ croppedCanvas, currentImgSrc, initialPins, holds, onDone, o
 
       {/* Controls below workspace */}
       <div style={{ marginTop: '12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px' }}>
-        {/* Show old image toggle */}
-        <label style={{
-          display: 'flex', alignItems: 'center', gap: '8px',
-          fontSize: '13px', fontWeight: 600, color: '#1A0A00',
-          cursor: 'pointer', userSelect: 'none',
-        }}>
-          <input
-            type="checkbox"
-            checked={showOldImage}
-            onChange={(e) => setShowOldImage(e.target.checked)}
-            style={{ width: 18, height: 18, accentColor: '#0047FF', cursor: 'pointer' }}
-          />
-          Show old image
-        </label>
-
         {/* Reset pins */}
         <button
           onClick={() => {
@@ -1137,12 +1094,6 @@ function AlignStep({ croppedCanvas, currentImgSrc, initialPins, holds, onDone, o
             (p.y - oldImgY) * s,
           ])
         );
-
-        // Old image (shown when toggle is on)
-        const oldImgLeft = oldImgX * s + tx;
-        const oldImgTop  = oldImgY * s + ty;
-        const oldImgW    = oldW * s;
-        const oldImgH    = oldH * s;
 
         const clamp = (v, min, max) => Math.max(min, Math.min(v, max));
         const loupeLeft = clamp(clientX - LOUPE_W / 2, 4, window.innerWidth - LOUPE_W - 4);
@@ -1221,18 +1172,6 @@ function AlignStep({ croppedCanvas, currentImgSrc, initialPins, holds, onDone, o
             overflow: 'hidden', pointerEvents: 'none', zIndex: 300,
             background: '#2a2a2a',
           }}>
-            {/* Old image — only when "Show old image" toggle is on */}
-            {showOldImage && (
-              <img src={currentImgSrc} alt="" draggable={false}
-                style={{
-                  position: 'absolute',
-                  left: oldImgLeft, top: oldImgTop,
-                  width: oldImgW, height: oldImgH,
-                  opacity: 0.6,
-                  pointerEvents: 'none',
-                }}
-              />
-            )}
             {/* New image with same perspective warp as workspace */}
             <img src={croppedSrc} alt="" draggable={false}
               style={{
