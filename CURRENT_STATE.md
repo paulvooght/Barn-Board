@@ -175,9 +175,13 @@ The app is designed for multiple users sharing one board (see CLAUDE.md "Social 
 - **Cache busting** — `cacheVersion: Date.now()` written on every save; `?v=<cacheVersion>` appended to `imgSrc` and each `imgSrcSet` variant URL.
 - **Helpers in BoardImageUpdateView.jsx:** `computeHomography`, `perspectiveWarp`, `computePerspectiveCSS` (CSS matrix3d builder for live preview).
 
+### Known issue after Session 3 (UNRESOLVED — deferred to Session 4)
+- After the full wizard (align → fineTune → confirm → save), hold outlines on the home view still do **not** line up with the physical holds in the uploaded image. Multiple iterations in Session 3 failed to fix this. User has a new approach — see `SESSION_4_BRIEF.md`.
+
 ### What's NOT Built Yet
-- Phone UX testing and polish on the new MarkCornersStep
+- Phone UX testing and polish on the align + fineTune steps
 - "Revert to previous image" option
+- A working image-update workflow (current one ships but doesn't align holds correctly)
 
 ### Supabase Setup Required
 - A `board-images` Storage bucket must exist (the code attempts to create it on first upload, but Supabase may require manual creation via dashboard if RLS blocks `createBucket`)
