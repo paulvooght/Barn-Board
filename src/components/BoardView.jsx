@@ -9,7 +9,7 @@ function clamp(val, min, max) {
   return Math.max(min, Math.min(max, val));
 }
 
-export default function BoardView({ holds, selection, onHoldTap, interactive, dimBoard, imgSrc, imgSrcSet, imgSizes, holdSnapshots, children }) {
+export default function BoardView({ holds, selection, onHoldTap, interactive, dimBoard, imgSrc, imgSrcSet, imgSizes, holdSnapshots, boardRegion, children }) {
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imgSize, setImgSize]         = useState({ w: 1200, h: 900 });
   const [scale, setScale]             = useState(1);
@@ -26,8 +26,8 @@ export default function BoardView({ holds, selection, onHoldTap, interactive, di
   const lastTouchTimeRef = useRef(0);
   const isSynthesizedMouse = () => Date.now() - lastTouchTimeRef.current < 500;
 
-  const { boardRegion } = holdsData;
   const allHolds = holds ?? holdsData.holds;
+  const effectiveBoardRegion = boardRegion ?? holdsData.boardRegion;
 
   useEffect(() => { scaleRef.current = scale; }, [scale]);
   useEffect(() => { panRef.current = pan; }, [pan]);
@@ -89,10 +89,10 @@ export default function BoardView({ holds, selection, onHoldTap, interactive, di
     const svgY = ((clientY - rect.top)  / rect.height) * imgSize.h;
 
     // Convert SVG coords → board-area percentages
-    const bLeft = imgSize.w * boardRegion.left  / 100;
-    const bTop  = imgSize.h * boardRegion.top   / 100;
-    const bW    = imgSize.w * boardRegion.width  / 100;
-    const bH    = imgSize.h * boardRegion.height / 100;
+    const bLeft = imgSize.w * effectiveBoardRegion.left  / 100;
+    const bTop  = imgSize.h * effectiveBoardRegion.top   / 100;
+    const bW    = imgSize.w * effectiveBoardRegion.width  / 100;
+    const bH    = imgSize.h * effectiveBoardRegion.height / 100;
     const bx = (svgX - bLeft) / bW * 100;
     const by = (svgY - bTop)  / bH * 100;
 
@@ -353,10 +353,10 @@ export default function BoardView({ holds, selection, onHoldTap, interactive, di
           />
 
           {imageLoaded && dimBoard && (() => {
-            const bLeft = imgSize.w * boardRegion.left / 100;
-            const bTop  = imgSize.h * boardRegion.top / 100;
-            const bW    = imgSize.w * boardRegion.width / 100;
-            const bH    = imgSize.h * boardRegion.height / 100;
+            const bLeft = imgSize.w * effectiveBoardRegion.left / 100;
+            const bTop  = imgSize.h * effectiveBoardRegion.top / 100;
+            const bW    = imgSize.w * effectiveBoardRegion.width / 100;
+            const bH    = imgSize.h * effectiveBoardRegion.height / 100;
             const toX = (x) => bLeft + (x / 100) * bW;
             const toY = (y) => bTop  + (y / 100) * bH;
             const selectedHolds = allHolds.filter(h => selection?.[h.id]);
@@ -405,7 +405,7 @@ export default function BoardView({ holds, selection, onHoldTap, interactive, di
                 <HoldOverlay
                   key={hold.id}
                   hold={hold}
-                  boardRegion={boardRegion}
+                  boardRegion={effectiveBoardRegion}
                   imgSize={imgSize}
                   selection={selection}
                   onTap={onHoldTap}
@@ -416,10 +416,10 @@ export default function BoardView({ holds, selection, onHoldTap, interactive, di
               {/* Ghost outlines for missing/deleted holds */}
               {dimBoard && holdSnapshots && (() => {
                 const holdIdSet = new Set(allHolds.map(h => h.id));
-                const bL = imgSize.w * boardRegion.left / 100;
-                const bT = imgSize.h * boardRegion.top / 100;
-                const bWidth = imgSize.w * boardRegion.width / 100;
-                const bHeight = imgSize.h * boardRegion.height / 100;
+                const bL = imgSize.w * effectiveBoardRegion.left / 100;
+                const bT = imgSize.h * effectiveBoardRegion.top / 100;
+                const bWidth = imgSize.w * effectiveBoardRegion.width / 100;
+                const bHeight = imgSize.h * effectiveBoardRegion.height / 100;
                 const gX = (x) => bL + (x / 100) * bWidth;
                 const gY = (y) => bT + (y / 100) * bHeight;
                 return Object.entries(selection || {}).filter(([id]) => !holdIdSet.has(id)).map(([id]) => {

@@ -2,8 +2,6 @@ import { useState, useRef, useEffect } from 'react';
 import holdsData from '../data/holds.json';
 import Icon from './Icon';
 import { MATERIALS } from '../utils/constants';
-
-const { boardRegion } = holdsData;
 const HANDLE_R  = 10;
 const HIT_EXTRA = 10;
 const CLOSE_THRESHOLD_PCT = 5;
@@ -55,7 +53,9 @@ const COLOR_OPTIONS = [
 
 const HOLD_TYPE_OPTIONS = ['Jug', 'Mini Jug', 'Crimp', 'Half Crimp', 'Pinch', 'Sloper', 'Edge', 'Pocket', 'Undercut', 'Volume', 'Macro'];
 
-export default function HoldEditorView({ mode, hold, allHolds, imgSrc, imgSrcSet, imgSizes, onSave, onCancel, onDelete }) {
+export default function HoldEditorView({ mode, hold, allHolds, imgSrc, imgSrcSet, imgSizes, onSave, onCancel, onDelete, boardRegion: boardRegionProp }) {
+  const boardRegion = boardRegionProp ?? holdsData.boardRegion;
+
   const defaultMeta = {
     color: 'black', size: 'medium', area: 0, notes: '',
     verified: true, name: '', holdTypes: [], positivity: 0, material: '',

@@ -13,6 +13,7 @@ const AuthView = lazy(() => import('./components/AuthView'));
 const BoardImageUpdateView = lazy(() => import('./components/BoardImageUpdateView'));
 import { useLocalStorage } from './hooks/useLocalStorage';
 import { useCustomHolds } from './hooks/useCustomHolds';
+import holdsData from './data/holds.json';
 import { supabase, ADMIN_EMAIL } from './lib/supabase';
 import { V_GRADES, FONT_GRADES, V_GRADE_INDEX, FONT_GRADE_INDEX, SELECTION_MODES, MODE_COLORS, MODE_LABELS, BOARD_SPECS, HOLD_COLOR_DOT, HOLD_TYPE_SINGULAR_TO_PLURAL, convertGrade, getYouTubeId, getYouTubeThumbnail, DEFAULT_BOARD_IMAGE, DEFAULT_BOARD_SRCSET, DEFAULT_BOARD_SIZES } from './utils/constants';
 
@@ -482,6 +483,7 @@ export default function App() {
     ? `${boardImageConfig.baseUrl}/${boardImageConfig.imageName}-800w.jpg 800w, ${boardImageConfig.baseUrl}/${boardImageConfig.imageName}-1200w.jpg 1200w, ${boardImageConfig.baseUrl}/${boardImageConfig.imageName}-2000w.jpg 2000w`
     : DEFAULT_BOARD_SRCSET;
   const imgSizes = DEFAULT_BOARD_SIZES;
+  const effectiveBoardRegion = boardImageConfig?.boardRegion ?? holdsData.boardRegion;
 
   const resetCreate = useCallback(() => {
     setHoldSelection({});
@@ -1055,7 +1057,7 @@ export default function App() {
 
   const handleSetupBoard = () => setView('setupBoard');
 
-  const handleBoardImageSave = async ({ imageName, imageBlobs }) => {
+  const handleBoardImageSave = async ({ imageName, imageBlobs, boardRegion: newBoardRegion }) => {
     try {
       // 1. Ensure bucket exists (createBucket returns error if exists — that's fine)
       await supabase.storage.createBucket('board-images', { public: true }).catch(() => {});
@@ -1079,7 +1081,13 @@ export default function App() {
       }
 
       // 3. Save config to board_settings
-      const config = { imageName, baseUrl, updatedAt: new Date().toISOString() };
+      const config = {
+        imageName,
+        baseUrl,
+        updatedAt: new Date().toISOString(),
+        // boardRegion from the wizard (Task C will provide it); preserve existing if absent
+        ...(newBoardRegion ? { boardRegion: newBoardRegion } : boardImageConfig?.boardRegion ? { boardRegion: boardImageConfig.boardRegion } : {}),
+      };
       const { error: settingsError } = await supabase
         .from('board_settings')
         .upsert({ key: 'board_image_config', data: config });
@@ -1311,6 +1319,7 @@ export default function App() {
           imgSrcSet={imgSrcSet}
           imgSizes={imgSizes}
           holdSnapshots={view === 'viewRoute' && viewingRoute ? viewingRoute.holdSnapshots : null}
+          boardRegion={effectiveBoardRegion}
         >
           {/* Create mode: mode selector + hold counts */}
           {view === 'create' && (
@@ -1724,6 +1733,7 @@ export default function App() {
           imgSrc={imgSrc}
           imgSrcSet={imgSrcSet}
           imgSizes={imgSizes}
+          boardRegion={effectiveBoardRegion}
           onHoldTap={(holdId) => {
             const h = allHolds.find(h => h.id === holdId);
             if (h) handleEditHold(h, 'holdSelect');
@@ -1760,6 +1770,7 @@ export default function App() {
           imgSrc={imgSrc}
           imgSrcSet={imgSrcSet}
           imgSizes={imgSizes}
+          boardRegion={effectiveBoardRegion}
           initialManagerMode={holdManagerMode}
           onManagerModeChange={setHoldManagerMode}
           onEditHold={(hold) => handleEditHold(hold, 'setupBoard')}
@@ -1775,6 +1786,7 @@ export default function App() {
           imgSrc={imgSrc}
           imgSrcSet={imgSrcSet}
           imgSizes={imgSizes}
+          boardRegion={effectiveBoardRegion}
           onSave={handleHoldEditorSave}
           onCancel={handleHoldEditorCancel}
           onDelete={view === 'editHold' ? () => {
