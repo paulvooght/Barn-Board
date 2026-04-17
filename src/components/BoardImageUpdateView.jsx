@@ -1668,8 +1668,8 @@ const secondaryBtnStyle = {
 
 // ─── Main wizard component ────────────────────────────────────────────────────
 
-export default function BoardImageUpdateView({ currentImgSrc, currentImageName, onSave, onCancel }) {
-  const [step, setStep] = useState('upload'); // 'upload' | 'crop' | 'align' | 'trim' | 'confirm'
+export default function BoardImageUpdateView({ currentImgSrc, currentImageName, previousBoardRegion, holds, onSave, onCancel }) {
+  const [step, setStep] = useState('upload'); // 'upload' | 'crop' | 'markCorners' | 'confirm'
 
   // Upload step state
   const [uploadedDataUrl, setUploadedDataUrl] = useState(null);
@@ -1678,11 +1678,11 @@ export default function BoardImageUpdateView({ currentImgSrc, currentImageName, 
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef(null);
 
-  // Crop → Align: original crop preserved so align can re-read it on "back"
-  const [originalCropCanvas, setOriginalCropCanvas] = useState(null);
-
-  // Final canvas for confirm/save (set by trim step, or by skip)
+  // Crop canvas (set after crop step)
   const [croppedCanvas, setCroppedCanvas] = useState(null);
+
+  // boardRegion set by MarkCornersStep — persisted so "Adjust corners" re-enters with last pins
+  const [pendingBoardRegion, setPendingBoardRegion] = useState(null);
 
   // Confirm step state
   const [imageName, setImageName] = useState(() => autoIncrementName(currentImageName || 'Barn_Set_01_V5'));
@@ -1690,9 +1690,19 @@ export default function BoardImageUpdateView({ currentImgSrc, currentImageName, 
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
 
+  // Memoized data URL for the confirm step preview (avoids repeated toDataURL calls)
+  const confirmImageSrc = useMemo(
+    () => (step === 'confirm' && croppedCanvas ? croppedCanvas.toDataURL('image/jpeg', JPEG_QUALITY) : null),
+    // Only recompute when croppedCanvas identity changes (not on every render)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [croppedCanvas]
+  );
+
   const stepLabels = {
-    upload: 'Step 1 of 5 — Upload', crop: 'Step 2 of 5 — Crop', align: 'Step 3 of 5 — Align',
-    trim: 'Step 4 of 5 — Trim', confirm: 'Step 5 of 5 — Confirm',
+    upload: 'Step 1 of 4 — Upload',
+    crop: 'Step 2 of 4 — Crop',
+    markCorners: 'Step 3 of 4 — Mark Corners',
+    confirm: 'Step 4 of 4 — Confirm',
   };
 
   // ── Upload step handlers ──────────────────────────────────────────────────
@@ -1754,7 +1764,11 @@ export default function BoardImageUpdateView({ currentImgSrc, currentImageName, 
       const w2000 = await resizeToBlob(croppedCanvas, 2000, JPEG_QUALITY);
       const w1200 = await resizeToBlob(croppedCanvas, 1200, JPEG_QUALITY);
       const w800 = await resizeToBlob(croppedCanvas, 800, JPEG_QUALITY);
-      await onSave({ imageName: imageName.trim(), imageBlobs: { full, w2000, w1200, w800 } });
+      await onSave({
+        imageName: imageName.trim(),
+        imageBlobs: { full, w2000, w1200, w800 },
+        boardRegion: pendingBoardRegion,
+      });
     } catch (err) {
       console.error('[BoardImageUpdate] Save failed:', err);
       const msg = err?.message || String(err);
@@ -1866,65 +1880,105 @@ export default function BoardImageUpdateView({ currentImgSrc, currentImageName, 
           imageDataUrl={uploadedDataUrl}
           imageWidth={uploadedWidth}
           imageHeight={uploadedHeight}
-          onNext={(canvas) => { setOriginalCropCanvas(canvas); setStep('align'); }}
+          onNext={(canvas) => { setCroppedCanvas(canvas); setStep('markCorners'); }}
           onBack={() => setStep('upload')}
         />
       )}
 
-      {/* ── Steps 3-4: Align + Trim — kept mounted through confirm for "Back" state preservation ── */}
-      {(step === 'align' || step === 'trim' || step === 'confirm') && originalCropCanvas && (
-        <div style={{ display: step === 'confirm' ? 'none' : undefined }}>
-          <AlignStep
-            croppedCanvas={originalCropCanvas}
-            currentImgSrc={currentImgSrc}
-            phase={step === 'confirm' ? 'trim' : step}
-            onAlignDone={() => setStep('trim')}
-            onTrimDone={(canvas) => { setCroppedCanvas(canvas); setStep('confirm'); }}
-            onSkip={() => { setCroppedCanvas(originalCropCanvas); setStep('confirm'); }}
-            onBack={() => setStep(step === 'trim' ? 'align' : 'crop')}
-          />
-        </div>
+      {/* ── Step 3: Mark Corners ── */}
+      {step === 'markCorners' && croppedCanvas && (
+        <MarkCornersStep
+          croppedCanvas={croppedCanvas}
+          previousBoardRegion={pendingBoardRegion ?? previousBoardRegion}
+          onDone={(boardRegion) => { setPendingBoardRegion(boardRegion); setStep('confirm'); }}
+          onBack={() => setStep('crop')}
+        />
       )}
 
-      {/* ── Step 5: Confirm ── */}
-      {step === 'confirm' && croppedCanvas && (
+      {/* ── Step 4: Confirm ── */}
+      {step === 'confirm' && croppedCanvas && pendingBoardRegion && (
         <div>
-          {/* Full-width preview of new image */}
+          {/* Full-width preview of new image with hold overlay */}
           <div style={{ marginBottom: '16px' }}>
             <div style={{
               fontSize: '10px', fontWeight: 700, letterSpacing: '1px',
               textTransform: 'uppercase', color: '#0047FF', marginBottom: '6px',
               textAlign: 'center', fontFamily: 'Space Mono, monospace',
             }}>
-              New Board Image
+              New Board Image — Check hold positions
             </div>
-            <img
-              src={croppedCanvas.toDataURL('image/jpeg', JPEG_QUALITY)}
-              alt="New board preview"
-              style={{
-                width: '100%', borderRadius: '10px', display: 'block',
-                border: '2px solid #0047FF',
-              }}
-            />
-          </div>
+            <div style={{ position: 'relative', width: '100%' }}>
+              <img
+                src={confirmImageSrc}
+                alt="New board preview"
+                style={{
+                  width: '100%', borderRadius: '10px', display: 'block',
+                  border: '2px solid #0047FF',
+                }}
+              />
+              {/* Hold overlay SVG */}
+              {holds && holds.length > 0 && (
+                <svg
+                  style={{
+                    position: 'absolute', inset: 0,
+                    width: '100%', height: '100%',
+                    borderRadius: '10px',
+                    pointerEvents: 'none',
+                  }}
+                  viewBox={`0 0 ${croppedCanvas.width} ${croppedCanvas.height}`}
+                  preserveAspectRatio="none"
+                >
+                  {holds.map((hold) => {
+                    const imgSize = { w: croppedCanvas.width, h: croppedCanvas.height };
+                    const br = pendingBoardRegion;
+                    const bLeft = imgSize.w * br.left / 100;
+                    const bTop  = imgSize.h * br.top / 100;
+                    const bW    = imgSize.w * br.width / 100;
+                    const bH    = imgSize.h * br.height / 100;
+                    const toX = (x_pct) => bLeft + (x_pct / 100) * bW;
+                    const toY = (y_pct) => bTop  + (y_pct / 100) * bH;
 
-          {/* Small current image for reference */}
-          <div style={{ marginBottom: '16px' }}>
+                    const hasPolygon = hold.polygon && hold.polygon.length >= 3;
+                    const polyPoints = hasPolygon
+                      ? hold.polygon.map(([px, py]) => `${toX(px)},${toY(py)}`).join(' ')
+                      : null;
+                    const cx = toX(hold.cx);
+                    const cy = toY(hold.cy);
+                    const w = hold.w_pct !== undefined ? hold.w_pct : (hold.r || 2) * 2;
+                    const h = hold.h_pct !== undefined ? hold.h_pct : (hold.r || 2) * 2;
+                    const rx = Math.max((w / 100) * bW / 2, 2);
+                    const ry = Math.max((h / 100) * bH / 2, 2);
+
+                    return (
+                      <g key={hold.id} style={{ pointerEvents: 'none' }}>
+                        {hasPolygon ? (
+                          <polygon
+                            points={polyPoints}
+                            fill="rgba(34,211,238,0.08)"
+                            stroke="rgba(34,211,238,0.7)"
+                            strokeWidth={1.5}
+                            strokeLinejoin="round"
+                          />
+                        ) : (
+                          <ellipse
+                            cx={cx} cy={cy} rx={rx} ry={ry}
+                            fill="rgba(34,211,238,0.08)"
+                            stroke="rgba(34,211,238,0.7)"
+                            strokeWidth={1.5}
+                          />
+                        )}
+                      </g>
+                    );
+                  })}
+                </svg>
+              )}
+            </div>
             <div style={{
-              fontSize: '10px', fontWeight: 700, letterSpacing: '1px',
-              textTransform: 'uppercase', color: 'rgba(26,10,0,0.45)', marginBottom: '6px',
+              marginTop: '5px', fontSize: '11px', color: 'rgba(26,10,0,0.5)',
               textAlign: 'center', fontFamily: 'Space Mono, monospace',
             }}>
-              Current Image (for reference)
+              {holds?.length ?? 0} holds overlaid — check they line up with the physical holds
             </div>
-            <img
-              src={currentImgSrc}
-              alt="Current board"
-              style={{
-                width: '60%', borderRadius: '8px', display: 'block',
-                border: '1px solid rgba(26,10,0,0.12)', margin: '0 auto',
-              }}
-            />
           </div>
 
           {/* Name input */}
@@ -1978,8 +2032,12 @@ export default function BoardImageUpdateView({ currentImgSrc, currentImageName, 
           </div>
 
           <div style={{ display: 'flex', gap: '10px' }}>
-            <button onClick={() => { setStep('trim'); setSaveError(''); }} style={secondaryBtnStyle} disabled={saving}>
-              ← Adjust
+            <button
+              onClick={() => { setSaveError(''); setStep('markCorners'); }}
+              style={secondaryBtnStyle}
+              disabled={saving}
+            >
+              Adjust corners
             </button>
             <button
               onClick={handleSave}
@@ -1991,7 +2049,7 @@ export default function BoardImageUpdateView({ currentImgSrc, currentImageName, 
                 cursor: (saving || !!nameError || !imageName.trim()) ? 'not-allowed' : 'pointer',
               }}
             >
-              {saving ? 'Saving…' : 'Save & Apply'}
+              {saving ? 'Saving…' : 'Looks right — Save'}
             </button>
           </div>
           {saveError && (
