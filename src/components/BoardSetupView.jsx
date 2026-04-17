@@ -86,6 +86,9 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
   const [drawPoints, setDrawPoints] = useState([]);
   const [drawClosed, setDrawClosed] = useState(false);
   const lassoActiveRef = useRef(false);
+  const lassoPosRef = useRef(null);         // { clientX, clientY } during touch lasso draw — for loupe
+  const lassoBoardPctRef = useRef(null);    // { x, y } board-% of current lasso point — for loupe
+  const [lassoLoupeUpdate, setLassoLoupeUpdate] = useState(0); // force lasso loupe re-render
 
   // Copy/paste state — copy selected, click to place
   const [clipboard, setClipboard] = useState(null);     // source hold shape
@@ -677,6 +680,8 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
         const pct = clientToBoardPct(touch.clientX, touch.clientY);
         if (pct) {
           lassoActiveRef.current = true;
+          lassoPosRef.current = { clientX: touch.clientX, clientY: touch.clientY };
+          lassoBoardPctRef.current = { x: pct.x, y: pct.y };
           setDrawPoints([[r1(pct.x), r1(pct.y)]]);
           setDrawClosed(false);
           return;
@@ -727,7 +732,10 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
       // Lasso draw — collect freehand points
       if (lassoActiveRef.current && pct) {
         e.preventDefault();
+        lassoPosRef.current = { clientX: touch.clientX, clientY: touch.clientY };
+        lassoBoardPctRef.current = { x: pct.x, y: pct.y };
         setDrawPoints(prev => [...prev, [r1(pct.x), r1(pct.y)]]);
+        setLassoLoupeUpdate(prev => prev + 1);
         return;
       }
       if (draggingHold && pct) {
@@ -773,7 +781,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
   }
 
   function handleTouchEnd(e) {
-    if (lassoActiveRef.current) { lassoActiveRef.current = false; finishLasso(); pinchRef.current.active = false; panDragRef.current.active = false; return; }
+    if (lassoActiveRef.current) { lassoActiveRef.current = false; lassoPosRef.current = null; lassoBoardPctRef.current = null; finishLasso(); pinchRef.current.active = false; panDragRef.current.active = false; return; }
     if (draggingHold) { setDraggingHold(null); moveMultiLastRef.current = null; pinchRef.current.active = false; panDragRef.current.active = false; return; }
     if (draggingVertexRef.current) {
       const wasTap = !vertexDragActiveRef.current;
@@ -941,15 +949,16 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
         ) : drawPoints.length >= 2 ? (
           drawMode === 'lasso' ? (
             <>
-              {/* White outline for contrast against dark board areas */}
+              {/* White outline behind dashes — keeps them visible against dark board areas */}
               <polyline points={pts.join(' ')}
-                fill="none" stroke="rgba(255,255,255,0.5)"
+                fill="none" stroke="rgba(255,255,255,0.55)"
                 strokeWidth={Math.max(Math.round(3 * zPx), 2.5)}
                 strokeLinecap="round" strokeLinejoin="round"
               />
               <polyline points={pts.join(' ')}
                 fill="none" stroke="#0047FF"
                 strokeWidth={Math.max(Math.round(1.5 * zPx), 1.5)}
+                strokeDasharray={`${Math.max(Math.round(5 * zPx), 4)} ${Math.max(Math.round(3 * zPx), 2)}`}
                 strokeLinecap="round" strokeLinejoin="round"
               />
             </>
@@ -1459,6 +1468,80 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
                   points={poly.map(([x, y]) => `${toSvgX(x)},${toSvgY(y)}`).join(' ')}
                   fill="none" stroke="#0047FF" strokeWidth={Math.max(Math.round(2 * lPx), 1)}
                   strokeLinejoin="round"
+                />
+              </svg>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* Lasso draw magnifier loupe — touch only, shown while drawing */}
+      {lassoActiveRef.current && lassoPosRef.current && lassoBoardPctRef.current && (() => {
+        const LOUPE_W = 180;
+        const LOUPE_H = 120;
+        const LOUPE_RADIUS = 60;
+        const MAGNIFICATION = 3 * scale;
+        const OFFSET_ABOVE = 80;
+
+        const { clientX, clientY } = lassoPosRef.current;
+        const { x: lassoBoardX, y: lassoBoardY } = lassoBoardPctRef.current;
+
+        const lassoImgFracX = (boardRegion.left / 100) + (lassoBoardX / 100) * (boardRegion.width / 100);
+        const lassoImgFracY = (boardRegion.top / 100) + (lassoBoardY / 100) * (boardRegion.height / 100);
+
+        const magW = LOUPE_W * MAGNIFICATION;
+        const magH = magW * (imgSize.h / imgSize.w);
+
+        const imgLeft = -(lassoImgFracX * magW) + LOUPE_W / 2;
+        const imgTop  = -(lassoImgFracY * magH) + LOUPE_H / 2;
+
+        const loupeLeft = clamp(clientX - LOUPE_W / 2, 4, window.innerWidth - LOUPE_W - 4);
+        const loupeTop  = clamp(clientY - OFFSET_ABOVE - LOUPE_H, 4, clientY - OFFSET_ABOVE);
+
+        // Loupe-specific pxScale so the trace line stays fine at magnification
+        const loupePxScale = imgSize.w / magW;
+        const dprFactor = 2 / (window.devicePixelRatio || 2);
+        const lPx = loupePxScale * dprFactor;
+        const lzPx = lPx / scale;
+
+        // Build SVG points for the lasso path drawn so far
+        const lassoPts = drawPoints.map(([x, y]) => `${toSvgX(x)},${toSvgY(y)}`).join(' ');
+
+        return (
+          <div style={{
+            position: 'fixed', left: loupeLeft, top: loupeTop,
+            width: LOUPE_W, height: LOUPE_H,
+            borderRadius: `${LOUPE_RADIUS}px`,
+            border: '2px solid rgba(255,255,255,0.9)',
+            boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
+            overflow: 'hidden', pointerEvents: 'none', zIndex: 300,
+            background: '#1a0a00',
+          }}>
+            <img src={imgSrc} srcSet={imgSrcSet} sizes={imgSizes} alt="" draggable={false}
+              style={{ position: 'absolute', width: magW, height: magH, left: imgLeft, top: imgTop, pointerEvents: 'none' }}
+            />
+            {drawPoints.length >= 2 && (
+              <svg
+                viewBox={`0 0 ${imgSize.w} ${imgSize.h}`}
+                preserveAspectRatio="none"
+                style={{ position: 'absolute', left: imgLeft, top: imgTop, width: magW, height: magH, pointerEvents: 'none' }}
+              >
+                <polyline points={lassoPts}
+                  fill="none" stroke="rgba(255,255,255,0.55)"
+                  strokeWidth={Math.max(Math.round(3 * lzPx), 2.5)}
+                  strokeLinecap="round" strokeLinejoin="round"
+                />
+                <polyline points={lassoPts}
+                  fill="none" stroke="#0047FF"
+                  strokeWidth={Math.max(Math.round(1.5 * lzPx), 1.5)}
+                  strokeDasharray={`${Math.max(Math.round(5 * lzPx), 4)} ${Math.max(Math.round(3 * lzPx), 2)}`}
+                  strokeLinecap="round" strokeLinejoin="round"
+                />
+                {/* Crosshair dot at current tip */}
+                <circle
+                  cx={toSvgX(lassoBoardX)} cy={toSvgY(lassoBoardY)}
+                  r={Math.max(Math.round(2 * lPx), 2)}
+                  fill="#0047FF" stroke="white" strokeWidth={Math.max(Math.round(lPx), 1)}
                 />
               </svg>
             )}
