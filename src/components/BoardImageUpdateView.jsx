@@ -454,70 +454,137 @@ function perspectiveWarp(sourceCanvas, srcQuad, dstQuad, outW, outH) {
   return out;
 }
 
-// ─── Mark Corners step component ─────────────────────────────────────────────
-// User drags 4 free-moving pins to the physical board corners (any quad shape).
+// ─── CSS perspective transform from 4-corner mapping ─────────────────────────
+// Computes a CSS matrix3d that maps an element's corners (0,0)→(w,0)→(0,h)→(w,h)
+// to arbitrary destination points dst = [[x,y], ...] for [TL, TR, BL, BR].
+
+function computePerspectiveCSS(w, h, dst) {
+  const [dx0, dy0] = dst[0];
+  const [dx1, dy1] = dst[1];
+  const [dx2, dy2] = dst[2];
+  const [dx3, dy3] = dst[3];
+
+  // Solve 2×2 system for perspective params
+  const a1 = (dx1 - dx3) * w, b1 = (dx2 - dx3) * h, c1 = dx3 - dx1 - dx2 + dx0;
+  const a2 = (dy1 - dy3) * w, b2 = (dy2 - dy3) * h, c2 = dy3 - dy1 - dy2 + dy0;
+  const det = a1 * b2 - a2 * b1;
+  if (Math.abs(det) < 1e-10) return 'none';
+
+  const g = (c1 * b2 - c2 * b1) / det;
+  const hh = (a1 * c2 - a2 * c1) / det;
+  const a = (dx1 - dx0) / w + dx1 * g;
+  const d = (dy1 - dy0) / w + dy1 * g;
+  const b = (dx2 - dx0) / h + dx2 * hh;
+  const e = (dy2 - dy0) / h + dy2 * hh;
+
+  // CSS matrix3d column-major
+  return `matrix3d(${a},${d},0,${g}, ${b},${e},0,${hh}, 0,0,1,0, ${dx0},${dy0},0,1)`;
+}
+
+// ─── Align step component ─────────────────────────────────────────────────────
+// User drags 4 pins until the new image (at reduced opacity) overlays the old
+// image so hold positions visually match. No trim phase.
+//
 // Props:
-//   croppedCanvas  — HTMLCanvasElement
-//   initialQuad    — null | { tl, tr, br, bl } where each is {x, y} in canvas px
-//   onDone(quad)   — called with { tl, tr, br, bl } in canvas px
+//   croppedCanvas  — HTMLCanvasElement (new image after crop)
+//   currentImgSrc  — string URL of the current board image (old image)
+//   initialPins    — null | [[x,y],[x,y],[x,y],[x,y]] in workspace coords (TL,TR,BL,BR)
+//   holds          — array of hold objects for optional overlay
+//   onDone(warpedCanvas, pins) — called with warped canvas + pin snapshot
 //   onBack()
 
-function MarkCornersStep({ croppedCanvas, initialQuad, onDone, onBack }) {
+function AlignStep({ croppedCanvas, currentImgSrc, initialPins, holds, onDone, onBack }) {
   const containerRef = useRef(null);
   const lastTouchTimeRef = useRef(0);
 
-  const imgW = croppedCanvas.width;
-  const imgH = croppedCanvas.height;
+  // Old image natural dimensions
+  const [oldImgSize, setOldImgSize] = useState(null); // { w, h }
 
-  // Memoize the data URL so we don't call toDataURL on every render
-  const croppedSrc = useMemo(() => croppedCanvas.toDataURL('image/jpeg', 0.85), [croppedCanvas]);
-
-  // Display scale: CSS pixels per canvas pixel
+  // Display scale: workspace-pixels per workspace-unit (CSS px per workspace unit)
   const [displayScale, setDisplayScale] = useState(1);
 
+  // Foreground (new image) opacity (0–1), default 0.6
+  const [fgOpacity, setFgOpacity] = useState(0.6);
+
+  // Show holds toggle, off by default
+  const [showHolds, setShowHolds] = useState(false);
+
+  // Pin positions in WORKSPACE units — [TL, TR, BL, BR]
+  // Initialised once we know oldImgSize + croppedCanvas sizes
+  const [pins, setPins] = useState(null);
+  const pinsRef = useRef(null);
+  useEffect(() => { pinsRef.current = pins; }, [pins]);
+
+  // Drag state via ref (avoid stale closures)
+  const dragRef = useRef(null);
+
+  // Zoom/pan state — MUST be before early return
+  const [zoom, setZoom] = useState({ scale: 1, panX: 0, panY: 0 });
+  const zoomRef = useRef({ scale: 1, panX: 0, panY: 0 });
+  const pinchRef = useRef(null);
+
+  // Loupe state — shown during touch pin drags
+  const loupePosRef = useRef(null);
+  const isTouchDragRef = useRef(false);
+  const [showLoupe, setShowLoupe] = useState(false);
+
+  // ── Load old image dimensions ──────────────────────────────────────────────
+  useEffect(() => {
+    if (!currentImgSrc) return;
+    const img = new Image();
+    img.onload = () => setOldImgSize({ w: img.naturalWidth, h: img.naturalHeight });
+    img.onerror = () => {
+      // Fallback: use cropped canvas dimensions
+      setOldImgSize({ w: croppedCanvas.width, h: croppedCanvas.height });
+    };
+    img.src = currentImgSrc;
+  }, [currentImgSrc, croppedCanvas]);
+
+  // ── Workspace geometry ─────────────────────────────────────────────────────
+  // Workspace uses old image dimensions directly — no padding needed since
+  // the new image is positioned over the old image at 1:1 initially.
+  const wsW = oldImgSize ? oldImgSize.w : 0;
+  const wsH = oldImgSize ? oldImgSize.h : 0;
+
+  // The new (cropped) image initially placed so it spans the full workspace
+  // (stretched to cover the old image). Users drag corners to distort from there.
+  const cropOffX = 0;
+  const cropOffY = 0;
+
+  // ── Init pins once geometry is ready ──────────────────────────────────────
+  useEffect(() => {
+    if (!oldImgSize) return;
+    if (initialPins) {
+      // Restore from previous visit
+      setPins(initialPins.map(([x, y]) => ({ x, y })));
+    } else {
+      // 4 corners of the workspace — new image initially covers old image 1:1
+      setPins([
+        { x: 0,    y: 0 },    // TL
+        { x: wsW,  y: 0 },    // TR
+        { x: 0,    y: wsH },  // BL
+        { x: wsW,  y: wsH },  // BR
+      ]);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [oldImgSize]);
+
+  // ── Track display scale via ResizeObserver ─────────────────────────────────
+  const workspaceVisible = oldImgSize !== null && pins !== null;
   useEffect(() => {
     const el = containerRef.current;
-    if (!el) return;
+    if (!el || !wsW) return;
     const update = () => {
       const rect = el.getBoundingClientRect();
-      setDisplayScale(rect.width / imgW);
+      setDisplayScale(rect.width / wsW);
     };
     update();
     const ro = new ResizeObserver(update);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [imgW]);
+  }, [wsW, workspaceVisible]);
 
-  // ── Pin state — all 4 pins stored independently ───────────────────────────
-  // Defaults: 10%/90% of cropped canvas dimensions — user drags to actual corners
-  const defaultQuad = useCallback(() => ({
-    tl: { x: imgW * 0.10, y: imgH * 0.10 },
-    tr: { x: imgW * 0.90, y: imgH * 0.10 },
-    br: { x: imgW * 0.90, y: imgH * 0.90 },
-    bl: { x: imgW * 0.10, y: imgH * 0.90 },
-  }), [imgW, imgH]);
-
-  const [pins, setPins] = useState(() => initialQuad ?? defaultQuad());
-
-  // Refs so event handlers see current values without stale closures
-  const pinsRef = useRef(pins);
-  useEffect(() => { pinsRef.current = pins; }, [pins]);
-
-  // ── Drag state ────────────────────────────────────────────────────────────
-  // kind: 'tl' | 'tr' | 'br' | 'bl' | 'pan'
-  const dragRef = useRef(null); // { kind, startClientX, startClientY, startPin, touchId? }
-
-  // ── Loupe state ───────────────────────────────────────────────────────────
-  const loupePosRef = useRef(null);   // { clientX, clientY }
-  const isTouchDragRef = useRef(false);
-  const [showLoupe, setShowLoupe] = useState(false);
-
-  // ── Zoom/pan (pinch + wheel) ───────────────────────────────────────────────
-  const [zoom, setZoom] = useState({ scale: 1, panX: 0, panY: 0 });
-  const zoomRef = useRef({ scale: 1, panX: 0, panY: 0 });
-  const pinchRef = useRef(null);
-
-  // Wheel zoom handler
+  // ── Wheel zoom handler ────────────────────────────────────────────────────
   const handleWheel = useCallback((e) => {
     e.preventDefault();
     const rect = containerRef.current.getBoundingClientRect();
@@ -548,14 +615,8 @@ function MarkCornersStep({ croppedCanvas, initialQuad, onDone, onBack }) {
     return () => el.removeEventListener('wheel', handleWheel);
   }, [handleWheel]);
 
-  // ── Clamp helper ──────────────────────────────────────────────────────────
-  const clampPin = (x, y) => ({
-    x: Math.max(0, Math.min(x, imgW)),
-    y: Math.max(0, Math.min(y, imgH)),
-  });
-
-  // ── Drag start ────────────────────────────────────────────────────────────
-  const startDrag = (e, kind) => {
+  // ── Drag handlers ──────────────────────────────────────────────────────────
+  const startDrag = (e, pinIdx) => {
     if (e.touches) {
       lastTouchTimeRef.current = Date.now();
       e.stopPropagation();
@@ -564,27 +625,24 @@ function MarkCornersStep({ croppedCanvas, initialQuad, onDone, onBack }) {
       isTouchDragRef.current = true;
       setShowLoupe(true);
       dragRef.current = {
-        kind,
-        startClientX: t.clientX,
-        startClientY: t.clientY,
-        startPin: { ...pinsRef.current[kind] },
+        kind: 'pin', pinIdx,
+        startClientX: t.clientX, startClientY: t.clientY,
+        startPinX: pinsRef.current[pinIdx].x, startPinY: pinsRef.current[pinIdx].y,
         touchId: t.identifier,
       };
     } else {
       if (Date.now() - lastTouchTimeRef.current < 500) return;
       isTouchDragRef.current = false;
       dragRef.current = {
-        kind,
-        startClientX: e.clientX,
-        startClientY: e.clientY,
-        startPin: { ...pinsRef.current[kind] },
+        kind: 'pin', pinIdx,
+        startClientX: e.clientX, startClientY: e.clientY,
+        startPinX: pinsRef.current[pinIdx].x, startPinY: pinsRef.current[pinIdx].y,
       };
     }
   };
 
-  // ── Drag move ─────────────────────────────────────────────────────────────
   const handleMove = useCallback((e) => {
-    // ── Pinch zoom ──
+    // Pinch zoom
     if (pinchRef.current && e.touches && e.touches.length >= 2) {
       e.preventDefault();
       const t0 = e.touches[0], t1 = e.touches[1];
@@ -615,11 +673,9 @@ function MarkCornersStep({ croppedCanvas, initialQuad, onDone, onBack }) {
 
     let clientX, clientY;
     if (e.touches) {
-      // Find the right touch by identifier
       const t = Array.from(e.touches).find(
         tt => tt.identifier === dragRef.current.touchId
-      );
-      if (!t) return;
+      ) || e.touches[0];
       clientX = t.clientX;
       clientY = t.clientY;
     } else {
@@ -636,22 +692,22 @@ function MarkCornersStep({ croppedCanvas, initialQuad, onDone, onBack }) {
       return;
     }
 
+    // Pin drag
     const dx = (clientX - dragRef.current.startClientX) / (displayScale * zoomRef.current.scale);
     const dy = (clientY - dragRef.current.startClientY) / (displayScale * zoomRef.current.scale);
-    const sp = dragRef.current.startPin;
-    const kind = dragRef.current.kind;
-
-    const newPos = clampPin(sp.x + dx, sp.y + dy);
-
-    setPins(prev => ({ ...prev, [kind]: newPos }));
+    const idx = dragRef.current.pinIdx;
+    setPins(prev => prev.map((p, i) =>
+      i === idx
+        ? { x: dragRef.current.startPinX + dx, y: dragRef.current.startPinY + dy }
+        : p
+    ));
 
     if (isTouchDragRef.current) {
       loupePosRef.current = { clientX, clientY };
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [displayScale, imgW, imgH]);
+  }, [displayScale]);
 
-  // ── Drag end ──────────────────────────────────────────────────────────────
   const handleEnd = useCallback((e) => {
     if (pinchRef.current) {
       const remaining = e && e.touches ? e.touches.length : 0;
@@ -673,7 +729,6 @@ function MarkCornersStep({ croppedCanvas, initialQuad, onDone, onBack }) {
     }
   }, []);
 
-  // Global move/end listeners
   useEffect(() => {
     window.addEventListener('mousemove', handleMove);
     window.addEventListener('mouseup', handleEnd);
@@ -687,34 +742,88 @@ function MarkCornersStep({ croppedCanvas, initialQuad, onDone, onBack }) {
     };
   }, [handleMove, handleEnd]);
 
-  // ── Next handler ──────────────────────────────────────────────────────────
+  // Memoize new image src
+  const croppedSrc = useMemo(() => croppedCanvas.toDataURL('image/jpeg', 0.85), [croppedCanvas]);
+
+  // ── Crop-too-small warning ─────────────────────────────────────────────────
+  const cropTooSmall = oldImgSize && (
+    croppedCanvas.width < oldImgSize.w * 0.8 ||
+    croppedCanvas.height < oldImgSize.h * 0.8
+  );
+
+  // ── Next handler — compute warp and call onDone ────────────────────────────
   const handleNext = () => {
-    onDone(pins);
+    if (!pins || !oldImgSize) return;
+    const cw = croppedCanvas.width;
+    const ch = croppedCanvas.height;
+    const oldW = oldImgSize.w;
+    const oldH = oldImgSize.h;
+
+    // srcQuad: where pins are in cropped canvas pixel coords
+    // Pins are in workspace coords (0..wsW, 0..wsH = 0..oldW, 0..oldH)
+    // The cropped image is positioned at (cropOffX=0, cropOffY=0) in workspace,
+    // with display width = wsW. So to convert workspace → cropped canvas pixels:
+    // croppedPx = (workspacePt / wsW) * cw (for x), (workspacePt / wsH) * ch (for y)
+    const srcQuad = pins.map(p => [
+      (p.x / wsW) * cw,
+      (p.y / wsH) * ch,
+    ]);
+
+    // dstQuad: 4 corners of old image [TL, TR, BL, BR]
+    const dstQuad = [
+      [0, 0],
+      [oldW, 0],
+      [0, oldH],
+      [oldW, oldH],
+    ];
+
+    const warped = perspectiveWarp(croppedCanvas, srcQuad, dstQuad, oldW, oldH);
+
+    // Snapshot pins as [[x,y],...] for restoration
+    const pinsSnapshot = pins.map(p => [p.x, p.y]);
+    onDone(warped, pinsSnapshot);
   };
 
-  // ── Render ────────────────────────────────────────────────────────────────
-  const PIN_RADIUS = 10;  // visual radius in SVG units (canvas pixels)
-  const PIN_HIT = 22;     // half of 44px touch hit target
+  // ── Nothing to show until old image loads ─────────────────────────────────
+  if (!oldImgSize || !pins) {
+    return (
+      <div style={{ textAlign: 'center', padding: '40px 0', color: 'rgba(26,10,0,0.5)', fontSize: '14px' }}>
+        Loading…
+      </div>
+    );
+  }
+
+  const PIN_RADIUS = 10; // visual radius (workspace units)
+  const PIN_HIT = 22;    // half of 44px hit target (screen px)
 
   const PIN_DEFS = [
-    { key: 'tl', label: 'TL' },
-    { key: 'tr', label: 'TR' },
-    { key: 'br', label: 'BR' },
-    { key: 'bl', label: 'BL' },
+    { idx: 0, label: 'TL' },
+    { idx: 1, label: 'TR' },
+    { idx: 2, label: 'BL' },
+    { idx: 3, label: 'BR' },
   ];
 
-  // Dashed quad outline: TL → TR → BR → BL → TL
-  const quadPoints = [
-    pins.tl, pins.tr, pins.br, pins.bl, pins.tl,
-  ].map(p => `${p.x},${p.y}`).join(' ');
+  const br = holdsData.boardRegion;
 
   return (
     <div>
+      {/* Crop-too-small warning */}
+      {cropTooSmall && (
+        <div style={{
+          padding: '10px 12px', marginBottom: '12px',
+          borderRadius: '8px', background: '#fef3c7',
+          border: '1px solid #f59e0b',
+          fontSize: '13px', color: '#92400e', lineHeight: 1.5,
+        }}>
+          ⚠ Your crop is smaller than the board image — the result may have black borders. Consider going back and cropping more generously.
+        </div>
+      )}
+
       <p style={{ margin: '0 0 12px', fontSize: '13px', color: 'rgba(26,10,0,0.6)', lineHeight: 1.5 }}>
-        Drag the 4 pins to the 4 physical corners of the climbing board (TL, TR, BL, BR).
+        Drag the corner pins until the new image (semi-transparent) lines up with the board image underneath.
       </p>
 
-      {/* Image + SVG overlay */}
+      {/* Workspace */}
       <div
         ref={containerRef}
         onTouchStart={(e) => {
@@ -733,7 +842,6 @@ function MarkCornersStep({ croppedCanvas, initialQuad, onDone, onBack }) {
               startMidY: midY,
             };
           } else if (e.touches.length === 1 && zoomRef.current.scale > 1) {
-            // Single finger on background while zoomed → pan
             lastTouchTimeRef.current = Date.now();
             const t = e.touches[0];
             dragRef.current = {
@@ -753,87 +861,206 @@ function MarkCornersStep({ croppedCanvas, initialQuad, onDone, onBack }) {
           overflow: 'hidden',
           borderRadius: '10px',
           border: '1px solid rgba(26,10,0,0.12)',
+          background: '#1a0a00',
         }}
       >
-        {/* Inner zoom/pan wrapper */}
+        {/* Inner wrapper — zoom/pan applied here */}
         <div style={{
           transformOrigin: '0 0',
           transform: `translate(${zoom.panX}px, ${zoom.panY}px) scale(${zoom.scale})`,
           width: '100%',
           position: 'relative',
         }}>
-          {/* The cropped board image */}
+          {/* Aspect-ratio spacer */}
+          <div style={{ paddingBottom: `${(wsH / wsW) * 100}%` }} />
+
+          {/* Base layer — old image at full opacity */}
           <img
-            src={croppedSrc}
-            alt="Cropped board"
+            src={currentImgSrc}
+            alt="Current board"
             draggable={false}
-            style={{ display: 'block', width: '100%', height: 'auto', pointerEvents: 'none' }}
+            style={{
+              position: 'absolute',
+              left: 0, top: 0,
+              width: '100%',
+              pointerEvents: 'none',
+            }}
           />
 
-          {/* SVG overlay — quad outline, pins, labels */}
-          <svg
-            style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', overflow: 'visible' }}
-            viewBox={`0 0 ${imgW} ${imgH}`}
-            preserveAspectRatio="none"
-          >
-            {/* Dashed polygon outline connecting the 4 pins */}
-            <polyline
-              points={quadPoints}
-              fill="none"
-              stroke="rgba(255,255,255,0.8)"
-              strokeWidth={2}
-              strokeDasharray="8 5"
-              pointerEvents="none"
-            />
+          {/* Foreground layer — new image with matrix3d perspective warp */}
+          <img
+            src={croppedSrc}
+            alt="New board"
+            draggable={false}
+            style={{
+              position: 'absolute',
+              left: 0, top: 0,
+              width: '100%',
+              opacity: fgOpacity,
+              pointerEvents: 'none',
+              transformOrigin: '0 0',
+              transform: computePerspectiveCSS(
+                wsW * displayScale,
+                wsH * displayScale,
+                pins.map(p => [p.x * displayScale, p.y * displayScale])
+              ),
+            }}
+          />
 
-            {/* Pins */}
-            {PIN_DEFS.map(({ key, label }) => {
-              const pos = pins[key];
-              // Label positioning: offset away from corner
-              const isRight = key === 'tr' || key === 'br';
-              const isBottom = key === 'bl' || key === 'br';
-              const labelX = pos.x + (isRight ? -(PIN_RADIUS + 4) : (PIN_RADIUS + 4));
-              const labelY = pos.y + (isBottom ? (PIN_RADIUS + 14) : -(PIN_RADIUS + 4));
-              const textAnchor = isRight ? 'end' : 'start';
+          {/* Hold overlay layer — only when showHolds is on */}
+          {showHolds && holds && holds.length > 0 && (
+            <svg
+              style={{
+                position: 'absolute', inset: 0,
+                width: '100%', height: '100%',
+                pointerEvents: 'none',
+              }}
+              viewBox={`0 0 ${wsW} ${wsH}`}
+              preserveAspectRatio="none"
+            >
+              {holds.map((hold) => {
+                const bLeft = wsW * br.left / 100;
+                const bTop  = wsH * br.top / 100;
+                const bW    = wsW * br.width / 100;
+                const bH    = wsH * br.height / 100;
+                const toX = (x_pct) => bLeft + (x_pct / 100) * bW;
+                const toY = (y_pct) => bTop  + (y_pct / 100) * bH;
 
-              return (
-                <g key={key}>
-                  {/* Invisible large hit target */}
-                  <circle
-                    cx={pos.x} cy={pos.y} r={PIN_HIT}
-                    fill="transparent"
-                    style={{ cursor: 'grab', touchAction: 'none' }}
-                    onMouseDown={(e) => { e.stopPropagation(); startDrag(e, key); }}
-                    onTouchStart={(e) => { e.stopPropagation(); startDrag(e, key); }}
-                  />
-                  {/* Visible pin */}
-                  <circle
-                    cx={pos.x} cy={pos.y} r={PIN_RADIUS}
-                    fill="#0047FF"
-                    stroke="white"
-                    strokeWidth={2}
-                    style={{ filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.5))', pointerEvents: 'none' }}
-                  />
+                const hasPolygon = hold.polygon && hold.polygon.length >= 3;
+                const polyPoints = hasPolygon
+                  ? hold.polygon.map(([px, py]) => `${toX(px)},${toY(py)}`).join(' ')
+                  : null;
+                const cx = toX(hold.cx);
+                const cy = toY(hold.cy);
+                const w = hold.w_pct !== undefined ? hold.w_pct : (hold.r || 2) * 2;
+                const h = hold.h_pct !== undefined ? hold.h_pct : (hold.r || 2) * 2;
+                const rx = Math.max((w / 100) * bW / 2, 2);
+                const ry = Math.max((h / 100) * bH / 2, 2);
+
+                return (
+                  <g key={hold.id} style={{ pointerEvents: 'none' }}>
+                    {hasPolygon ? (
+                      <polygon
+                        points={polyPoints}
+                        fill="rgba(34,211,238,0.12)"
+                        stroke="rgba(34,211,238,0.85)"
+                        strokeWidth={1.5}
+                        strokeLinejoin="round"
+                      />
+                    ) : (
+                      <ellipse
+                        cx={cx} cy={cy} rx={rx} ry={ry}
+                        fill="rgba(34,211,238,0.12)"
+                        stroke="rgba(34,211,238,0.85)"
+                        strokeWidth={1.5}
+                      />
+                    )}
+                  </g>
+                );
+              })}
+            </svg>
+          )}
+
+          {/* Pin layer — 4 draggable pins */}
+          {pins.map((pin, idx) => {
+            const screenX = pin.x * displayScale;
+            const screenY = pin.y * displayScale;
+            const label = PIN_DEFS[idx].label;
+            const isRight = idx === 1 || idx === 3; // TR or BR
+            const isBottom = idx === 2 || idx === 3; // BL or BR
+            return (
+              <div
+                key={idx}
+                onMouseDown={(e) => { e.stopPropagation(); startDrag(e, idx); }}
+                onTouchStart={(e) => { e.stopPropagation(); startDrag(e, idx); }}
+                style={{
+                  position: 'absolute',
+                  left: screenX - PIN_HIT,
+                  top: screenY - PIN_HIT,
+                  width: PIN_HIT * 2,
+                  height: PIN_HIT * 2,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'grab',
+                  touchAction: 'none',
+                }}
+              >
+                {/* Visual pin */}
+                <div style={{
+                  width: PIN_RADIUS * 2,
+                  height: PIN_RADIUS * 2,
+                  borderRadius: '50%',
+                  background: '#0047FF',
+                  border: '2px solid white',
+                  boxShadow: '0 2px 6px rgba(0,0,0,0.6)',
+                  position: 'relative',
+                }}>
                   {/* Label */}
-                  <text
-                    x={labelX} y={labelY}
-                    fontSize={14}
-                    fontWeight="700"
-                    fontFamily="Space Mono, monospace"
-                    fill="white"
-                    stroke="rgba(0,0,0,0.6)"
-                    strokeWidth={3}
-                    paintOrder="stroke"
-                    textAnchor={textAnchor}
-                    pointerEvents="none"
-                  >
+                  <span style={{
+                    position: 'absolute',
+                    fontSize: '9px',
+                    fontWeight: 700,
+                    fontFamily: 'Space Mono, monospace',
+                    color: 'white',
+                    whiteSpace: 'nowrap',
+                    left: isRight ? 'auto' : '110%',
+                    right: isRight ? '110%' : 'auto',
+                    top: isBottom ? 'auto' : '50%',
+                    bottom: isBottom ? '50%' : 'auto',
+                    transform: 'translateY(-50%)',
+                    textShadow: '0 1px 3px rgba(0,0,0,0.8)',
+                    pointerEvents: 'none',
+                  }}>
                     {label}
-                  </text>
-                </g>
-              );
-            })}
-          </svg>
-        </div>
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>{/* end inner zoom wrapper */}
+      </div>
+
+      {/* Controls below workspace */}
+      <div style={{ marginTop: '14px' }}>
+        {/* Opacity slider */}
+        <label style={{
+          display: 'block',
+          marginBottom: '5px',
+          fontSize: '11px',
+          fontWeight: 700,
+          letterSpacing: '1px',
+          textTransform: 'uppercase',
+          color: 'rgba(26,10,0,0.55)',
+          fontFamily: 'Space Mono, monospace',
+        }}>
+          Overlay opacity — {Math.round(fgOpacity * 100)}%
+        </label>
+        <input
+          type="range"
+          min={0}
+          max={100}
+          value={Math.round(fgOpacity * 100)}
+          onChange={(e) => setFgOpacity(Number(e.target.value) / 100)}
+          style={{ width: '100%', accentColor: '#0047FF' }}
+        />
+      </div>
+
+      {/* Show holds toggle */}
+      <div style={{ marginTop: '12px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+        <label style={{
+          display: 'flex', alignItems: 'center', gap: '8px',
+          fontSize: '13px', fontWeight: 600, color: '#1A0A00',
+          cursor: 'pointer', userSelect: 'none',
+        }}>
+          <input
+            type="checkbox"
+            checked={showHolds}
+            onChange={(e) => setShowHolds(e.target.checked)}
+            style={{ width: 18, height: 18, accentColor: '#0047FF', cursor: 'pointer' }}
+          />
+          Show holds
+        </label>
       </div>
 
       {/* Buttons */}
@@ -844,8 +1071,8 @@ function MarkCornersStep({ croppedCanvas, initialQuad, onDone, onBack }) {
         </button>
       </div>
 
-      {/* Loupe magnifier — only shown during touch pin drag */}
-      {showLoupe && dragRef.current && dragRef.current.kind !== 'pan' && loupePosRef.current && (() => {
+      {/* Loupe magnifier — shown during touch pin drags */}
+      {showLoupe && dragRef.current && dragRef.current.kind === 'pin' && loupePosRef.current && (() => {
         const LOUPE_W = 180;
         const LOUPE_H = 120;
         const LOUPE_RADIUS = 60;
@@ -853,26 +1080,26 @@ function MarkCornersStep({ croppedCanvas, initialQuad, onDone, onBack }) {
         const OFFSET_ABOVE = 80;
 
         const { clientX, clientY } = loupePosRef.current;
-
-        // Current pin position in canvas pixel space
-        const pinKey = dragRef.current.kind;
-        const pinPos = pinsRef.current[pinKey];
+        const pinIdx = dragRef.current.pinIdx;
+        const pinPos = pinsRef.current?.[pinIdx];
         if (!pinPos) return null;
-        const pinCanvasX = pinPos.x;
-        const pinCanvasY = pinPos.y;
 
-        // Map canvas coords to loupe display
+        // Pin position as fraction of old image
+        const pinFracX = pinPos.x / wsW;
+        const pinFracY = pinPos.y / wsH;
+
+        // Show the old image in the loupe, centered on the pin position
         const magW = LOUPE_W * MAGNIFICATION;
-        const magH = magW * (imgH / imgW);
-        const imgLeft = -(pinCanvasX / imgW * magW) + LOUPE_W / 2;
-        const imgTop  = -(pinCanvasY / imgH * magH) + LOUPE_H / 2;
+        const magH = magW * (wsH / wsW);
+        const imgLeft = -(pinFracX * magW) + LOUPE_W / 2;
+        const imgTop  = -(pinFracY * magH) + LOUPE_H / 2;
 
         const clamp = (v, min, max) => Math.max(min, Math.min(v, max));
         const loupeLeft = clamp(clientX - LOUPE_W / 2, 4, window.innerWidth - LOUPE_W - 4);
         const loupeTop  = clamp(clientY - OFFSET_ABOVE - LOUPE_H, 4, clientY - OFFSET_ABOVE);
 
         return (
-          <div key="corners-loupe" style={{
+          <div key="align-loupe" style={{
             position: 'fixed', left: loupeLeft, top: loupeTop,
             width: LOUPE_W, height: LOUPE_H,
             borderRadius: `${LOUPE_RADIUS}px`,
@@ -881,7 +1108,7 @@ function MarkCornersStep({ croppedCanvas, initialQuad, onDone, onBack }) {
             overflow: 'hidden', pointerEvents: 'none', zIndex: 300,
             background: '#1a0a00',
           }}>
-            <img src={croppedSrc} alt="" draggable={false}
+            <img src={currentImgSrc} alt="" draggable={false}
               style={{ position: 'absolute', width: magW, height: magH, left: imgLeft, top: imgTop, pointerEvents: 'none' }}
             />
             <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}>
@@ -899,65 +1126,9 @@ function MarkCornersStep({ croppedCanvas, initialQuad, onDone, onBack }) {
 }
 
 // ─── Confirm step component ───────────────────────────────────────────────────
-// Warps the cropped canvas so that the user's quad maps to the fixed boardRegion,
-// shows the result with hold overlay, and provides Save / Adjust corners buttons.
+// Shows the warped canvas (already at old-image dimensions) with hold overlay.
 
-function ConfirmStep({ croppedCanvas, quad, currentImageUrl, holds, imageName, nameError, saving, saveError, onNameChange, onSave, onAdjust }) {
-  const [warpedCanvas, setWarpedCanvas] = useState(null);
-  const [warping, setWarping] = useState(true);
-
-  // Load old image to get natural dimensions, then compute warp
-  useEffect(() => {
-    setWarping(true);
-    setWarpedCanvas(null);
-
-    const br = holdsData.boardRegion;
-
-    const doWarp = (oldImgW, oldImgH) => {
-      // Source quad: user's pin positions in cropped canvas coords [TL, TR, BL, BR]
-      const srcQuad = [
-        [quad.tl.x, quad.tl.y],
-        [quad.tr.x, quad.tr.y],
-        [quad.bl.x, quad.bl.y],
-        [quad.br.x, quad.br.y],
-      ];
-
-      // Destination quad: boardRegion corners in old image pixel coordinates [TL, TR, BL, BR]
-      const dL = (br.left / 100) * oldImgW;
-      const dT = (br.top / 100) * oldImgH;
-      const dR = ((br.left + br.width) / 100) * oldImgW;
-      const dB = ((br.top + br.height) / 100) * oldImgH;
-      const dstQuad = [
-        [dL, dT],
-        [dR, dT],
-        [dL, dB],
-        [dR, dB],
-      ];
-
-      // Yield to let spinner paint, then run synchronous warp
-      setTimeout(() => {
-        try {
-          const result = perspectiveWarp(croppedCanvas, srcQuad, dstQuad, oldImgW, oldImgH);
-          setWarpedCanvas(result);
-        } finally {
-          setWarping(false);
-        }
-      }, 0);
-    };
-
-    // Load old image to get its natural dimensions
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.onload = () => doWarp(img.naturalWidth, img.naturalHeight);
-    img.onerror = () => {
-      // Fallback: use cropped canvas dimensions (warp will be approximate)
-      console.warn('[ConfirmStep] Could not load old image for dimensions, using cropped canvas size as fallback');
-      doWarp(croppedCanvas.width, croppedCanvas.height);
-    };
-    img.src = currentImageUrl;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [croppedCanvas, quad, currentImageUrl]);
-
+function ConfirmStep({ warpedCanvas, holds, imageName, nameError, saving, saveError, onNameChange, onSave, onAdjust }) {
   // Memoize data URL to avoid re-calling toDataURL on every render
   const warpedSrc = useMemo(
     () => warpedCanvas ? warpedCanvas.toDataURL('image/jpeg', JPEG_QUALITY) : null,
@@ -975,55 +1146,21 @@ function ConfirmStep({ croppedCanvas, quad, currentImageUrl, holds, imageName, n
           textTransform: 'uppercase', color: '#0047FF', marginBottom: '6px',
           textAlign: 'center', fontFamily: 'Space Mono, monospace',
         }}>
-          Warped Board Image — Check hold positions
+          Aligned Board Image — Check hold positions
         </div>
 
         <div style={{ position: 'relative', width: '100%' }}>
-          {warping ? (
-            <div style={{
-              width: '100%',
-              paddingBottom: '75%', // approximate aspect ratio placeholder
-              background: 'rgba(26,10,0,0.06)',
-              borderRadius: '10px',
-              border: '2px solid #0047FF',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              position: 'relative',
-            }}>
-              <div style={{
-                position: 'absolute', inset: 0,
-                display: 'flex', flexDirection: 'column',
-                alignItems: 'center', justifyContent: 'center',
-                gap: '10px',
-              }}>
-                <div style={{
-                  width: 32, height: 32,
-                  border: '3px solid rgba(0,71,255,0.2)',
-                  borderTopColor: '#0047FF',
-                  borderRadius: '50%',
-                  animation: 'spin 0.8s linear infinite',
-                }} />
-                <span style={{
-                  fontSize: '12px', fontWeight: 600,
-                  color: 'rgba(26,10,0,0.5)',
-                  fontFamily: 'Space Mono, monospace',
-                }}>
-                  Warping image…
-                </span>
-              </div>
-            </div>
-          ) : warpedSrc ? (
+          {warpedSrc ? (
             <>
               <img
                 src={warpedSrc}
-                alt="Warped board preview"
+                alt="Aligned board preview"
                 style={{
                   width: '100%', borderRadius: '10px', display: 'block',
                   border: '2px solid #0047FF',
                 }}
               />
-              {/* Hold overlay SVG — uses holdsData.boardRegion and warped canvas dimensions */}
+              {/* Hold overlay SVG */}
               {holds && holds.length > 0 && warpedCanvas && (
                 <svg
                   style={{
@@ -1080,17 +1217,23 @@ function ConfirmStep({ croppedCanvas, quad, currentImageUrl, holds, imageName, n
                 </svg>
               )}
             </>
-          ) : null}
+          ) : (
+            <div style={{
+              width: '100%', paddingBottom: '75%',
+              background: 'rgba(26,10,0,0.06)', borderRadius: '10px',
+              border: '2px solid #0047FF',
+            }} />
+          )}
         </div>
         <div style={{
           marginTop: '5px', fontSize: '11px', color: 'rgba(26,10,0,0.5)',
           textAlign: 'center', fontFamily: 'Space Mono, monospace',
         }}>
-          {warping ? 'Computing perspective warp…' : `${holds?.length ?? 0} holds overlaid — check they line up with the physical holds`}
+          {holds?.length ?? 0} holds overlaid — check they line up with the physical holds
         </div>
       </div>
 
-      {/* Spinner keyframes (injected once via style tag) */}
+      {/* Spinner keyframes */}
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
 
       {/* Name input */}
@@ -1147,18 +1290,18 @@ function ConfirmStep({ croppedCanvas, quad, currentImageUrl, holds, imageName, n
         <button
           onClick={onAdjust}
           style={secondaryBtnStyle}
-          disabled={saving || warping}
+          disabled={saving}
         >
-          Adjust corners
+          Adjust alignment
         </button>
         <button
           onClick={() => onSave(warpedCanvas)}
-          disabled={saving || warping || !!nameError || !imageName.trim() || !warpedCanvas}
+          disabled={saving || !!nameError || !imageName.trim() || !warpedCanvas}
           style={{
             ...primaryBtnStyle,
             flex: 1,
-            opacity: (saving || warping || !!nameError || !imageName.trim() || !warpedCanvas) ? 0.5 : 1,
-            cursor: (saving || warping || !!nameError || !imageName.trim() || !warpedCanvas) ? 'not-allowed' : 'pointer',
+            opacity: (saving || !!nameError || !imageName.trim() || !warpedCanvas) ? 0.5 : 1,
+            cursor: (saving || !!nameError || !imageName.trim() || !warpedCanvas) ? 'not-allowed' : 'pointer',
           }}
         >
           {saving ? 'Saving…' : 'Looks right — Save'}
@@ -1202,7 +1345,7 @@ const secondaryBtnStyle = {
 // ─── Main wizard component ────────────────────────────────────────────────────
 
 export default function BoardImageUpdateView({ currentImgSrc, currentImageName, currentImageUrl, holds, onSave, onCancel }) {
-  const [step, setStep] = useState('upload'); // 'upload' | 'crop' | 'markCorners' | 'confirm'
+  const [step, setStep] = useState('upload'); // 'upload' | 'crop' | 'align' | 'confirm'
 
   // Upload step state
   const [uploadedDataUrl, setUploadedDataUrl] = useState(null);
@@ -1214,9 +1357,9 @@ export default function BoardImageUpdateView({ currentImgSrc, currentImageName, 
   // Crop canvas (set after crop step)
   const [croppedCanvas, setCroppedCanvas] = useState(null);
 
-  // Quad set by MarkCornersStep — persisted so "Adjust corners" re-enters with last pins
-  // { tl, tr, br, bl } each {x, y} in cropped canvas pixel coords
-  const [pendingQuad, setPendingQuad] = useState(null);
+  // Pending warp canvas + pins — persisted so "Adjust alignment" re-enters with last pins
+  const [pendingWarp, setPendingWarp] = useState(null);
+  const [pendingPins, setPendingPins] = useState(null); // [[x,y], ...] in workspace coords
 
   // Confirm step state
   const [imageName, setImageName] = useState(() => autoIncrementName(currentImageName || 'Barn_Set_01_V5'));
@@ -1227,7 +1370,7 @@ export default function BoardImageUpdateView({ currentImgSrc, currentImageName, 
   const stepLabels = {
     upload: 'Step 1 of 4 — Upload',
     crop: 'Step 2 of 4 — Crop',
-    markCorners: 'Step 3 of 4 — Mark Corners',
+    align: 'Step 3 of 4 — Align',
     confirm: 'Step 4 of 4 — Confirm',
   };
 
@@ -1304,6 +1447,9 @@ export default function BoardImageUpdateView({ currentImgSrc, currentImageName, 
   };
 
   // ── Render ────────────────────────────────────────────────────────────────
+
+  // Use currentImgSrc (with cache buster) for display in AlignStep
+  const alignImgSrc = currentImgSrc || currentImageUrl || '/Barn_Set_01_V5.jpg';
 
   return (
     <div style={{ padding: '16px 12px', maxWidth: '480px', margin: '0 auto' }}>
@@ -1406,27 +1552,31 @@ export default function BoardImageUpdateView({ currentImgSrc, currentImageName, 
           imageDataUrl={uploadedDataUrl}
           imageWidth={uploadedWidth}
           imageHeight={uploadedHeight}
-          onNext={(canvas) => { setCroppedCanvas(canvas); setStep('markCorners'); }}
+          onNext={(canvas) => { setCroppedCanvas(canvas); setStep('align'); }}
           onBack={() => setStep('upload')}
         />
       )}
 
-      {/* ── Step 3: Mark Corners ── */}
-      {step === 'markCorners' && croppedCanvas && (
-        <MarkCornersStep
+      {/* ── Step 3: Align ── */}
+      {step === 'align' && croppedCanvas && (
+        <AlignStep
           croppedCanvas={croppedCanvas}
-          initialQuad={pendingQuad}
-          onDone={(quad) => { setPendingQuad(quad); setStep('confirm'); }}
+          currentImgSrc={alignImgSrc}
+          initialPins={pendingPins}
+          holds={holds}
+          onDone={(warpedCanvas, pins) => {
+            setPendingWarp(warpedCanvas);
+            setPendingPins(pins);
+            setStep('confirm');
+          }}
           onBack={() => setStep('crop')}
         />
       )}
 
       {/* ── Step 4: Confirm ── */}
-      {step === 'confirm' && croppedCanvas && pendingQuad && (
+      {step === 'confirm' && pendingWarp && (
         <ConfirmStep
-          croppedCanvas={croppedCanvas}
-          quad={pendingQuad}
-          currentImageUrl={currentImageUrl}
+          warpedCanvas={pendingWarp}
           holds={holds}
           imageName={imageName}
           nameError={nameError}
@@ -1434,7 +1584,7 @@ export default function BoardImageUpdateView({ currentImgSrc, currentImageName, 
           saveError={saveError}
           onNameChange={handleNameChange}
           onSave={handleSave}
-          onAdjust={() => { setSaveError(''); setStep('markCorners'); }}
+          onAdjust={() => { setSaveError(''); setStep('align'); }}
         />
       )}
     </div>
