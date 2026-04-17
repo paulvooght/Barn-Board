@@ -879,7 +879,10 @@ const secondaryBtnStyle = {
 
 // ─── Main wizard component ────────────────────────────────────────────────────
 
-export default function BoardImageUpdateView({ currentImgSrc, currentImageName, previousBoardRegion, holds, onSave, onCancel }) {
+export default function BoardImageUpdateView({ currentImgSrc, currentImageName, previousBoardRegion, holds, boardImageConfig, onSave, onCancel }) {
+  // Back-compat: if an image was already uploaded but has no boardRegion, skip straight to markCorners
+  const isBackCompat = !!(boardImageConfig?.baseUrl && boardImageConfig?.imageName && !boardImageConfig?.boardRegion);
+
   const [step, setStep] = useState('upload'); // 'upload' | 'crop' | 'markCorners' | 'confirm'
 
   // Upload step state
@@ -901,6 +904,36 @@ export default function BoardImageUpdateView({ currentImgSrc, currentImageName, 
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
 
+  // Back-compat: on mount, load the existing image into a canvas and jump to markCorners
+  useEffect(() => {
+    if (!isBackCompat) return;
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      let w = img.naturalWidth;
+      let h = img.naturalHeight;
+      // Cap to MAX_IMAGE_WIDTH so canvas isn't enormous
+      if (w > MAX_IMAGE_WIDTH) {
+        const scale = MAX_IMAGE_WIDTH / w;
+        w = MAX_IMAGE_WIDTH;
+        h = Math.round(h * scale);
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      setCroppedCanvas(canvas);
+      setStep('markCorners');
+    };
+    img.onerror = () => {
+      // Fallback: if cross-origin load fails, just open normal upload flow
+      console.warn('[BoardImageUpdate] Back-compat image load failed — falling back to upload flow');
+    };
+    // Use currentImgSrc which already has cache busting if present
+    img.src = currentImgSrc;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Memoized data URL for the confirm step preview (avoids repeated toDataURL calls)
   const confirmImageSrc = useMemo(
     () => (step === 'confirm' && croppedCanvas ? croppedCanvas.toDataURL('image/jpeg', JPEG_QUALITY) : null),
@@ -909,12 +942,17 @@ export default function BoardImageUpdateView({ currentImgSrc, currentImageName, 
     [croppedCanvas]
   );
 
-  const stepLabels = {
-    upload: 'Step 1 of 4 — Upload',
-    crop: 'Step 2 of 4 — Crop',
-    markCorners: 'Step 3 of 4 — Mark Corners',
-    confirm: 'Step 4 of 4 — Confirm',
-  };
+  const stepLabels = isBackCompat
+    ? {
+        markCorners: 'Step 1 of 2 — Mark Corners',
+        confirm: 'Step 2 of 2 — Confirm',
+      }
+    : {
+        upload: 'Step 1 of 4 — Upload',
+        crop: 'Step 2 of 4 — Crop',
+        markCorners: 'Step 3 of 4 — Mark Corners',
+        confirm: 'Step 4 of 4 — Confirm',
+      };
 
   // ── Upload step handlers ──────────────────────────────────────────────────
 
@@ -966,6 +1004,25 @@ export default function BoardImageUpdateView({ currentImgSrc, currentImageName, 
   };
 
   const handleSave = async () => {
+    // Back-compat path: no new image to upload, just update the boardRegion on the existing config
+    if (isBackCompat) {
+      setSaving(true);
+      setSaveError('');
+      try {
+        await onSave({
+          regionOnly: true,
+          boardRegion: pendingBoardRegion,
+        });
+      } catch (err) {
+        console.error('[BoardImageUpdate] Region-only save failed:', err);
+        const msg = err?.message || String(err);
+        setSaveError(`Save failed: ${msg}`);
+        setSaving(false);
+      }
+      return;
+    }
+
+    // Normal path: upload image + save config
     const err = validateName(imageName);
     if (err) { setNameError(err); return; }
     setSaving(true);
@@ -1098,12 +1155,29 @@ export default function BoardImageUpdateView({ currentImgSrc, currentImageName, 
 
       {/* ── Step 3: Mark Corners ── */}
       {step === 'markCorners' && croppedCanvas && (
-        <MarkCornersStep
-          croppedCanvas={croppedCanvas}
-          previousBoardRegion={pendingBoardRegion ?? previousBoardRegion}
-          onDone={(boardRegion) => { setPendingBoardRegion(boardRegion); setStep('confirm'); }}
-          onBack={() => setStep('crop')}
-        />
+        <div>
+          {/* Back-compat banner */}
+          {isBackCompat && (
+            <div style={{
+              marginBottom: '14px',
+              padding: '10px 14px',
+              borderRadius: '10px',
+              background: 'rgba(0,71,255,0.08)',
+              border: '1px solid rgba(0,71,255,0.25)',
+              fontSize: '13px',
+              color: '#1A0A00',
+              lineHeight: 1.5,
+            }}>
+              This image was uploaded before corner-marking. Mark the 4 board corners to align holds.
+            </div>
+          )}
+          <MarkCornersStep
+            croppedCanvas={croppedCanvas}
+            previousBoardRegion={pendingBoardRegion ?? previousBoardRegion}
+            onDone={(boardRegion) => { setPendingBoardRegion(boardRegion); setStep('confirm'); }}
+            onBack={isBackCompat ? onCancel : () => setStep('crop')}
+          />
+        </div>
       )}
 
       {/* ── Step 4: Confirm ── */}
@@ -1192,55 +1266,57 @@ export default function BoardImageUpdateView({ currentImgSrc, currentImageName, 
             </div>
           </div>
 
-          {/* Name input */}
-          <div style={{ marginBottom: '20px' }}>
-            <label style={{
-              display: 'block', marginBottom: '6px',
-              fontSize: '11px', fontWeight: 700, letterSpacing: '1px',
-              textTransform: 'uppercase', color: 'rgba(26,10,0,0.55)',
-              fontFamily: 'Space Mono, monospace',
-            }}>
-              Image Name
-            </label>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0' }}>
-              <input
-                type="text"
-                value={imageName}
-                onChange={handleNameChange}
-                style={{
-                  flex: 1,
-                  padding: '11px 12px',
-                  borderRadius: '10px 0 0 10px',
-                  border: nameError ? '2px solid #ef4444' : '1px solid rgba(26,10,0,0.2)',
-                  background: '#fff',
-                  fontSize: '14px',
-                  color: '#1A0A00',
-                  fontFamily: 'Space Mono, monospace',
-                  outline: 'none',
-                }}
-                placeholder="Barn_Set_01_V6"
-                autoCapitalize="none"
-                autoCorrect="off"
-                spellCheck={false}
-              />
-              <div style={{
-                padding: '11px 12px',
-                borderRadius: '0 10px 10px 0',
-                border: '1px solid rgba(26,10,0,0.2)',
-                borderLeft: 'none',
-                background: 'rgba(26,10,0,0.04)',
-                fontSize: '14px',
-                color: 'rgba(26,10,0,0.45)',
+          {/* Name input — hidden in back-compat mode (not creating a new image) */}
+          {!isBackCompat && (
+            <div style={{ marginBottom: '20px' }}>
+              <label style={{
+                display: 'block', marginBottom: '6px',
+                fontSize: '11px', fontWeight: 700, letterSpacing: '1px',
+                textTransform: 'uppercase', color: 'rgba(26,10,0,0.55)',
                 fontFamily: 'Space Mono, monospace',
-                whiteSpace: 'nowrap',
               }}>
-                .jpg
+                Image Name
+              </label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0' }}>
+                <input
+                  type="text"
+                  value={imageName}
+                  onChange={handleNameChange}
+                  style={{
+                    flex: 1,
+                    padding: '11px 12px',
+                    borderRadius: '10px 0 0 10px',
+                    border: nameError ? '2px solid #ef4444' : '1px solid rgba(26,10,0,0.2)',
+                    background: '#fff',
+                    fontSize: '14px',
+                    color: '#1A0A00',
+                    fontFamily: 'Space Mono, monospace',
+                    outline: 'none',
+                  }}
+                  placeholder="Barn_Set_01_V6"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                />
+                <div style={{
+                  padding: '11px 12px',
+                  borderRadius: '0 10px 10px 0',
+                  border: '1px solid rgba(26,10,0,0.2)',
+                  borderLeft: 'none',
+                  background: 'rgba(26,10,0,0.04)',
+                  fontSize: '14px',
+                  color: 'rgba(26,10,0,0.45)',
+                  fontFamily: 'Space Mono, monospace',
+                  whiteSpace: 'nowrap',
+                }}>
+                  .jpg
+                </div>
               </div>
+              {nameError && (
+                <div style={{ marginTop: '5px', fontSize: '12px', color: '#ef4444' }}>{nameError}</div>
+              )}
             </div>
-            {nameError && (
-              <div style={{ marginTop: '5px', fontSize: '12px', color: '#ef4444' }}>{nameError}</div>
-            )}
-          </div>
+          )}
 
           <div style={{ display: 'flex', gap: '10px' }}>
             <button
@@ -1252,12 +1328,12 @@ export default function BoardImageUpdateView({ currentImgSrc, currentImageName, 
             </button>
             <button
               onClick={handleSave}
-              disabled={saving || !!nameError || !imageName.trim()}
+              disabled={saving || (!isBackCompat && (!!nameError || !imageName.trim()))}
               style={{
                 ...primaryBtnStyle,
                 flex: 1,
-                opacity: (saving || !!nameError || !imageName.trim()) ? 0.5 : 1,
-                cursor: (saving || !!nameError || !imageName.trim()) ? 'not-allowed' : 'pointer',
+                opacity: (saving || (!isBackCompat && (!!nameError || !imageName.trim()))) ? 0.5 : 1,
+                cursor: (saving || (!isBackCompat && (!!nameError || !imageName.trim()))) ? 'not-allowed' : 'pointer',
               }}
             >
               {saving ? 'Saving…' : 'Looks right — Save'}
