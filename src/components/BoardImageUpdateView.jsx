@@ -503,11 +503,8 @@ function AlignStep({ croppedCanvas, currentImgSrc, initialPins, holds, onDone, o
   // Display scale: workspace-pixels per workspace-unit (CSS px per workspace unit)
   const [displayScale, setDisplayScale] = useState(1);
 
-  // Foreground (new image) opacity (0–1), default 0.6
-  const [fgOpacity, setFgOpacity] = useState(0.6);
-
-  // Show holds toggle, off by default
-  const [showHolds, setShowHolds] = useState(false);
+  // Show old image toggle — off by default; when on, renders old image at 60% opacity
+  const [showOldImage, setShowOldImage] = useState(false);
 
   // Pin positions in WORKSPACE units — [TL, TR, BL, BR]
   // Initialised once we know oldImgSize + croppedCanvas sizes
@@ -821,7 +818,7 @@ function AlignStep({ croppedCanvas, currentImgSrc, initialPins, holds, onDone, o
       )}
 
       <p style={{ margin: '0 0 12px', fontSize: '13px', color: 'rgba(26,10,0,0.6)', lineHeight: 1.5 }}>
-        Drag the corner pins until the new image (semi-transparent) lines up with the board image underneath.
+        Drag the corner pins until the hold outlines (cyan) line up with the physical holds in the new image.
       </p>
 
       {/* Workspace */}
@@ -875,19 +872,22 @@ function AlignStep({ croppedCanvas, currentImgSrc, initialPins, holds, onDone, o
           {/* Aspect-ratio spacer — based on full workspace (1.5× old image) */}
           <div style={{ paddingBottom: `${(wsH / wsW) * 100}%` }} />
 
-          {/* Base layer — old image at its position within the workspace */}
-          <img
-            src={currentImgSrc}
-            alt="Current board"
-            draggable={false}
-            style={{
-              position: 'absolute',
-              left: `${(oldImgX / wsW) * 100}%`,
-              top: `${(oldImgY / wsH) * 100}%`,
-              width: `${(oldW / wsW) * 100}%`,
-              pointerEvents: 'none',
-            }}
-          />
+          {/* Base layer — old image at its position, only visible when "Show old image" is on */}
+          {showOldImage && (
+            <img
+              src={currentImgSrc}
+              alt="Current board"
+              draggable={false}
+              style={{
+                position: 'absolute',
+                left: `${(oldImgX / wsW) * 100}%`,
+                top: `${(oldImgY / wsH) * 100}%`,
+                width: `${(oldW / wsW) * 100}%`,
+                opacity: 0.6,
+                pointerEvents: 'none',
+              }}
+            />
+          )}
 
           {/* Foreground layer — new image with matrix3d perspective warp.
               The image element is sized to the old-image region within workspace.
@@ -902,7 +902,6 @@ function AlignStep({ croppedCanvas, currentImgSrc, initialPins, holds, onDone, o
               left: `${(oldImgX / wsW) * 100}%`,
               top: `${(oldImgY / wsH) * 100}%`,
               width: `${(oldW / wsW) * 100}%`,
-              opacity: fgOpacity,
               pointerEvents: 'none',
               transformOrigin: '0 0',
               transform: computePerspectiveCSS(
@@ -916,28 +915,8 @@ function AlignStep({ croppedCanvas, currentImgSrc, initialPins, holds, onDone, o
             }}
           />
 
-          {/* Canvas window outline — shows the old image boundary within the bleed workspace */}
-          <svg
-            style={{
-              position: 'absolute', inset: 0,
-              width: '100%', height: '100%',
-              pointerEvents: 'none',
-            }}
-            viewBox={`0 0 ${wsW} ${wsH}`}
-            preserveAspectRatio="none"
-          >
-            <rect
-              x={oldImgX} y={oldImgY}
-              width={oldW} height={oldH}
-              fill="none"
-              stroke="#0047FF"
-              strokeWidth={Math.max(wsW * 0.003, 2)}
-              strokeDasharray="none"
-            />
-          </svg>
-
-          {/* Hold overlay layer — only when showHolds is on */}
-          {showHolds && holds && holds.length > 0 && (
+          {/* Hold overlay layer — always visible, primary alignment target */}
+          {holds && holds.length > 0 && (
             <svg
               style={{
                 position: 'absolute', inset: 0,
@@ -990,6 +969,26 @@ function AlignStep({ croppedCanvas, currentImgSrc, initialPins, holds, onDone, o
               })}
             </svg>
           )}
+
+          {/* Canvas window outline — on top of hold overlays so border is always visible */}
+          <svg
+            style={{
+              position: 'absolute', inset: 0,
+              width: '100%', height: '100%',
+              pointerEvents: 'none',
+            }}
+            viewBox={`0 0 ${wsW} ${wsH}`}
+            preserveAspectRatio="none"
+          >
+            <rect
+              x={oldImgX} y={oldImgY}
+              width={oldW} height={oldH}
+              fill="none"
+              stroke="#0047FF"
+              strokeWidth={Math.max(wsW * 0.003, 2)}
+              strokeDasharray="none"
+            />
+          </svg>
 
           {/* Pin layer — 4 draggable pins */}
           {pins.map((pin, idx) => {
@@ -1057,32 +1056,8 @@ function AlignStep({ croppedCanvas, currentImgSrc, initialPins, holds, onDone, o
       </p>
 
       {/* Controls below workspace */}
-      <div style={{ marginTop: '14px' }}>
-        {/* Opacity slider */}
-        <label style={{
-          display: 'block',
-          marginBottom: '5px',
-          fontSize: '11px',
-          fontWeight: 700,
-          letterSpacing: '1px',
-          textTransform: 'uppercase',
-          color: 'rgba(26,10,0,0.55)',
-          fontFamily: 'Space Mono, monospace',
-        }}>
-          Overlay opacity — {Math.round(fgOpacity * 100)}%
-        </label>
-        <input
-          type="range"
-          min={0}
-          max={100}
-          value={Math.round(fgOpacity * 100)}
-          onChange={(e) => setFgOpacity(Number(e.target.value) / 100)}
-          style={{ width: '100%', accentColor: '#0047FF' }}
-        />
-      </div>
-
-      {/* Show holds toggle */}
-      <div style={{ marginTop: '12px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+      <div style={{ marginTop: '12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px' }}>
+        {/* Show old image toggle */}
         <label style={{
           display: 'flex', alignItems: 'center', gap: '8px',
           fontSize: '13px', fontWeight: 600, color: '#1A0A00',
@@ -1090,16 +1065,37 @@ function AlignStep({ croppedCanvas, currentImgSrc, initialPins, holds, onDone, o
         }}>
           <input
             type="checkbox"
-            checked={showHolds}
-            onChange={(e) => setShowHolds(e.target.checked)}
+            checked={showOldImage}
+            onChange={(e) => setShowOldImage(e.target.checked)}
             style={{ width: 18, height: 18, accentColor: '#0047FF', cursor: 'pointer' }}
           />
-          Show holds
+          Show old image
         </label>
+
+        {/* Reset pins */}
+        <button
+          onClick={() => {
+            if (!oldImgSize) return;
+            setPins([
+              { x: oldImgX,        y: oldImgY },
+              { x: oldImgX + oldW, y: oldImgY },
+              { x: oldImgX,        y: oldImgY + oldH },
+              { x: oldImgX + oldW, y: oldImgY + oldH },
+            ]);
+          }}
+          style={{
+            padding: '6px 12px', borderRadius: '8px', fontSize: '12px',
+            cursor: 'pointer', border: '1px solid rgba(26,10,0,0.2)',
+            background: 'rgba(26,10,0,0.06)', color: '#1A0A00',
+            fontFamily: 'DM Sans, sans-serif',
+          }}
+        >
+          Reset pins
+        </button>
       </div>
 
       {/* Buttons */}
-      <div style={{ display: 'flex', gap: '10px', marginTop: '16px' }}>
+      <div style={{ display: 'flex', gap: '10px', marginTop: '14px' }}>
         <button onClick={onBack} style={secondaryBtnStyle}>← Back</button>
         <button onClick={handleNext} style={{ ...primaryBtnStyle, flex: 1 }}>
           Next →
