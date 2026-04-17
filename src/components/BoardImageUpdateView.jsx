@@ -548,6 +548,14 @@ function AlignStep({ croppedCanvas, currentImgSrc, initialPins, holds, onDone, o
   const oldImgX = oldW * 0.25;
   const oldImgY = oldH * 0.25;
 
+  // ── Cropped image display dimensions ──────────────────────────────────────
+  // The image renders at its natural aspect ratio, with width fitted to the
+  // canvas window width (oldW). Height follows from the source aspect ratio.
+  const cw = croppedCanvas?.width  || oldW;
+  const ch = croppedCanvas?.height || oldH;
+  const imgDispW = oldW;
+  const imgDispH = oldW * (ch / cw);
+
   // ── Init pins once geometry is ready ──────────────────────────────────────
   useEffect(() => {
     if (!oldImgSize) return;
@@ -555,12 +563,12 @@ function AlignStep({ croppedCanvas, currentImgSrc, initialPins, holds, onDone, o
       // Restore from previous visit
       setPins(initialPins.map(([x, y]) => ({ x, y })));
     } else {
-      // Pins at 4 corners of the old image within workspace (not workspace corners)
+      // Pins at 4 corners of the cropped image's natural display rect
       setPins([
-        { x: oldImgX,        y: oldImgY },         // TL
-        { x: oldImgX + oldW, y: oldImgY },          // TR
-        { x: oldImgX,        y: oldImgY + oldH },   // BL
-        { x: oldImgX + oldW, y: oldImgY + oldH },   // BR
+        { x: oldImgX,             y: oldImgY             }, // TL
+        { x: oldImgX + imgDispW,  y: oldImgY             }, // TR
+        { x: oldImgX,             y: oldImgY + imgDispH  }, // BL
+        { x: oldImgX + imgDispW,  y: oldImgY + imgDispH  }, // BR
       ]);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -759,8 +767,9 @@ function AlignStep({ croppedCanvas, currentImgSrc, initialPins, holds, onDone, o
     // perspectiveWarp computes Hi = computeHomography(dstQuad, srcQuad) and for each
     // output pixel (dx, dy) in [0, oldW] × [0, oldH], uses Hi to sample the source.
     // This matches what the CSS matrix3d preview does: source corners → pin positions.
-    // At rest (pins at canvas corners), dstQuad = [[0,0],[oldW,0],[0,oldH],[oldW,oldH]]
-    // and the warp degenerates to a plain resize of the source into oldW × oldH — correct.
+    // At rest (pins at image natural corners), dstQuad = [[0,0],[oldW,0],[0,imgDispH],[oldW,imgDispH]]
+    // and the warp maps source → output such that only the top oldH*cw/oldW rows of source
+    // fill the output, treating the canvas window as a crop frame of the image. ✓
     const srcQuad = [[0, 0], [cw, 0], [0, ch], [cw, ch]];
     const dstQuad = pins.map(p => [p.x - oldImgX, p.y - oldImgY]);
 
@@ -873,12 +882,14 @@ function AlignStep({ croppedCanvas, currentImgSrc, initialPins, holds, onDone, o
               position: 'absolute',
               left: `${(oldImgX / wsW) * 100}%`,
               top: `${(oldImgY / wsH) * 100}%`,
-              width: `${(oldW / wsW) * 100}%`,
+              width: `${(imgDispW / wsW) * 100}%`,
+              height: `${(imgDispH / wsH) * 100}%`,
+              objectFit: 'fill',
               pointerEvents: 'none',
               transformOrigin: '0 0',
               transform: computePerspectiveCSS(
-                oldW * displayScale,
-                oldH * displayScale,
+                imgDispW * displayScale,
+                imgDispH * displayScale,
                 pins.map(p => [
                   (p.x - oldImgX) * displayScale,
                   (p.y - oldImgY) * displayScale,
@@ -1034,10 +1045,10 @@ function AlignStep({ croppedCanvas, currentImgSrc, initialPins, holds, onDone, o
           onClick={() => {
             if (!oldImgSize) return;
             setPins([
-              { x: oldImgX,        y: oldImgY },
-              { x: oldImgX + oldW, y: oldImgY },
-              { x: oldImgX,        y: oldImgY + oldH },
-              { x: oldImgX + oldW, y: oldImgY + oldH },
+              { x: oldImgX,             y: oldImgY             },
+              { x: oldImgX + imgDispW,  y: oldImgY             },
+              { x: oldImgX,             y: oldImgY + imgDispH  },
+              { x: oldImgX + imgDispW,  y: oldImgY + imgDispH  },
             ]);
           }}
           style={{
@@ -1079,11 +1090,11 @@ function AlignStep({ croppedCanvas, currentImgSrc, initialPins, holds, onDone, o
         const tx = LOUPE_W / 2 - pinPos.x * s;
         const ty = LOUPE_H / 2 - pinPos.y * s;
 
-        // New image: positioned at the old-image region within workspace
+        // New image: positioned at the image's natural display rect within workspace
         const newImgLeft  = oldImgX * s + tx;
         const newImgTop   = oldImgY * s + ty;
-        const newImgW     = oldW * s;
-        const newImgH     = oldH * s;
+        const newImgW     = imgDispW * s;
+        const newImgH     = imgDispH * s;
 
         // Re-compute perspective CSS at loupe scale
         const loupeCSS = computePerspectiveCSS(
@@ -1178,6 +1189,7 @@ function AlignStep({ croppedCanvas, currentImgSrc, initialPins, holds, onDone, o
                 position: 'absolute',
                 left: newImgLeft, top: newImgTop,
                 width: newImgW, height: newImgH,
+                objectFit: 'fill',
                 transformOrigin: '0 0',
                 transform: loupeCSS,
                 pointerEvents: 'none',
