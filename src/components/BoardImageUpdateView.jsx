@@ -1139,6 +1139,507 @@ function AlignStep({ croppedCanvas, currentImgSrc, phase, onAlignDone, onTrimDon
   );
 }
 
+// ─── Mark Corners step component ─────────────────────────────────────────────
+// User drags 4 pins onto the physical board corners. TL and BR are master pins;
+// TR and BL are derived (rectangle always enforced). Outputs a boardRegion
+// { left, top, width, height } as percentages of the cropped canvas dimensions.
+
+function MarkCornersStep({ croppedCanvas, previousBoardRegion, onDone, onBack }) {
+  const containerRef = useRef(null);
+  const lastTouchTimeRef = useRef(0);
+
+  const imgW = croppedCanvas.width;
+  const imgH = croppedCanvas.height;
+
+  // Memoize the data URL so we don't call toDataURL on every render
+  const croppedSrc = useMemo(() => croppedCanvas.toDataURL('image/jpeg', 0.85), [croppedCanvas]);
+
+  // Display scale: CSS pixels per canvas pixel
+  const [displayScale, setDisplayScale] = useState(1);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const update = () => {
+      const rect = el.getBoundingClientRect();
+      setDisplayScale(rect.width / imgW);
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [imgW]);
+
+  // ── Pin state ─────────────────────────────────────────────────────────────
+  // Only TL and BR are stored; TR and BL are derived.
+  // All coords are in canvas pixel space.
+  const initTL = useCallback(() => ({
+    x: (previousBoardRegion.left / 100) * imgW,
+    y: (previousBoardRegion.top / 100) * imgH,
+  }), [previousBoardRegion, imgW, imgH]);
+
+  const initBR = useCallback(() => ({
+    x: ((previousBoardRegion.left + previousBoardRegion.width) / 100) * imgW,
+    y: ((previousBoardRegion.top + previousBoardRegion.height) / 100) * imgH,
+  }), [previousBoardRegion, imgW, imgH]);
+
+  const [tl, setTl] = useState(initTL);
+  const [br, setBr] = useState(initBR);
+
+  // Refs so event handlers always see latest values without stale closures
+  const tlRef = useRef(tl);
+  const brRef = useRef(br);
+  useEffect(() => { tlRef.current = tl; }, [tl]);
+  useEffect(() => { brRef.current = br; }, [br]);
+
+  // Derived corners (rectangle always enforced)
+  const tr = { x: br.x, y: tl.y };
+  const bl = { x: tl.x, y: br.y };
+
+  // ── Drag state ────────────────────────────────────────────────────────────
+  // kind: 'tl' | 'tr' | 'bl' | 'br'
+  const dragRef = useRef(null); // { kind, startClientX, startClientY, startTl, startBr, touchId? }
+
+  // ── Loupe state ───────────────────────────────────────────────────────────
+  const loupePosRef = useRef(null);   // { clientX, clientY }
+  const isTouchDragRef = useRef(false);
+  const [showLoupe, setShowLoupe] = useState(false);
+
+  // ── Zoom/pan (pinch + wheel) ───────────────────────────────────────────────
+  const [zoom, setZoom] = useState({ scale: 1, panX: 0, panY: 0 });
+  const zoomRef = useRef({ scale: 1, panX: 0, panY: 0 });
+  const pinchRef = useRef(null);
+
+  // Wheel zoom handler
+  const handleWheel = useCallback((e) => {
+    e.preventDefault();
+    const rect = containerRef.current.getBoundingClientRect();
+    const cx = e.clientX - rect.left;
+    const cy = e.clientY - rect.top;
+
+    const absDelta = Math.abs(e.deltaY);
+    let delta;
+    if (absDelta < 10) delta = e.deltaY * 0.003;
+    else if (absDelta < 50) delta = e.deltaY * 0.008;
+    else delta = e.deltaY * 0.015;
+
+    const oldScale = zoomRef.current.scale;
+    const newScale = Math.max(1, Math.min(5, oldScale * (1 - delta)));
+    let panX = cx - (cx - zoomRef.current.panX) * (newScale / oldScale);
+    let panY = cy - (cy - zoomRef.current.panY) * (newScale / oldScale);
+
+    if (newScale <= 1.02) { panX = 0; panY = 0; }
+    const newZoom = { scale: newScale <= 1.02 ? 1 : newScale, panX, panY };
+    setZoom(newZoom);
+    zoomRef.current = newZoom;
+  }, []);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    el.addEventListener('wheel', handleWheel, { passive: false });
+    return () => el.removeEventListener('wheel', handleWheel);
+  }, [handleWheel]);
+
+  // ── Clamp helpers ─────────────────────────────────────────────────────────
+  const MIN_GAP = 10; // minimum distance between TL and BR in canvas pixels
+
+  const clampPin = (x, y) => ({
+    x: Math.max(0, Math.min(x, imgW)),
+    y: Math.max(0, Math.min(y, imgH)),
+  });
+
+  // ── Drag start ────────────────────────────────────────────────────────────
+  const startDrag = (e, kind) => {
+    if (e.touches) {
+      lastTouchTimeRef.current = Date.now();
+      e.stopPropagation();
+      e.preventDefault();
+      const t = e.touches[0];
+      isTouchDragRef.current = true;
+      setShowLoupe(true);
+      dragRef.current = {
+        kind,
+        startClientX: t.clientX,
+        startClientY: t.clientY,
+        startTl: { ...tlRef.current },
+        startBr: { ...brRef.current },
+        touchId: t.identifier,
+      };
+    } else {
+      if (Date.now() - lastTouchTimeRef.current < 500) return;
+      isTouchDragRef.current = false;
+      dragRef.current = {
+        kind,
+        startClientX: e.clientX,
+        startClientY: e.clientY,
+        startTl: { ...tlRef.current },
+        startBr: { ...brRef.current },
+      };
+    }
+  };
+
+  // ── Drag move ─────────────────────────────────────────────────────────────
+  const handleMove = useCallback((e) => {
+    // ── Pinch zoom ──
+    if (pinchRef.current && e.touches && e.touches.length >= 2) {
+      e.preventDefault();
+      const t0 = e.touches[0], t1 = e.touches[1];
+      const dist = Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY);
+      const newMidX = (t0.clientX + t1.clientX) / 2;
+      const newMidY = (t0.clientY + t1.clientY) / 2;
+
+      const scaleRatio = dist / pinchRef.current.startDist;
+      const newScale = Math.max(1, Math.min(5, pinchRef.current.startScale * scaleRatio));
+
+      const rect = containerRef.current.getBoundingClientRect();
+      const cx = pinchRef.current.startMidX - rect.left;
+      const cy = pinchRef.current.startMidY - rect.top;
+      let panX = cx - (cx - pinchRef.current.startPanX) * (newScale / pinchRef.current.startScale);
+      let panY = cy - (cy - pinchRef.current.startPanY) * (newScale / pinchRef.current.startScale);
+
+      panX += (newMidX - pinchRef.current.startMidX);
+      panY += (newMidY - pinchRef.current.startMidY);
+
+      if (newScale <= 1.02) { panX = 0; panY = 0; }
+      const newZoom = { scale: newScale <= 1.02 ? 1 : newScale, panX, panY };
+      setZoom(newZoom);
+      zoomRef.current = newZoom;
+      return;
+    }
+
+    if (!dragRef.current) return;
+
+    let clientX, clientY;
+    if (e.touches) {
+      // Find the right touch by identifier
+      const t = Array.from(e.touches).find(
+        tt => tt.identifier === dragRef.current.touchId
+      );
+      if (!t) return;
+      clientX = t.clientX;
+      clientY = t.clientY;
+    } else {
+      clientX = e.clientX;
+      clientY = e.clientY;
+    }
+
+    if (dragRef.current.kind === 'pan') {
+      const panX = dragRef.current.startPanX + (clientX - dragRef.current.startClientX);
+      const panY = dragRef.current.startPanY + (clientY - dragRef.current.startClientY);
+      const newZoom = { scale: zoomRef.current.scale, panX, panY };
+      setZoom(newZoom);
+      zoomRef.current = newZoom;
+      return;
+    }
+
+    const dx = (clientX - dragRef.current.startClientX) / (displayScale * zoomRef.current.scale);
+    const dy = (clientY - dragRef.current.startClientY) / (displayScale * zoomRef.current.scale);
+    const sTl = dragRef.current.startTl;
+    const sBr = dragRef.current.startBr;
+
+    let newTl = { ...sTl };
+    let newBr = { ...sBr };
+
+    switch (dragRef.current.kind) {
+      case 'tl':
+        // TL moves both left and top
+        newTl = clampPin(sTl.x + dx, sTl.y + dy);
+        // Enforce min gap
+        newTl.x = Math.min(newTl.x, newBr.x - MIN_GAP);
+        newTl.y = Math.min(newTl.y, newBr.y - MIN_GAP);
+        break;
+      case 'br':
+        // BR moves both right and bottom
+        newBr = clampPin(sBr.x + dx, sBr.y + dy);
+        newBr.x = Math.max(newBr.x, newTl.x + MIN_GAP);
+        newBr.y = Math.max(newBr.y, newTl.y + MIN_GAP);
+        break;
+      case 'tr':
+        // TR drag updates TL.y (top) and BR.x (right)
+        newTl = { ...sTl, y: clampPin(sTl.x, sTl.y + dy).y };
+        newBr = { ...sBr, x: clampPin(sBr.x + dx, sBr.y).x };
+        newTl.y = Math.min(newTl.y, newBr.y - MIN_GAP);
+        newBr.x = Math.max(newBr.x, newTl.x + MIN_GAP);
+        break;
+      case 'bl':
+        // BL drag updates TL.x (left) and BR.y (bottom)
+        newTl = { ...sTl, x: clampPin(sTl.x + dx, sTl.y).x };
+        newBr = { ...sBr, y: clampPin(sBr.x, sBr.y + dy).y };
+        newTl.x = Math.min(newTl.x, newBr.x - MIN_GAP);
+        newBr.y = Math.max(newBr.y, newTl.y + MIN_GAP);
+        break;
+      default:
+        return;
+    }
+
+    setTl(newTl);
+    setBr(newBr);
+
+    if (isTouchDragRef.current) {
+      loupePosRef.current = { clientX, clientY };
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [displayScale, imgW, imgH]);
+
+  // ── Drag end ──────────────────────────────────────────────────────────────
+  const handleEnd = useCallback((e) => {
+    if (pinchRef.current) {
+      const remaining = e && e.touches ? e.touches.length : 0;
+      if (remaining < 2) {
+        pinchRef.current = null;
+        if (zoomRef.current.scale < 1.05) {
+          const reset = { scale: 1, panX: 0, panY: 0 };
+          setZoom(reset);
+          zoomRef.current = reset;
+        }
+      }
+      return;
+    }
+    dragRef.current = null;
+    if (isTouchDragRef.current) {
+      loupePosRef.current = null;
+      isTouchDragRef.current = false;
+      setShowLoupe(false);
+    }
+  }, []);
+
+  // Global move/end listeners
+  useEffect(() => {
+    window.addEventListener('mousemove', handleMove);
+    window.addEventListener('mouseup', handleEnd);
+    window.addEventListener('touchmove', handleMove, { passive: false });
+    window.addEventListener('touchend', handleEnd);
+    return () => {
+      window.removeEventListener('mousemove', handleMove);
+      window.removeEventListener('mouseup', handleEnd);
+      window.removeEventListener('touchmove', handleMove);
+      window.removeEventListener('touchend', handleEnd);
+    };
+  }, [handleMove, handleEnd]);
+
+  // ── Next handler ──────────────────────────────────────────────────────────
+  const handleNext = () => {
+    const boardRegion = {
+      left:   (tl.x / imgW) * 100,
+      top:    (tl.y / imgH) * 100,
+      width:  ((br.x - tl.x) / imgW) * 100,
+      height: ((br.y - tl.y) / imgH) * 100,
+    };
+    onDone(boardRegion);
+  };
+
+  // ── Render ────────────────────────────────────────────────────────────────
+  const PIN_RADIUS = 10;  // visual radius in SVG units (canvas pixels at displayScale)
+  const PIN_HIT = 22;     // half of 44px touch hit target
+
+  // All 4 corner positions for rendering
+  const pins = [
+    { key: 'tl', label: 'TL', pos: tl },
+    { key: 'tr', label: 'TR', pos: tr },
+    { key: 'bl', label: 'BL', pos: bl },
+    { key: 'br', label: 'BR', pos: br },
+  ];
+
+  // Rectangle in SVG viewBox units (canvas pixel space)
+  const rectX = tl.x;
+  const rectY = tl.y;
+  const rectW = br.x - tl.x;
+  const rectH = br.y - tl.y;
+
+  return (
+    <div>
+      <p style={{ margin: '0 0 12px', fontSize: '13px', color: 'rgba(26,10,0,0.6)', lineHeight: 1.5 }}>
+        Drag the 4 pins to the corners of the physical climbing board.
+      </p>
+
+      {/* Image + SVG overlay */}
+      <div
+        ref={containerRef}
+        onTouchStart={(e) => {
+          if (e.touches.length >= 2) {
+            dragRef.current = null;
+            const t0 = e.touches[0], t1 = e.touches[1];
+            const dist = Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY);
+            const midX = (t0.clientX + t1.clientX) / 2;
+            const midY = (t0.clientY + t1.clientY) / 2;
+            pinchRef.current = {
+              startDist: dist,
+              startScale: zoomRef.current.scale,
+              startPanX: zoomRef.current.panX,
+              startPanY: zoomRef.current.panY,
+              startMidX: midX,
+              startMidY: midY,
+            };
+          } else if (e.touches.length === 1 && zoomRef.current.scale > 1) {
+            // Single finger on background while zoomed → pan
+            lastTouchTimeRef.current = Date.now();
+            const t = e.touches[0];
+            dragRef.current = {
+              kind: 'pan',
+              startClientX: t.clientX,
+              startClientY: t.clientY,
+              startPanX: zoomRef.current.panX,
+              startPanY: zoomRef.current.panY,
+            };
+          }
+        }}
+        style={{
+          position: 'relative',
+          width: '100%',
+          userSelect: 'none',
+          touchAction: 'none',
+          overflow: 'hidden',
+          borderRadius: '10px',
+          border: '1px solid rgba(26,10,0,0.12)',
+        }}
+      >
+        {/* Inner zoom/pan wrapper */}
+        <div style={{
+          transformOrigin: '0 0',
+          transform: `translate(${zoom.panX}px, ${zoom.panY}px) scale(${zoom.scale})`,
+          width: '100%',
+          position: 'relative',
+        }}>
+          {/* The cropped board image */}
+          <img
+            src={croppedSrc}
+            alt="Cropped board"
+            draggable={false}
+            style={{ display: 'block', width: '100%', height: 'auto', pointerEvents: 'none' }}
+          />
+
+          {/* SVG overlay — pins, rectangle, labels */}
+          <svg
+            style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', overflow: 'visible' }}
+            viewBox={`0 0 ${imgW} ${imgH}`}
+            preserveAspectRatio="none"
+          >
+            {/* Dashed rectangle outline */}
+            <rect
+              x={rectX} y={rectY} width={rectW} height={rectH}
+              fill="none"
+              stroke="rgba(255,255,255,0.8)"
+              strokeWidth={2}
+              strokeDasharray="8 5"
+              pointerEvents="none"
+            />
+
+            {/* Pins */}
+            {pins.map(({ key, label, pos }) => {
+              // Label positioning: offset to avoid overlapping the pin
+              const isRight = key === 'tr' || key === 'br';
+              const isBottom = key === 'bl' || key === 'br';
+              const labelX = pos.x + (isRight ? -(PIN_RADIUS + 4) : (PIN_RADIUS + 4));
+              const labelY = pos.y + (isBottom ? (PIN_RADIUS + 14) : -(PIN_RADIUS + 4));
+              const textAnchor = isRight ? 'end' : 'start';
+
+              return (
+                <g key={key}>
+                  {/* Invisible large hit target */}
+                  <circle
+                    cx={pos.x} cy={pos.y} r={PIN_HIT}
+                    fill="transparent"
+                    style={{ cursor: 'grab', touchAction: 'none' }}
+                    onMouseDown={(e) => { e.stopPropagation(); startDrag(e, key); }}
+                    onTouchStart={(e) => { e.stopPropagation(); startDrag(e, key); }}
+                  />
+                  {/* Visible pin */}
+                  <circle
+                    cx={pos.x} cy={pos.y} r={PIN_RADIUS}
+                    fill="#0047FF"
+                    stroke="white"
+                    strokeWidth={2}
+                    style={{ filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.5))', pointerEvents: 'none' }}
+                  />
+                  {/* Label */}
+                  <text
+                    x={labelX} y={labelY}
+                    fontSize={14}
+                    fontWeight="700"
+                    fontFamily="Space Mono, monospace"
+                    fill="white"
+                    stroke="rgba(0,0,0,0.6)"
+                    strokeWidth={3}
+                    paintOrder="stroke"
+                    textAnchor={textAnchor}
+                    pointerEvents="none"
+                  >
+                    {label}
+                  </text>
+                </g>
+              );
+            })}
+          </svg>
+        </div>
+      </div>
+
+      {/* Buttons */}
+      <div style={{ display: 'flex', gap: '10px', marginTop: '16px' }}>
+        <button onClick={onBack} style={secondaryBtnStyle}>← Back</button>
+        <button onClick={handleNext} style={{ ...primaryBtnStyle, flex: 1 }}>
+          Next →
+        </button>
+      </div>
+
+      {/* Loupe magnifier — only shown during touch pin drag */}
+      {showLoupe && dragRef.current && dragRef.current.kind !== 'pan' && loupePosRef.current && (() => {
+        const LOUPE_W = 180;
+        const LOUPE_H = 120;
+        const LOUPE_RADIUS = 60;
+        const MAGNIFICATION = 3;
+        const OFFSET_ABOVE = 80;
+
+        const { clientX, clientY } = loupePosRef.current;
+
+        // Current pin position in canvas pixel space
+        const pinKey = dragRef.current.kind;
+        let pinCanvasX, pinCanvasY;
+        switch (pinKey) {
+          case 'tl': pinCanvasX = tlRef.current.x; pinCanvasY = tlRef.current.y; break;
+          case 'br': pinCanvasX = brRef.current.x; pinCanvasY = brRef.current.y; break;
+          case 'tr': pinCanvasX = brRef.current.x; pinCanvasY = tlRef.current.y; break;
+          case 'bl': pinCanvasX = tlRef.current.x; pinCanvasY = brRef.current.y; break;
+          default: return null;
+        }
+
+        // Map canvas coords to loupe display
+        const magW = LOUPE_W * MAGNIFICATION;
+        const magH = magW * (imgH / imgW);
+        const imgLeft = -(pinCanvasX / imgW * magW) + LOUPE_W / 2;
+        const imgTop  = -(pinCanvasY / imgH * magH) + LOUPE_H / 2;
+
+        const clamp = (v, min, max) => Math.max(min, Math.min(v, max));
+        const loupeLeft = clamp(clientX - LOUPE_W / 2, 4, window.innerWidth - LOUPE_W - 4);
+        const loupeTop  = clamp(clientY - OFFSET_ABOVE - LOUPE_H, 4, clientY - OFFSET_ABOVE);
+
+        return (
+          <div key="corners-loupe" style={{
+            position: 'fixed', left: loupeLeft, top: loupeTop,
+            width: LOUPE_W, height: LOUPE_H,
+            borderRadius: `${LOUPE_RADIUS}px`,
+            border: '2px solid rgba(255,255,255,0.9)',
+            boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
+            overflow: 'hidden', pointerEvents: 'none', zIndex: 300,
+            background: '#1a0a00',
+          }}>
+            <img src={croppedSrc} alt="" draggable={false}
+              style={{ position: 'absolute', width: magW, height: magH, left: imgLeft, top: imgTop, pointerEvents: 'none' }}
+            />
+            <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}>
+              {/* Crosshair */}
+              <line x1={LOUPE_W/2 - 12} y1={LOUPE_H/2} x2={LOUPE_W/2 + 12} y2={LOUPE_H/2}
+                stroke="white" strokeWidth="1.5" strokeOpacity="0.9" />
+              <line x1={LOUPE_W/2} y1={LOUPE_H/2 - 12} x2={LOUPE_W/2} y2={LOUPE_H/2 + 12}
+                stroke="white" strokeWidth="1.5" strokeOpacity="0.9" />
+            </svg>
+          </div>
+        );
+      })()}
+    </div>
+  );
+}
+
 // ─── Shared button styles ─────────────────────────────────────────────────────
 
 const primaryBtnStyle = {
