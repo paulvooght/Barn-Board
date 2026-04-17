@@ -541,15 +541,16 @@ function AlignStep({ croppedCanvas, currentImgSrc, initialPins, holds, onDone, o
   }, [currentImgSrc, croppedCanvas]);
 
   // ── Workspace geometry ─────────────────────────────────────────────────────
-  // Workspace uses old image dimensions directly — no padding needed since
-  // the new image is positioned over the old image at 1:1 initially.
-  const wsW = oldImgSize ? oldImgSize.w : 0;
-  const wsH = oldImgSize ? oldImgSize.h : 0;
+  // Workspace is 1.5× old image size to provide a bleed area around all edges.
+  // The old image sits at (oldW*0.25, oldH*0.25) within the workspace.
+  const oldW = oldImgSize ? oldImgSize.w : 0;
+  const oldH = oldImgSize ? oldImgSize.h : 0;
+  const wsW = oldW * 1.5;
+  const wsH = oldH * 1.5;
 
-  // The new (cropped) image initially placed so it spans the full workspace
-  // (stretched to cover the old image). Users drag corners to distort from there.
-  const cropOffX = 0;
-  const cropOffY = 0;
+  // Old image offset within workspace (25% bleed on each side)
+  const oldImgX = oldW * 0.25;
+  const oldImgY = oldH * 0.25;
 
   // ── Init pins once geometry is ready ──────────────────────────────────────
   useEffect(() => {
@@ -558,12 +559,12 @@ function AlignStep({ croppedCanvas, currentImgSrc, initialPins, holds, onDone, o
       // Restore from previous visit
       setPins(initialPins.map(([x, y]) => ({ x, y })));
     } else {
-      // 4 corners of the workspace — new image initially covers old image 1:1
+      // Pins at 4 corners of the old image within workspace (not workspace corners)
       setPins([
-        { x: 0,    y: 0 },    // TL
-        { x: wsW,  y: 0 },    // TR
-        { x: 0,    y: wsH },  // BL
-        { x: wsW,  y: wsH },  // BR
+        { x: oldImgX,        y: oldImgY },         // TL
+        { x: oldImgX + oldW, y: oldImgY },          // TR
+        { x: oldImgX,        y: oldImgY + oldH },   // BL
+        { x: oldImgX + oldW, y: oldImgY + oldH },   // BR
       ]);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -756,24 +757,24 @@ function AlignStep({ croppedCanvas, currentImgSrc, initialPins, holds, onDone, o
     if (!pins || !oldImgSize) return;
     const cw = croppedCanvas.width;
     const ch = croppedCanvas.height;
-    const oldW = oldImgSize.w;
-    const oldH = oldImgSize.h;
 
-    // srcQuad: where pins are in cropped canvas pixel coords
-    // Pins are in workspace coords (0..wsW, 0..wsH = 0..oldW, 0..oldH)
-    // The cropped image is positioned at (cropOffX=0, cropOffY=0) in workspace,
-    // with display width = wsW. So to convert workspace → cropped canvas pixels:
-    // croppedPx = (workspacePt / wsW) * cw (for x), (workspacePt / wsH) * ch (for y)
+    // srcQuad: where pins are in cropped canvas pixel coords.
+    // Pins are in workspace coords. The new image is displayed covering the old
+    // image region in the workspace: left=oldImgX, top=oldImgY, size=oldW×oldH.
+    // The cropped canvas pixels map linearly onto that region.
+    // So: pin workspace pos → fraction within old-image region → cropped canvas pixel.
+    //   pinCanvasX = ((pinWsX - oldImgX) / oldW) * cw
+    //   pinCanvasY = ((pinWsY - oldImgY) / oldH) * ch
     const srcQuad = pins.map(p => [
-      (p.x / wsW) * cw,
-      (p.y / wsH) * ch,
+      ((p.x - oldImgX) / oldW) * cw,
+      ((p.y - oldImgY) / oldH) * ch,
     ]);
 
-    // dstQuad: 4 corners of old image [TL, TR, BL, BR]
+    // dstQuad: 4 corners of old image in old-image pixel coords [TL, TR, BL, BR]
     const dstQuad = [
-      [0, 0],
+      [0,    0],
       [oldW, 0],
-      [0, oldH],
+      [0,    oldH],
       [oldW, oldH],
     ];
 
@@ -861,7 +862,7 @@ function AlignStep({ croppedCanvas, currentImgSrc, initialPins, holds, onDone, o
           overflow: 'hidden',
           borderRadius: '10px',
           border: '1px solid rgba(26,10,0,0.12)',
-          background: '#1a0a00',
+          background: '#2a2a2a',
         }}
       >
         {/* Inner wrapper — zoom/pan applied here */}
@@ -871,41 +872,69 @@ function AlignStep({ croppedCanvas, currentImgSrc, initialPins, holds, onDone, o
           width: '100%',
           position: 'relative',
         }}>
-          {/* Aspect-ratio spacer */}
+          {/* Aspect-ratio spacer — based on full workspace (1.5× old image) */}
           <div style={{ paddingBottom: `${(wsH / wsW) * 100}%` }} />
 
-          {/* Base layer — old image at full opacity */}
+          {/* Base layer — old image at its position within the workspace */}
           <img
             src={currentImgSrc}
             alt="Current board"
             draggable={false}
             style={{
               position: 'absolute',
-              left: 0, top: 0,
-              width: '100%',
+              left: `${(oldImgX / wsW) * 100}%`,
+              top: `${(oldImgY / wsH) * 100}%`,
+              width: `${(oldW / wsW) * 100}%`,
               pointerEvents: 'none',
             }}
           />
 
-          {/* Foreground layer — new image with matrix3d perspective warp */}
+          {/* Foreground layer — new image with matrix3d perspective warp.
+              The image element is sized to the old-image region within workspace.
+              computePerspectiveCSS receives the old-image region size in screen px
+              and the pin positions relative to that region's top-left. */}
           <img
             src={croppedSrc}
             alt="New board"
             draggable={false}
             style={{
               position: 'absolute',
-              left: 0, top: 0,
-              width: '100%',
+              left: `${(oldImgX / wsW) * 100}%`,
+              top: `${(oldImgY / wsH) * 100}%`,
+              width: `${(oldW / wsW) * 100}%`,
               opacity: fgOpacity,
               pointerEvents: 'none',
               transformOrigin: '0 0',
               transform: computePerspectiveCSS(
-                wsW * displayScale,
-                wsH * displayScale,
-                pins.map(p => [p.x * displayScale, p.y * displayScale])
+                oldW * displayScale,
+                oldH * displayScale,
+                pins.map(p => [
+                  (p.x - oldImgX) * displayScale,
+                  (p.y - oldImgY) * displayScale,
+                ])
               ),
             }}
           />
+
+          {/* Canvas window outline — shows the old image boundary within the bleed workspace */}
+          <svg
+            style={{
+              position: 'absolute', inset: 0,
+              width: '100%', height: '100%',
+              pointerEvents: 'none',
+            }}
+            viewBox={`0 0 ${wsW} ${wsH}`}
+            preserveAspectRatio="none"
+          >
+            <rect
+              x={oldImgX} y={oldImgY}
+              width={oldW} height={oldH}
+              fill="none"
+              stroke="#0047FF"
+              strokeWidth={Math.max(wsW * 0.003, 2)}
+              strokeDasharray="none"
+            />
+          </svg>
 
           {/* Hold overlay layer — only when showHolds is on */}
           {showHolds && holds && holds.length > 0 && (
@@ -919,10 +948,11 @@ function AlignStep({ croppedCanvas, currentImgSrc, initialPins, holds, onDone, o
               preserveAspectRatio="none"
             >
               {holds.map((hold) => {
-                const bLeft = wsW * br.left / 100;
-                const bTop  = wsH * br.top / 100;
-                const bW    = wsW * br.width / 100;
-                const bH    = wsH * br.height / 100;
+                // Holds are relative to the old image region within workspace
+                const bLeft = oldImgX + oldW * br.left / 100;
+                const bTop  = oldImgY + oldH * br.top / 100;
+                const bW    = oldW * br.width / 100;
+                const bH    = oldH * br.height / 100;
                 const toX = (x_pct) => bLeft + (x_pct / 100) * bW;
                 const toY = (y_pct) => bTop  + (y_pct / 100) * bH;
 
@@ -1021,6 +1051,11 @@ function AlignStep({ croppedCanvas, currentImgSrc, initialPins, holds, onDone, o
         </div>{/* end inner zoom wrapper */}
       </div>
 
+      {/* Canvas window caption */}
+      <p style={{ margin: '6px 0 0', fontSize: '11px', color: 'rgba(26,10,0,0.45)', lineHeight: 1.4 }}>
+        The blue outline is the canvas window — anything outside it will be cropped.
+      </p>
+
       {/* Controls below workspace */}
       <div style={{ marginTop: '14px' }}>
         {/* Opacity slider */}
@@ -1084,13 +1119,13 @@ function AlignStep({ croppedCanvas, currentImgSrc, initialPins, holds, onDone, o
         const pinPos = pinsRef.current?.[pinIdx];
         if (!pinPos) return null;
 
-        // Pin position as fraction of old image
-        const pinFracX = pinPos.x / wsW;
-        const pinFracY = pinPos.y / wsH;
+        // Pin position as fraction of old image (can be <0 or >1 in bleed area)
+        const pinFracX = (pinPos.x - oldImgX) / oldW;
+        const pinFracY = (pinPos.y - oldImgY) / oldH;
 
         // Show the old image in the loupe, centered on the pin position
         const magW = LOUPE_W * MAGNIFICATION;
-        const magH = magW * (wsH / wsW);
+        const magH = magW * (oldH / oldW);
         const imgLeft = -(pinFracX * magW) + LOUPE_W / 2;
         const imgTop  = -(pinFracY * magH) + LOUPE_H / 2;
 
