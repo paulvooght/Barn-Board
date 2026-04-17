@@ -1160,347 +1160,11 @@ function AlignStep({ croppedCanvas, currentImgSrc, initialPins, holds, onDone, o
   );
 }
 
-// ─── Fine-tune step component ─────────────────────────────────────────────────
-// Lets the user translate + uniformly scale the warped canvas inside the final
-// canvas window as a last adjustment before confirming.
-//
-// tx, ty tracked in NATURAL IMAGE PIXEL SPACE (same units as warpedCanvas).
-// For CSS preview: cssX = (tx / natW) * workspaceW, cssY = (ty / natH) * workspaceH.
-// For final canvas composition: ctx.translate(tx, ty); ctx.scale(s, s).
-//
-// Props:
-//   warpedCanvas     — HTMLCanvasElement from AlignStep
-//   holds            — array of hold objects
-//   initialTransform — null | { tx, ty, scale } in natural image pixel space
-//   onDone(canvas, transform) — composed canvas + transform snapshot
-//   onBack()
-
-function FineTuneStep({ warpedCanvas, holds, initialTransform, onDone, onBack }) {
-  const containerRef = useRef(null);
-  const lastTouchTimeRef = useRef(0);
-
-  const natW = warpedCanvas.width;
-  const natH = warpedCanvas.height;
-
-  // tx/ty in natural image pixels; scale is uniform
-  const [tx, setTx] = useState(() => initialTransform ? initialTransform.tx : 0);
-  const [ty, setTy] = useState(() => initialTransform ? initialTransform.ty : 0);
-  const [scale, setScale] = useState(() => initialTransform ? initialTransform.scale : 1);
-
-  // Refs so event handlers always see fresh values
-  const txRef = useRef(tx);
-  const tyRef = useRef(ty);
-  const scaleRef = useRef(scale);
-  useEffect(() => { txRef.current = tx; }, [tx]);
-  useEffect(() => { tyRef.current = ty; }, [ty]);
-  useEffect(() => { scaleRef.current = scale; }, [scale]);
-
-  // Workspace display size (CSS pixels per natural pixel)
-  const [dispScale, setDispScale] = useState(1); // workspaceW / natW
-
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    const update = () => {
-      const rect = el.getBoundingClientRect();
-      setDispScale(rect.width / natW);
-    };
-    update();
-    const ro = new ResizeObserver(update);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [natW]);
-
-  // Memoize the warped image src
-  const warpedSrc = useMemo(
-    () => warpedCanvas.toDataURL('image/jpeg', JPEG_QUALITY),
-    [warpedCanvas]
-  );
-
-  // Drag state ref (pan)
-  const dragRef = useRef(null); // { startClientX, startClientY, startTx, startTy, touchId }
-
-  // Pinch state ref
-  const pinchRef = useRef(null); // { startDist, startScale, startMidX, startMidY }
-
-  // ── Single-finger pan ─────────────────────────────────────────────────────
-
-  const startPan = (e) => {
-    if (e.touches) {
-      if (e.touches.length !== 1) return;
-      lastTouchTimeRef.current = Date.now();
-      e.stopPropagation();
-      const t = e.touches[0];
-      dragRef.current = {
-        startClientX: t.clientX, startClientY: t.clientY,
-        startTx: txRef.current, startTy: tyRef.current,
-        touchId: t.identifier,
-      };
-    } else {
-      if (Date.now() - lastTouchTimeRef.current < 500) return;
-      dragRef.current = {
-        startClientX: e.clientX, startClientY: e.clientY,
-        startTx: txRef.current, startTy: tyRef.current,
-      };
-    }
-  };
-
-  const handleMove = useCallback((e) => {
-    // Pinch — update scale
-    if (pinchRef.current && e.touches && e.touches.length >= 2) {
-      e.preventDefault();
-      const t0 = e.touches[0], t1 = e.touches[1];
-      const dist = Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY);
-      const ratio = dist / pinchRef.current.startDist;
-      const newScale = Math.max(0.5, Math.min(2.0, pinchRef.current.startScale * ratio));
-      setScale(newScale);
-      scaleRef.current = newScale;
-      return;
-    }
-
-    if (!dragRef.current) return;
-
-    let clientX, clientY;
-    if (e.touches) {
-      const t = Array.from(e.touches).find(tt => tt.identifier === dragRef.current.touchId) || e.touches[0];
-      clientX = t.clientX;
-      clientY = t.clientY;
-    } else {
-      clientX = e.clientX;
-      clientY = e.clientY;
-    }
-
-    // dx in screen pixels → convert to natural image pixels
-    const dxScreen = clientX - dragRef.current.startClientX;
-    const dyScreen = clientY - dragRef.current.startClientY;
-    const dxNat = dxScreen / dispScale;
-    const dyNat = dyScreen / dispScale;
-
-    setTx(dragRef.current.startTx + dxNat);
-    setTy(dragRef.current.startTy + dyNat);
-    txRef.current = dragRef.current.startTx + dxNat;
-    tyRef.current = dragRef.current.startTy + dyNat;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dispScale]);
-
-  const handleEnd = useCallback((e) => {
-    if (pinchRef.current) {
-      const remaining = e && e.touches ? e.touches.length : 0;
-      if (remaining < 2) pinchRef.current = null;
-      return;
-    }
-    dragRef.current = null;
-  }, []);
-
-  useEffect(() => {
-    window.addEventListener('mousemove', handleMove);
-    window.addEventListener('mouseup', handleEnd);
-    window.addEventListener('touchmove', handleMove, { passive: false });
-    window.addEventListener('touchend', handleEnd);
-    return () => {
-      window.removeEventListener('mousemove', handleMove);
-      window.removeEventListener('mouseup', handleEnd);
-      window.removeEventListener('touchmove', handleMove);
-      window.removeEventListener('touchend', handleEnd);
-    };
-  }, [handleMove, handleEnd]);
-
-  // ── Wheel zoom ────────────────────────────────────────────────────────────
-  const handleWheel = useCallback((e) => {
-    e.preventDefault();
-    const absDelta = Math.abs(e.deltaY);
-    let delta;
-    if (absDelta < 10) delta = e.deltaY * 0.003;
-    else if (absDelta < 50) delta = e.deltaY * 0.008;
-    else delta = e.deltaY * 0.015;
-
-    const newScale = Math.max(0.5, Math.min(2.0, scaleRef.current * (1 - delta)));
-    setScale(newScale);
-    scaleRef.current = newScale;
-  }, []);
-
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    el.addEventListener('wheel', handleWheel, { passive: false });
-    return () => el.removeEventListener('wheel', handleWheel);
-  }, [handleWheel]);
-
-  // ── "Next" — compose output canvas ────────────────────────────────────────
-  const handleNext = () => {
-    const outCanvas = document.createElement('canvas');
-    outCanvas.width = natW;
-    outCanvas.height = natH;
-    const ctx = outCanvas.getContext('2d');
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, natW, natH);
-    ctx.translate(txRef.current, tyRef.current);
-    ctx.scale(scaleRef.current, scaleRef.current);
-    ctx.drawImage(warpedCanvas, 0, 0);
-    onDone(outCanvas, { tx: txRef.current, ty: tyRef.current, scale: scaleRef.current });
-  };
-
-  // CSS translate: convert natural-pixel tx/ty to workspace display pixels
-  const cssTx = tx * dispScale;
-  const cssTy = ty * dispScale;
-
-  const br = holdsData.boardRegion;
-
-  return (
-    <div>
-      <p style={{ margin: '0 0 12px', fontSize: '13px', color: 'rgba(26,10,0,0.6)', lineHeight: 1.5 }}>
-        Drag to shift, pinch or scroll to scale. The hold overlay is fixed — adjust the image underneath.
-      </p>
-
-      {/* Workspace */}
-      <div
-        ref={containerRef}
-        onMouseDown={startPan}
-        onTouchStart={(e) => {
-          if (e.touches.length >= 2) {
-            dragRef.current = null;
-            const t0 = e.touches[0], t1 = e.touches[1];
-            const dist = Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY);
-            pinchRef.current = {
-              startDist: dist,
-              startScale: scaleRef.current,
-            };
-          } else {
-            startPan(e);
-          }
-        }}
-        style={{
-          position: 'relative',
-          width: '100%',
-          userSelect: 'none',
-          touchAction: 'none',
-          overflow: 'hidden',
-          borderRadius: '10px',
-          border: '1px solid rgba(26,10,0,0.12)',
-          background: '#f5f5f5',
-          cursor: 'grab',
-        }}
-      >
-        {/* Aspect-ratio spacer */}
-        <div style={{ paddingBottom: `${(natH / natW) * 100}%` }} />
-
-        {/* Warped image — moves with translate + scale */}
-        <img
-          src={warpedSrc}
-          alt="Warped board"
-          draggable={false}
-          style={{
-            position: 'absolute',
-            left: 0, top: 0,
-            width: '100%',
-            height: '100%',
-            objectFit: 'fill',
-            pointerEvents: 'none',
-            transformOrigin: '0 0',
-            transform: `translate(${cssTx}px, ${cssTy}px) scale(${scale})`,
-          }}
-        />
-
-        {/* Hold overlay — FIXED to workspace, image moves underneath */}
-        {holds && holds.length > 0 && (
-          <svg
-            style={{
-              position: 'absolute', inset: 0,
-              width: '100%', height: '100%',
-              pointerEvents: 'none',
-            }}
-            viewBox={`0 0 ${natW} ${natH}`}
-            preserveAspectRatio="none"
-          >
-            {holds.map((hold) => {
-              const bLeft = natW * br.left / 100;
-              const bTop  = natH * br.top / 100;
-              const bW    = natW * br.width / 100;
-              const bH    = natH * br.height / 100;
-              const toX = (x_pct) => bLeft + (x_pct / 100) * bW;
-              const toY = (y_pct) => bTop  + (y_pct / 100) * bH;
-
-              const hasPolygon = hold.polygon && hold.polygon.length >= 3;
-              const polyPoints = hasPolygon
-                ? hold.polygon.map(([px, py]) => `${toX(px)},${toY(py)}`).join(' ')
-                : null;
-              const cx = toX(hold.cx);
-              const cy = toY(hold.cy);
-              const w = hold.w_pct !== undefined ? hold.w_pct : (hold.r || 2) * 2;
-              const h = hold.h_pct !== undefined ? hold.h_pct : (hold.r || 2) * 2;
-              const rx = Math.max((w / 100) * bW / 2, 2);
-              const ry = Math.max((h / 100) * bH / 2, 2);
-
-              return (
-                <g key={hold.id} style={{ pointerEvents: 'none' }}>
-                  {hasPolygon ? (
-                    <polygon
-                      points={polyPoints}
-                      fill="rgba(34,211,238,0.12)"
-                      stroke="rgba(34,211,238,0.9)"
-                      strokeWidth={2}
-                      strokeLinejoin="round"
-                    />
-                  ) : (
-                    <ellipse
-                      cx={cx} cy={cy} rx={rx} ry={ry}
-                      fill="rgba(34,211,238,0.12)"
-                      stroke="rgba(34,211,238,0.9)"
-                      strokeWidth={2}
-                    />
-                  )}
-                </g>
-              );
-            })}
-          </svg>
-        )}
-      </div>
-
-      {/* Controls */}
-      <div style={{ marginTop: '14px' }}>
-        <label style={{
-          display: 'block', marginBottom: '5px',
-          fontSize: '11px', fontWeight: 700, letterSpacing: '1px',
-          textTransform: 'uppercase', color: 'rgba(26,10,0,0.55)',
-          fontFamily: 'Space Mono, monospace',
-        }}>
-          Scale — {Math.round(scale * 100)}%
-        </label>
-        <input
-          type="range"
-          min={50}
-          max={150}
-          value={Math.round(scale * 100)}
-          onChange={(e) => {
-            const v = Number(e.target.value) / 100;
-            setScale(v);
-            scaleRef.current = v;
-          }}
-          style={{ width: '100%', accentColor: '#0047FF' }}
-        />
-      </div>
-
-      <div style={{ display: 'flex', gap: '10px', marginTop: '14px', alignItems: 'center' }}>
-        <button
-          onClick={() => { setTx(0); setTy(0); setScale(1); txRef.current = 0; tyRef.current = 0; scaleRef.current = 1; }}
-          style={{ ...secondaryBtnStyle, fontSize: '13px', padding: '10px 14px' }}
-        >
-          Reset
-        </button>
-        <div style={{ flex: 1 }} />
-        <button onClick={onBack} style={secondaryBtnStyle}>← Back</button>
-        <button onClick={handleNext} style={{ ...primaryBtnStyle }}>
-          Next →
-        </button>
-      </div>
-    </div>
-  );
-}
 
 // ─── Confirm step component ───────────────────────────────────────────────────
 // Shows the warped canvas (already at old-image dimensions) with hold overlay.
 
-function ConfirmStep({ warpedCanvas, holds, imageName, nameError, saving, saveError, onNameChange, onSave, onAdjust, onFineTune }) {
+function ConfirmStep({ warpedCanvas, holds, imageName, nameError, saving, saveError, onNameChange, onSave, onAdjust }) {
   // Memoize data URL to avoid re-calling toDataURL on every render
   const warpedSrc = useMemo(
     () => warpedCanvas ? warpedCanvas.toDataURL('image/jpeg', JPEG_QUALITY) : null,
@@ -1664,14 +1328,7 @@ function ConfirmStep({ warpedCanvas, holds, imageName, nameError, saving, saveEr
           style={{ ...secondaryBtnStyle, fontSize: '13px', padding: '11px 14px' }}
           disabled={saving}
         >
-          Adjust alignment
-        </button>
-        <button
-          onClick={onFineTune}
-          style={{ ...secondaryBtnStyle, fontSize: '13px', padding: '11px 14px' }}
-          disabled={saving}
-        >
-          Fine tune
+          ← Back to align
         </button>
         <button
           onClick={() => onSave(warpedCanvas)}
@@ -1725,7 +1382,7 @@ const secondaryBtnStyle = {
 // ─── Main wizard component ────────────────────────────────────────────────────
 
 export default function BoardImageUpdateView({ currentImgSrc, currentImageName, currentImageUrl, holds, onSave, onCancel }) {
-  const [step, setStep] = useState('upload'); // 'upload' | 'crop' | 'align' | 'fineTune' | 'confirm'
+  const [step, setStep] = useState('upload'); // 'upload' | 'crop' | 'align' | 'confirm'
 
   // Upload step state
   const [uploadedDataUrl, setUploadedDataUrl] = useState(null);
@@ -1741,10 +1398,6 @@ export default function BoardImageUpdateView({ currentImgSrc, currentImageName, 
   const [pendingWarp, setPendingWarp] = useState(null);
   const [pendingPins, setPendingPins] = useState(null); // [[x,y], ...] in workspace coords
 
-  // Fine-tune composed canvas + transform — persisted so "Fine tune" re-enters with last transform
-  const [pendingComposed, setPendingComposed] = useState(null);
-  const [pendingTransform, setPendingTransform] = useState(null); // { tx, ty, scale } in natural px
-
   // Confirm step state
   const [imageName, setImageName] = useState(() => autoIncrementName(currentImageName || 'Barn_Set_01_V5'));
   const [nameError, setNameError] = useState('');
@@ -1752,11 +1405,10 @@ export default function BoardImageUpdateView({ currentImgSrc, currentImageName, 
   const [saveError, setSaveError] = useState('');
 
   const stepLabels = {
-    upload: 'Step 1 of 5 — Upload',
-    crop: 'Step 2 of 5 — Crop',
-    align: 'Step 3 of 5 — Align',
-    fineTune: 'Step 4 of 5 — Fine tune',
-    confirm: 'Step 5 of 5 — Confirm',
+    upload: 'Step 1 of 4 — Upload',
+    crop: 'Step 2 of 4 — Crop',
+    align: 'Step 3 of 4 — Align',
+    confirm: 'Step 4 of 4 — Confirm',
   };
 
   // ── Upload step handlers ──────────────────────────────────────────────────
@@ -1952,34 +1604,16 @@ export default function BoardImageUpdateView({ currentImgSrc, currentImageName, 
           onDone={(warpedCanvas, pins) => {
             setPendingWarp(warpedCanvas);
             setPendingPins(pins);
-            // Reset transform when re-aligning — new warp, fresh fine-tune
-            setPendingTransform(null);
-            setPendingComposed(null);
-            setStep('fineTune');
+            setStep('confirm');
           }}
           onBack={() => setStep('crop')}
         />
       )}
 
-      {/* ── Step 4: Fine tune ── */}
-      {step === 'fineTune' && pendingWarp && (
-        <FineTuneStep
-          warpedCanvas={pendingWarp}
-          holds={holds}
-          initialTransform={pendingTransform}
-          onDone={(composedCanvas, transform) => {
-            setPendingComposed(composedCanvas);
-            setPendingTransform(transform);
-            setStep('confirm');
-          }}
-          onBack={() => setStep('align')}
-        />
-      )}
-
-      {/* ── Step 5: Confirm ── */}
-      {step === 'confirm' && pendingComposed && (
+      {/* ── Step 4: Confirm ── */}
+      {step === 'confirm' && pendingWarp && (
         <ConfirmStep
-          warpedCanvas={pendingComposed}
+          warpedCanvas={pendingWarp}
           holds={holds}
           imageName={imageName}
           nameError={nameError}
@@ -1988,7 +1622,6 @@ export default function BoardImageUpdateView({ currentImgSrc, currentImageName, 
           onNameChange={handleNameChange}
           onSave={handleSave}
           onAdjust={() => { setSaveError(''); setStep('align'); }}
-          onFineTune={() => { setSaveError(''); setStep('fineTune'); }}
         />
       )}
     </div>
