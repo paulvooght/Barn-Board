@@ -8,6 +8,8 @@ import {
 import { HOLD_COLOR_DOT } from '../utils/constants';
 import holdsData from '../data/holds.json';
 
+const { boardRegion } = holdsData;
+
 const TOOLS = {
   SELECT: 'select',
   DRAW: 'draw',
@@ -67,9 +69,7 @@ function positivityLabel(val) {
   return 'Very juggy';
 }
 
-export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc, imgSrcSet, imgSizes, initialManagerMode, onManagerModeChange, onEditHold, boardRegion: boardRegionProp }) {
-  const boardRegion = boardRegionProp ?? holdsData.boardRegion;
-
+export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc, imgSrcSet, imgSizes, initialManagerMode, onManagerModeChange, onEditHold }) {
   const { state: holds, setState: setHolds, undo, redo, canUndo, canRedo } = useUndoRedo(initialHolds);
 
   const [managerMode, setManagerMode] = useState(initialManagerMode || 'boundaries'); // 'boundaries' | 'metadata'

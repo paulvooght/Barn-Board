@@ -485,7 +485,6 @@ export default function App() {
     ? `${boardImageConfig.baseUrl}/${boardImageConfig.imageName}-800w.jpg${_imgCacheParam} 800w, ${boardImageConfig.baseUrl}/${boardImageConfig.imageName}-1200w.jpg${_imgCacheParam} 1200w, ${boardImageConfig.baseUrl}/${boardImageConfig.imageName}-2000w.jpg${_imgCacheParam} 2000w`
     : DEFAULT_BOARD_SRCSET;
   const imgSizes = DEFAULT_BOARD_SIZES;
-  const effectiveBoardRegion = boardImageConfig?.boardRegion ?? holdsData.boardRegion;
 
   const resetCreate = useCallback(() => {
     setHoldSelection({});
@@ -1059,51 +1058,36 @@ export default function App() {
 
   const handleSetupBoard = () => setView('setupBoard');
 
-  const handleBoardImageSave = async ({ imageName, imageBlobs, boardRegion: newBoardRegion, regionOnly }) => {
+  const handleBoardImageSave = async ({ imageName, imageBlobs }) => {
     try {
-      let config;
+      // 1. Ensure bucket exists (createBucket returns error if exists — that's fine)
+      await supabase.storage.createBucket('board-images', { public: true }).catch(() => {});
 
-      if (regionOnly) {
-        // Back-compat path: no new image to upload — just update boardRegion on existing config
-        config = {
-          ...boardImageConfig,
-          boardRegion: newBoardRegion,
-          updatedAt: new Date().toISOString(),
-          cacheVersion: Date.now(),
-        };
-      } else {
-        // Normal path: upload new image files then save config
-        // 1. Ensure bucket exists (createBucket returns error if exists — that's fine)
-        await supabase.storage.createBucket('board-images', { public: true }).catch(() => {});
+      // 2. Upload all sizes in parallel
+      const baseUrl = `${import.meta.env.VITE_SUPABASE_URL}/storage/v1/object/public/board-images`;
+      const uploads = [
+        supabase.storage.from('board-images').upload(`${imageName}.jpg`, imageBlobs.full, { contentType: 'image/jpeg', upsert: true }),
+        supabase.storage.from('board-images').upload(`${imageName}-2000w.jpg`, imageBlobs.w2000, { contentType: 'image/jpeg', upsert: true }),
+        supabase.storage.from('board-images').upload(`${imageName}-1200w.jpg`, imageBlobs.w1200, { contentType: 'image/jpeg', upsert: true }),
+        supabase.storage.from('board-images').upload(`${imageName}-800w.jpg`, imageBlobs.w800, { contentType: 'image/jpeg', upsert: true }),
+      ];
+      const results = await Promise.all(uploads);
 
-        // 2. Upload all sizes in parallel
-        const baseUrl = `${import.meta.env.VITE_SUPABASE_URL}/storage/v1/object/public/board-images`;
-        const uploads = [
-          supabase.storage.from('board-images').upload(`${imageName}.jpg`, imageBlobs.full, { contentType: 'image/jpeg', upsert: true }),
-          supabase.storage.from('board-images').upload(`${imageName}-2000w.jpg`, imageBlobs.w2000, { contentType: 'image/jpeg', upsert: true }),
-          supabase.storage.from('board-images').upload(`${imageName}-1200w.jpg`, imageBlobs.w1200, { contentType: 'image/jpeg', upsert: true }),
-          supabase.storage.from('board-images').upload(`${imageName}-800w.jpg`, imageBlobs.w800, { contentType: 'image/jpeg', upsert: true }),
-        ];
-        const results = await Promise.all(uploads);
-
-        // Check for upload errors
-        const errors = results.filter(r => r.error);
-        if (errors.length > 0) {
-          console.error('[BoardImage] Upload errors:', errors.map(r => r.error));
-          const firstErr = errors[0].error;
-          throw new Error(firstErr.message || firstErr.error || `Failed to upload ${errors.length} image(s)`);
-        }
-
-        // 3. Build config — include cacheVersion for cache-busting on this and future loads
-        config = {
-          imageName,
-          baseUrl,
-          updatedAt: new Date().toISOString(),
-          cacheVersion: Date.now(),
-          // boardRegion from the wizard; preserve existing if absent
-          ...(newBoardRegion ? { boardRegion: newBoardRegion } : boardImageConfig?.boardRegion ? { boardRegion: boardImageConfig.boardRegion } : {}),
-        };
+      // Check for upload errors
+      const errors = results.filter(r => r.error);
+      if (errors.length > 0) {
+        console.error('[BoardImage] Upload errors:', errors.map(r => r.error));
+        const firstErr = errors[0].error;
+        throw new Error(firstErr.message || firstErr.error || `Failed to upload ${errors.length} image(s)`);
       }
+
+      // 3. Build config — include cacheVersion for cache-busting on this and future loads
+      const config = {
+        imageName,
+        baseUrl,
+        updatedAt: new Date().toISOString(),
+        cacheVersion: Date.now(),
+      };
 
       // Save config to board_settings
       const { error: settingsError } = await supabase
@@ -1337,7 +1321,7 @@ export default function App() {
           imgSrcSet={imgSrcSet}
           imgSizes={imgSizes}
           holdSnapshots={view === 'viewRoute' && viewingRoute ? viewingRoute.holdSnapshots : null}
-          boardRegion={effectiveBoardRegion}
+          boardRegion={holdsData.boardRegion}
         >
           {/* Create mode: mode selector + hold counts */}
           {view === 'create' && (
@@ -1738,9 +1722,8 @@ export default function App() {
         <BoardImageUpdateView
           currentImgSrc={imgSrc}
           currentImageName={boardImageConfig?.imageName || 'Barn_Set_01_V5'}
-          previousBoardRegion={effectiveBoardRegion}
+          previousBoardRegion={holdsData.boardRegion}
           holds={allHolds}
-          boardImageConfig={boardImageConfig}
           onSave={handleBoardImageSave}
           onCancel={() => setView('settings')}
         />
@@ -1754,7 +1737,7 @@ export default function App() {
           imgSrc={imgSrc}
           imgSrcSet={imgSrcSet}
           imgSizes={imgSizes}
-          boardRegion={effectiveBoardRegion}
+          boardRegion={holdsData.boardRegion}
           onHoldTap={(holdId) => {
             const h = allHolds.find(h => h.id === holdId);
             if (h) handleEditHold(h, 'holdSelect');
@@ -1791,7 +1774,7 @@ export default function App() {
           imgSrc={imgSrc}
           imgSrcSet={imgSrcSet}
           imgSizes={imgSizes}
-          boardRegion={effectiveBoardRegion}
+          boardRegion={holdsData.boardRegion}
           initialManagerMode={holdManagerMode}
           onManagerModeChange={setHoldManagerMode}
           onEditHold={(hold) => handleEditHold(hold, 'setupBoard')}
@@ -1807,7 +1790,7 @@ export default function App() {
           imgSrc={imgSrc}
           imgSrcSet={imgSrcSet}
           imgSizes={imgSizes}
-          boardRegion={effectiveBoardRegion}
+          boardRegion={holdsData.boardRegion}
           onSave={handleHoldEditorSave}
           onCancel={handleHoldEditorCancel}
           onDelete={view === 'editHold' ? () => {

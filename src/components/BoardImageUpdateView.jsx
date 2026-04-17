@@ -348,7 +348,120 @@ function CropStep({ imageDataUrl, imageWidth, imageHeight, onNext, onBack }) {
   );
 }
 
-// ─── (computeHomography, perspectiveWarp, computePerspectiveCSS, AlignStep deleted — Task D) ───
+// ─── Perspective warp helpers ─────────────────────────────────────────────────
+// computeHomography: builds a 3×3 projective transform from 4 point pairs.
+// Usage: dx = (h0*sx + h1*sy + h2) / (h6*sx + h7*sy + 1)
+//        dy = (h3*sx + h4*sy + h5) / (h6*sx + h7*sy + 1)
+
+function computeHomography(srcPts, dstPts) {
+  // Build 8×8 system: for each point pair (src[i] → dst[i]):
+  //   sx*h0 + sy*h1 + h2 - sx*dx*h6 - sy*dx*h7 = dx
+  //   sx*h3 + sy*h4 + h5 - sx*dy*h6 - sy*dy*h7 = dy
+  const n = 8;
+  const M = [];
+  for (let i = 0; i < 4; i++) {
+    const [sx, sy] = srcPts[i];
+    const [dx, dy] = dstPts[i];
+    M.push([sx, sy, 1, 0, 0, 0, -sx * dx, -sy * dx, dx]);
+    M.push([0, 0, 0, sx, sy, 1, -sx * dy, -sy * dy, dy]);
+  }
+
+  // Gaussian elimination with partial pivoting
+  for (let col = 0; col < n; col++) {
+    let maxVal = 0, maxRow = col;
+    for (let row = col; row < n; row++) {
+      if (Math.abs(M[row][col]) > maxVal) {
+        maxVal = Math.abs(M[row][col]);
+        maxRow = row;
+      }
+    }
+    [M[col], M[maxRow]] = [M[maxRow], M[col]];
+
+    const pivot = M[col][col];
+    if (Math.abs(pivot) < 1e-12) return [1, 0, 0, 0, 1, 0, 0, 0, 1]; // identity fallback
+
+    for (let j = col; j <= n; j++) M[col][j] /= pivot;
+    for (let row = 0; row < n; row++) {
+      if (row === col) continue;
+      const factor = M[row][col];
+      for (let j = col; j <= n; j++) M[row][j] -= factor * M[col][j];
+    }
+  }
+
+  const h = M.map(row => row[n]);
+  return [...h, 1]; // [h0, h1, h2, h3, h4, h5, h6, h7, 1]
+}
+
+// ─── Perspective warp helper (pixel-by-pixel homography) ─────────────────────
+// srcQuad / dstQuad: arrays of 4 [x, y] points [TL, TR, BL, BR].
+// For each output pixel, computes the inverse homography to find the source
+// pixel, then samples with bilinear interpolation. No triangle mesh artifacts.
+
+function perspectiveWarp(sourceCanvas, srcQuad, dstQuad, outW, outH) {
+  const W = outW || sourceCanvas.width;
+  const H = outH || sourceCanvas.height;
+  const sw = sourceCanvas.width;
+  const sh = sourceCanvas.height;
+
+  // Get source pixel data
+  const srcCtx = sourceCanvas.getContext('2d');
+  const srcData = srcCtx.getImageData(0, 0, sw, sh);
+  const src = srcData.data;
+
+  // Create output canvas
+  const out = document.createElement('canvas');
+  out.width = W;
+  out.height = H;
+  const outCtx = out.getContext('2d');
+  const outImgData = outCtx.createImageData(W, H);
+  const dst = outImgData.data;
+
+  // Compute inverse homography: maps output coords → source coords
+  const Hi = computeHomography(dstQuad, srcQuad);
+
+  for (let dy = 0; dy < H; dy++) {
+    for (let dx = 0; dx < W; dx++) {
+      // Apply inverse homography to get source position
+      const w = Hi[6] * dx + Hi[7] * dy + Hi[8];
+      if (Math.abs(w) < 1e-10) continue;
+      const sx = (Hi[0] * dx + Hi[1] * dy + Hi[2]) / w;
+      const sy = (Hi[3] * dx + Hi[4] * dy + Hi[5]) / w;
+
+      // Skip pixels far outside source bounds
+      if (sx < -1 || sx > sw || sy < -1 || sy > sh) continue;
+
+      // Clamp to source bounds for edge pixels (prevents black edges)
+      const sxc = Math.max(0, Math.min(sx, sw - 1.001));
+      const syc = Math.max(0, Math.min(sy, sh - 1.001));
+
+      // Bilinear interpolation
+      const x0 = Math.floor(sxc);
+      const y0 = Math.floor(syc);
+      const x1 = Math.min(x0 + 1, sw - 1);
+      const y1 = Math.min(y0 + 1, sh - 1);
+      const fx = sxc - x0;
+      const fy = syc - y0;
+
+      const idx00 = (y0 * sw + x0) * 4;
+      const idx10 = (y0 * sw + x1) * 4;
+      const idx01 = (y1 * sw + x0) * 4;
+      const idx11 = (y1 * sw + x1) * 4;
+      const outIdx = (dy * W + dx) * 4;
+
+      for (let c = 0; c < 4; c++) {
+        dst[outIdx + c] = Math.round(
+          (1 - fx) * (1 - fy) * src[idx00 + c] +
+          fx * (1 - fy) * src[idx10 + c] +
+          (1 - fx) * fy * src[idx01 + c] +
+          fx * fy * src[idx11 + c]
+        );
+      }
+    }
+  }
+
+  outCtx.putImageData(outImgData, 0, 0);
+  return out;
+}
 
 // ─── Mark Corners step component ─────────────────────────────────────────────
 // User drags 4 pins onto the physical board corners. TL and BR are master pins;
@@ -879,10 +992,7 @@ const secondaryBtnStyle = {
 
 // ─── Main wizard component ────────────────────────────────────────────────────
 
-export default function BoardImageUpdateView({ currentImgSrc, currentImageName, previousBoardRegion, holds, boardImageConfig, onSave, onCancel }) {
-  // Back-compat: if an image was already uploaded but has no boardRegion, skip straight to markCorners
-  const isBackCompat = !!(boardImageConfig?.baseUrl && boardImageConfig?.imageName && !boardImageConfig?.boardRegion);
-
+export default function BoardImageUpdateView({ currentImgSrc, currentImageName, previousBoardRegion, holds, onSave, onCancel }) {
   const [step, setStep] = useState('upload'); // 'upload' | 'crop' | 'markCorners' | 'confirm'
 
   // Upload step state
@@ -904,36 +1014,6 @@ export default function BoardImageUpdateView({ currentImgSrc, currentImageName, 
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
 
-  // Back-compat: on mount, load the existing image into a canvas and jump to markCorners
-  useEffect(() => {
-    if (!isBackCompat) return;
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.onload = () => {
-      let w = img.naturalWidth;
-      let h = img.naturalHeight;
-      // Cap to MAX_IMAGE_WIDTH so canvas isn't enormous
-      if (w > MAX_IMAGE_WIDTH) {
-        const scale = MAX_IMAGE_WIDTH / w;
-        w = MAX_IMAGE_WIDTH;
-        h = Math.round(h * scale);
-      }
-      const canvas = document.createElement('canvas');
-      canvas.width = w;
-      canvas.height = h;
-      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-      setCroppedCanvas(canvas);
-      setStep('markCorners');
-    };
-    img.onerror = () => {
-      // Fallback: if cross-origin load fails, just open normal upload flow
-      console.warn('[BoardImageUpdate] Back-compat image load failed — falling back to upload flow');
-    };
-    // Use currentImgSrc which already has cache busting if present
-    img.src = currentImgSrc;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   // Memoized data URL for the confirm step preview (avoids repeated toDataURL calls)
   const confirmImageSrc = useMemo(
     () => (step === 'confirm' && croppedCanvas ? croppedCanvas.toDataURL('image/jpeg', JPEG_QUALITY) : null),
@@ -942,17 +1022,12 @@ export default function BoardImageUpdateView({ currentImgSrc, currentImageName, 
     [croppedCanvas]
   );
 
-  const stepLabels = isBackCompat
-    ? {
-        markCorners: 'Step 1 of 2 — Mark Corners',
-        confirm: 'Step 2 of 2 — Confirm',
-      }
-    : {
-        upload: 'Step 1 of 4 — Upload',
-        crop: 'Step 2 of 4 — Crop',
-        markCorners: 'Step 3 of 4 — Mark Corners',
-        confirm: 'Step 4 of 4 — Confirm',
-      };
+  const stepLabels = {
+    upload: 'Step 1 of 4 — Upload',
+    crop: 'Step 2 of 4 — Crop',
+    markCorners: 'Step 3 of 4 — Mark Corners',
+    confirm: 'Step 4 of 4 — Confirm',
+  };
 
   // ── Upload step handlers ──────────────────────────────────────────────────
 
@@ -1004,25 +1079,7 @@ export default function BoardImageUpdateView({ currentImgSrc, currentImageName, 
   };
 
   const handleSave = async () => {
-    // Back-compat path: no new image to upload, just update the boardRegion on the existing config
-    if (isBackCompat) {
-      setSaving(true);
-      setSaveError('');
-      try {
-        await onSave({
-          regionOnly: true,
-          boardRegion: pendingBoardRegion,
-        });
-      } catch (err) {
-        console.error('[BoardImageUpdate] Region-only save failed:', err);
-        const msg = err?.message || String(err);
-        setSaveError(`Save failed: ${msg}`);
-        setSaving(false);
-      }
-      return;
-    }
-
-    // Normal path: upload image + save config
+    // Upload image + save config
     const err = validateName(imageName);
     if (err) { setNameError(err); return; }
     setSaving(true);
@@ -1156,26 +1213,11 @@ export default function BoardImageUpdateView({ currentImgSrc, currentImageName, 
       {/* ── Step 3: Mark Corners ── */}
       {step === 'markCorners' && croppedCanvas && (
         <div>
-          {/* Back-compat banner */}
-          {isBackCompat && (
-            <div style={{
-              marginBottom: '14px',
-              padding: '10px 14px',
-              borderRadius: '10px',
-              background: 'rgba(0,71,255,0.08)',
-              border: '1px solid rgba(0,71,255,0.25)',
-              fontSize: '13px',
-              color: '#1A0A00',
-              lineHeight: 1.5,
-            }}>
-              This image was uploaded before corner-marking. Mark the 4 board corners to align holds.
-            </div>
-          )}
           <MarkCornersStep
             croppedCanvas={croppedCanvas}
             previousBoardRegion={pendingBoardRegion ?? previousBoardRegion}
             onDone={(boardRegion) => { setPendingBoardRegion(boardRegion); setStep('confirm'); }}
-            onBack={isBackCompat ? onCancel : () => setStep('crop')}
+            onBack={() => setStep('crop')}
           />
         </div>
       )}
@@ -1266,57 +1308,55 @@ export default function BoardImageUpdateView({ currentImgSrc, currentImageName, 
             </div>
           </div>
 
-          {/* Name input — hidden in back-compat mode (not creating a new image) */}
-          {!isBackCompat && (
-            <div style={{ marginBottom: '20px' }}>
-              <label style={{
-                display: 'block', marginBottom: '6px',
-                fontSize: '11px', fontWeight: 700, letterSpacing: '1px',
-                textTransform: 'uppercase', color: 'rgba(26,10,0,0.55)',
-                fontFamily: 'Space Mono, monospace',
-              }}>
-                Image Name
-              </label>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0' }}>
-                <input
-                  type="text"
-                  value={imageName}
-                  onChange={handleNameChange}
-                  style={{
-                    flex: 1,
-                    padding: '11px 12px',
-                    borderRadius: '10px 0 0 10px',
-                    border: nameError ? '2px solid #ef4444' : '1px solid rgba(26,10,0,0.2)',
-                    background: '#fff',
-                    fontSize: '14px',
-                    color: '#1A0A00',
-                    fontFamily: 'Space Mono, monospace',
-                    outline: 'none',
-                  }}
-                  placeholder="Barn_Set_01_V6"
-                  autoCapitalize="none"
-                  autoCorrect="off"
-                  spellCheck={false}
-                />
-                <div style={{
+          {/* Name input */}
+          <div style={{ marginBottom: '20px' }}>
+            <label style={{
+              display: 'block', marginBottom: '6px',
+              fontSize: '11px', fontWeight: 700, letterSpacing: '1px',
+              textTransform: 'uppercase', color: 'rgba(26,10,0,0.55)',
+              fontFamily: 'Space Mono, monospace',
+            }}>
+              Image Name
+            </label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0' }}>
+              <input
+                type="text"
+                value={imageName}
+                onChange={handleNameChange}
+                style={{
+                  flex: 1,
                   padding: '11px 12px',
-                  borderRadius: '0 10px 10px 0',
-                  border: '1px solid rgba(26,10,0,0.2)',
-                  borderLeft: 'none',
-                  background: 'rgba(26,10,0,0.04)',
+                  borderRadius: '10px 0 0 10px',
+                  border: nameError ? '2px solid #ef4444' : '1px solid rgba(26,10,0,0.2)',
+                  background: '#fff',
                   fontSize: '14px',
-                  color: 'rgba(26,10,0,0.45)',
+                  color: '#1A0A00',
                   fontFamily: 'Space Mono, monospace',
-                  whiteSpace: 'nowrap',
-                }}>
-                  .jpg
-                </div>
+                  outline: 'none',
+                }}
+                placeholder="Barn_Set_01_V6"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+              />
+              <div style={{
+                padding: '11px 12px',
+                borderRadius: '0 10px 10px 0',
+                border: '1px solid rgba(26,10,0,0.2)',
+                borderLeft: 'none',
+                background: 'rgba(26,10,0,0.04)',
+                fontSize: '14px',
+                color: 'rgba(26,10,0,0.45)',
+                fontFamily: 'Space Mono, monospace',
+                whiteSpace: 'nowrap',
+              }}>
+                .jpg
               </div>
-              {nameError && (
-                <div style={{ marginTop: '5px', fontSize: '12px', color: '#ef4444' }}>{nameError}</div>
-              )}
             </div>
-          )}
+            {nameError && (
+              <div style={{ marginTop: '5px', fontSize: '12px', color: '#ef4444' }}>{nameError}</div>
+            )}
+          </div>
 
           <div style={{ display: 'flex', gap: '10px' }}>
             <button
@@ -1328,12 +1368,12 @@ export default function BoardImageUpdateView({ currentImgSrc, currentImageName, 
             </button>
             <button
               onClick={handleSave}
-              disabled={saving || (!isBackCompat && (!!nameError || !imageName.trim()))}
+              disabled={saving || !!nameError || !imageName.trim()}
               style={{
                 ...primaryBtnStyle,
                 flex: 1,
-                opacity: (saving || (!isBackCompat && (!!nameError || !imageName.trim()))) ? 0.5 : 1,
-                cursor: (saving || (!isBackCompat && (!!nameError || !imageName.trim()))) ? 'not-allowed' : 'pointer',
+                opacity: (saving || !!nameError || !imageName.trim()) ? 0.5 : 1,
+                cursor: (saving || !!nameError || !imageName.trim()) ? 'not-allowed' : 'pointer',
               }}
             >
               {saving ? 'Saving…' : 'Looks right — Save'}
