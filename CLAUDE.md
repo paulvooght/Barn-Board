@@ -92,7 +92,8 @@ board → addHold / editHold (HoldEditorView — polygon + metadata editor)
 
 ### Board Image Coordinate System
 - Hold positions (`cx`, `cy`) are **percentages within the BOARD AREA** (0-100), not the full image
-- Board region within the photo defined in `holds.json`: `boardRegion: { left, top, width, height }`
+- Board region within the photo is per-image: primary source is `boardImageConfig.boardRegion` in Supabase `board_settings` (set via the corner-marking wizard). Falls back to `boardRegion` in `holds.json` if the config doesn't have one.
+- App.jsx computes `effectiveBoardRegion = boardImageConfig?.boardRegion ?? holdsData.boardRegion` and passes it as a `boardRegion` prop to BoardView, BoardSetupView, HoldEditorView, HoldOverlay. `boardRegion` shape: `{ left, top, width, height }`
 - Conversion: `SVG_x = boardRegion.left% × imgW + (hold.cx / 100) × boardRegion.width% × imgW`
 - SVG overlays use `viewBox="0 0 naturalWidth naturalHeight"`
 - **BoardView** uses `preserveAspectRatio="none"` (image fills width)
@@ -258,41 +259,75 @@ pip install Pillow numpy opencv-python-headless
 python3 scripts/detect_holds.py    # Writes to holds_new.json (NOT holds.json)
 ```
 
-## Two-Thread Workflow
+## Development Workflow
 
-This project uses a two-thread workflow. Every new thread reads CLAUDE.md + CURRENT_STATE.md first — they contain everything needed, no extra explanation required.
+**3-phase single-session system: Opus designs, orchestrates Sonnet subagents, and reviews — all in one Code tab session.**
 
-### Which thread to use?
+Subagents run in isolated contexts. Only short summaries return to Opus, keeping the parent session lean. The heavy work (file reads, edits, builds) happens in disposable subagent contexts.
+
+**Phase announcements (REQUIRED):** At the start of each phase, announce it clearly so the user always knows where they are:
+- `## Phase 1: Design` — when beginning design discussion
+- `## Phase 2: Execution` — when launching the first subagent
+- `## Phase 3: Review` — when beginning the review after all subagents complete
+
+### When to skip Opus (go straight to Sonnet)
 | Task | Use |
 |---|---|
-| Colour change, typo, single CSS tweak | Sonnet directly |
-| Single-component change you can describe in one sentence | Sonnet directly |
-| Bug where you know the exact cause and file | Sonnet directly |
-| Multi-file feature, anything with design decisions | Opus → TASK_SPEC → Sonnet |
-| Bug with unknown root cause (symptoms but no diagnosis) | Opus + `systematic-debugging` skill |
+| Typo, colour change, single CSS tweak | Sonnet directly |
+| Single-component change describable in one sentence | Sonnet directly |
+| Bug with known cause and file | Sonnet directly |
+| Multi-file feature, anything with design decisions | Full 3-phase workflow |
+| Bug with unknown root cause | Opus + systematic debugging |
 
-### Thread 1 — Opus Thinker
-Purpose: thinking, design, planning. No coding happens here.
+### Phase 1: Design Intent (Opus)
+Before any code is written, bring the feature to an Opus Code session.
 
-Opening prompt:
-> Read CLAUDE.md and CURRENT_STATE.md. You are in THINKER mode. [Describe feature or problem.]
+- Read CLAUDE.md and CURRENT_STATE.md for full context
+- Ask clarifying questions to surface what's actually wanted
+- Present 2-3 design options with tradeoffs
+- Get explicit sign-off on the chosen approach
+- **Output:** An approved design with a precise task list (file paths, verification steps)
 
-Superpowers handles the rest automatically (brainstorming → writing-plans → fills TASK_SPEC.md).
+### Phase 2: Orchestrated Execution (Opus → Sonnet subagents)
+After approval, Opus orchestrates execution without leaving the session.
 
-**THINKER MODE RULE (overrides Superpowers):** After `writing-plans` completes, fill TASK_SPEC.md and STOP. Present the filled spec to the user. Do NOT proceed to `executing-plans` or `subagent-driven-development`.
+- Opus spawns sequential Sonnet subagents via `Agent(model: "sonnet")`, one per task
+- Each subagent prompt includes: the task spec, relevant file paths, and CLAUDE.md coding rules
+- Opus reviews each subagent's result before spawning the next — adapts remaining tasks if needed
+- Task boundaries are decided by **cognitive scope** (can the subagent hold the whole task?), not by counting changes. Tightly coupled changes stay together.
+- Each subagent commits and pushes on completion
+- After all tasks complete, Opus appends a timestamped entry to CURRENT_STATE.md's **Recent Changes** section
 
-### Thread 2 — Sonnet Builder
-Purpose: implementation only. Receives a filled TASK_SPEC and codes it.
+**Subagent prompt template:**
+> Read CLAUDE.md and CURRENT_STATE.md. You are in BUILDER mode.
+> **Task:** [specific task description]
+> **Files:** [file paths to read/modify]
+> **Constraints:** [what NOT to change]
+> **Verification:** [how to confirm it works]
+> After completing: run `npm run build`, then `git add`, `git commit`, and `git push origin main`. A task is NOT done until the push succeeds.
 
-Opening prompt:
-> Read CLAUDE.md and CURRENT_STATE.md. You are in BUILDER mode. Here is my task spec:
-> [paste full TASK_SPEC contents]
+**BUILDER RULES (for subagents):**
+- Stay strictly within task scope. Note concerns rather than redesigning.
+- After completing and verifying `npm run build`, **always commit AND push to `main`**. Vercel auto-deploys from `main` — local-only commits are invisible to the user. A task is NOT complete until `git push` succeeds.
+- If something seems like a design problem (not a code bug), stop and report back to Opus rather than hacking around it.
 
-Superpowers `subagent-driven-development` skill handles execution automatically.
+### Phase 3: Review & Synthesis (Opus)
+Still in the same session, after all subagents complete. Announce `## Phase 3: Review` then:
 
-**BUILDER MODE RULE:** Stay strictly within TASK_SPEC scope. Note concerns in your output rather than stopping to redesign — the user will review with the Thinker thread.
+- Read the updated CURRENT_STATE.md
+- Check for drift, contradictions, or fragilities introduced
+- Integrate Recent Changes entries into the proper CURRENT_STATE.md sections
+- Confirm the picture is coherent
+- **Report to the user** with a brief summary: which files were changed, what was done, and any concerns. Keep it scannable — a few bullet points, not paragraphs.
 
-**BUILDER COMMIT RULE:** After completing the task and verifying `npm run build` passes, **always commit and push to `main`**. Vercel auto-deploys from `main`, so the user tests on their phone via the deployed URL — local-only changes are invisible to them. Use a clear commit message describing the change. Do NOT wait to be asked.
+### Debug Protocol (for subagents)
+When something isn't working:
+1. **Stop.** Do not try a fix yet.
+2. State the root cause hypothesis in one sentence.
+3. Identify what evidence would confirm or disprove it.
+4. Only then implement a fix, with evidence it's resolved.
+5. After 3 failed attempts, **stop and report back** — do not keep guessing.
+6. If the issue appears to be a **design problem** (not just a code bug), escalate to Opus: "This needs design review" — do not hack around a flawed approach.
 
 ---
 

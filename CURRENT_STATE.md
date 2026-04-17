@@ -1,6 +1,6 @@
 # CURRENT_STATE.md — What's Working, What's Not, What's Fragile
 
-*Last updated: 2026-04-04*
+*Last updated: 2026-04-17*
 
 ## Genuinely Working
 
@@ -165,13 +165,22 @@ The app is designed for multiple users sharing one board (see CLAUDE.md "Social 
 - Canvas-based triangle mesh warp (10×10 grid = 200 triangles) — applies on pin release, renders in-place preview
 - Touch handling follows `lastTouchTimeRef` pattern, 44px hit targets, window-level move/end listeners
 
-### What's NOT Built Yet (Session 3)
-- Phone UX testing and polish
+### What's Built (Session 3 — 2026-04-17)
+- **Wizard replaced: warp → corner recalibration.** Flow is now `upload → crop → markCorners → confirm`. The align/trim/warp pipeline has been deleted (~790 LOC removed: `computeHomography`, `perspectiveWarp`, `computePerspectiveCSS`, `AlignStep`, matrix3d preview).
+- **`MarkCornersStep`** — user places 4 pins (TL/TR/BL/BR) on the physical board corners in the new photo. Rectangle-locked (TR snaps to TL.y and BR.x; BL snaps to TL.x and BR.y — all 4 draggable). Reuses CropStep's loupe magnifier at 3× and the AlignStep pinch-zoom / pan logic.
+- **`boardRegion` per-image config** — `board_image_config` now stores `{ baseUrl, imageName, boardRegion, cacheVersion }`. Hold positions remain board-area percentages; `boardRegion` defines where the physical board sits inside the image. Recalibrating `boardRegion` (rather than warping the image) is what aligns holds on a new photo.
+- **`boardRegion` plumbed as a prop** — App.jsx computes `effectiveBoardRegion = boardImageConfig?.boardRegion ?? holdsData.boardRegion` and passes it to BoardView, BoardSetupView, HoldEditorView. `holds.json` is the fallback; nothing breaks for users on the original V5 image.
+- **Confirm step with hold overlay** — after marking corners, the new image is rendered with all holds overlaid using the new `boardRegion`. "Adjust corners" returns to MarkCornersStep with pins preserved; "Looks right — Save" commits.
+- **Back-compat for Session-2 V6 uploads** — if `boardImageConfig` exists without `boardRegion` (pre-Session-3 upload), the wizard opens directly at `markCorners` with the existing image loaded, shows a banner, and `regionOnly: true` save path updates only the config (no Storage re-upload).
+- **Cache busting** — `cacheVersion: Date.now()` written on every save; `?v=<cacheVersion>` appended to `imgSrc` and each `imgSrcSet` variant URL.
+
+### What's NOT Built Yet
+- Phone UX testing and polish on the new MarkCornersStep
 - "Revert to previous image" option
-- Cache busting for new image URLs
 
 ### Supabase Setup Required
 - A `board-images` Storage bucket must exist (the code attempts to create it on first upload, but Supabase may require manual creation via dashboard if RLS blocks `createBucket`)
 
 ## Recent Changes
-- **2026-04-15** — Session 2: Added `AlignStep` perspective warp component to `BoardImageUpdateView.jsx`. Wizard is now 4 steps. `perspectiveWarp()` helper uses canvas triangle mesh. Memoized `toDataURL` to prevent jank during pin drag.
+- **2026-04-17** — Session 3: Replaced the Session-2 warp pipeline with per-image `boardRegion` recalibration. Wizard is now 4 steps (`upload → crop → markCorners → confirm`). New `MarkCornersStep` with 4 rectangle-locked pins + loupe + zoom. `boardRegion` is plumbed through App.jsx as `effectiveBoardRegion = boardImageConfig?.boardRegion ?? holdsData.boardRegion` and passed to BoardView/BoardSetupView/HoldEditorView. Confirm step overlays holds on the new image using the new `boardRegion` for visual validation. Back-compat mode auto-opens wizard at `markCorners` when the user has a pre-Session-3 image (no `boardRegion` on config) and saves without re-uploading. Cache-busting via `?v=<cacheVersion>` on image URLs. Deleted ~790 LOC of warp code. Safe tag `v1.1-pre-session-3` available for rollback.
+- **2026-04-15** — Session 2: Added `AlignStep` perspective warp component to `BoardImageUpdateView.jsx`. Wizard was 5 steps (upload → crop → align → trim → confirm). CSS `matrix3d` for real-time preview. Integrated trim into AlignStep (same workspace, crop rect replaces pins). Loupe magnifier on both CropStep and AlignStep. `perspectiveWarp()` accepts output dimensions for trim cropping. *Superseded by Session 3.*
