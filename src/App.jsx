@@ -1722,7 +1722,7 @@ export default function App() {
         <BoardImageUpdateView
           currentImgSrc={imgSrc}
           currentImageName={boardImageConfig?.imageName || 'Barn_Set_01_V5'}
-          previousBoardRegion={holdsData.boardRegion}
+          currentImageUrl={boardImageConfig ? `${boardImageConfig.baseUrl}/${boardImageConfig.imageName}.jpg` : '/Barn_Set_01_V5.jpg'}
           holds={allHolds}
           onSave={handleBoardImageSave}
           onCancel={() => setView('settings')}
