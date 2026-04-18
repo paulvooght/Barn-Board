@@ -8,7 +8,7 @@ import holdsData from '../data/holds.json';
  *   allHolds                 — merged hold array from useCustomHolds
  *   onSetupBoard()           — open the Hold Manager
  */
-export default function Settings({ settings, updateSettings, allHolds, onSetupBoard, sessions = [], routes = [], isAdmin = true, userEmail, onSignOut, onViewSession, onUpdateBoardImage }) {
+export default function Settings({ settings, updateSettings, allHolds, onSetupBoard, sessions = [], routes = [], isAdmin = true, userEmail, onSignOut, onViewSession, onUpdateBoardImage, currentImageName }) {
   const totalHolds    = allHolds.length;
   const customCount   = allHolds.filter(h => h.custom).length;
   const verifiedCount = allHolds.filter(h => h.verified).length;
@@ -434,6 +434,13 @@ export default function Settings({ settings, updateSettings, allHolds, onSetupBo
               Sign Out
             </button>
           )}
+        </div>
+      )}
+
+      {/* ── Board image readout ── */}
+      {currentImageName && (
+        <div style={{ fontSize: '12px', color: 'var(--text-dim)', textAlign: 'center', marginBottom: '16px' }}>
+          Board image: {currentImageName}
         </div>
       )}
 

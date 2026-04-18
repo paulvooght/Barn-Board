@@ -600,7 +600,12 @@ def main():
                         help='Write detection results to this file instead of src/data/holds.json')
     parser.add_argument('--force', action='store_true',
                         help='Overwrite src/data/holds.json even if it already has holds (DANGEROUS)')
+    parser.add_argument('--image', default=None, metavar='IMAGE_FILENAME',
+                        help='Filename (with extension) in public/ to detect holds from, e.g. Barn_Set_01_V6_TEST.jpg. Defaults to DISPLAY_IMAGE constant.')
     args = parser.parse_args()
+
+    # Resolve which image to use
+    display_image = args.image if args.image else DISPLAY_IMAGE
 
     script_dir = Path(__file__).parent
     project_root = script_dir.parent
@@ -633,7 +638,7 @@ def main():
                 pass  # Corrupted file — allow overwrite
 
     white_bg_path = project_root / 'public' / WHITE_BG_IMAGE
-    display_path = project_root / 'public' / DISPLAY_IMAGE
+    display_path = project_root / 'public' / display_image
 
     if white_bg_path.exists():
         detect_path = white_bg_path
@@ -648,6 +653,8 @@ def main():
     print(f"Output: {output_path}\n")
 
     data = detect_holds(str(detect_path))
+    # Overwrite imageFile with the resolved display image (not always the constant)
+    data['imageFile'] = display_image
 
     os.makedirs(output_path.parent, exist_ok=True)
     with open(output_path, 'w') as f:
