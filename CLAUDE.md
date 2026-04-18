@@ -230,7 +230,14 @@ python3 scripts/detect_holds.py --output src/data/holds_new.json
 python3 scripts/merge_holds.py src/data/holds.json src/data/holds_new.json
 
 # Step 3: Review the merge report, then commit
+
+# Step 4: Publish the new image to Supabase (uploads + writes board_image_config)
+python3 scripts/publish_board_image.py Barn_Set_01_V6
 ```
+
+Step 4 uploads all four image sizes (full + 800w/1200w/2000w responsive variants) to the `board-images` Supabase storage bucket, then upserts `board_settings` with `key='board_image_config'`. This is the same config the in-app wizard writes, so both code-based and wizard-based updates flow through a single source of truth — whichever ran last wins. The app picks up the new image on next load or tab switch.
+
+**`SUPABASE_SERVICE_ROLE_KEY` must be set in `.env.local`** (not in Vercel). The service-role key is required because storage uploads and direct `board_settings` writes bypass RLS. Find it in the Supabase dashboard under Project Settings → API. The app itself uses the anon key (`VITE_SUPABASE_ANON_KEY`) — the service-role key is for local developer scripts only and must never be committed or exposed in production.
 
 The merge script:
 1. **Spatially matches** each new detection to the nearest existing hold (within 5% distance threshold)
@@ -254,7 +261,7 @@ The merge script:
 
 ### Re-detecting Holds (Raw Detection Only)
 ```bash
-pip install Pillow numpy opencv-python-headless
+pip install Pillow numpy opencv-python-headless requests
 python3 scripts/detect_holds.py    # Writes to holds_new.json (NOT holds.json)
 ```
 
