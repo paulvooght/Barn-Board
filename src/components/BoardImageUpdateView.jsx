@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import holdsData from '../data/holds.json';
+import GuidedCameraStep from './GuidedCameraStep';
 
 // ─── Image helpers ────────────────────────────────────────────────────────────
 
@@ -1440,7 +1441,14 @@ export default function BoardImageUpdateView({ currentImgSrc, currentImageName, 
   const [uploadedWidth, setUploadedWidth] = useState(0);
   const [uploadedHeight, setUploadedHeight] = useState(0);
   const [uploading, setUploading] = useState(false);
+  const [showGuidedCamera, setShowGuidedCamera] = useState(false);
   const fileInputRef = useRef(null);
+  const nativeCameraInputRef = useRef(null);
+
+  // Feature-detect: show guided camera button only on touch devices with getUserMedia
+  const hasGuidedCamera = typeof navigator !== 'undefined'
+    && !!(navigator.mediaDevices?.getUserMedia)
+    && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
 
   // Crop canvas (set after crop step)
   const [croppedCanvas, setCroppedCanvas] = useState(null);
@@ -1497,6 +1505,40 @@ export default function BoardImageUpdateView({ currentImgSrc, currentImageName, 
     e.target.value = '';
   };
 
+  // ── Guided camera capture handler ─────────────────────────────────────────
+
+  const handleGuidedCapture = (dataUrl, width, height) => {
+    setShowGuidedCamera(false);
+    setUploading(true);
+
+    // Honour the same MAX_IMAGE_WIDTH cap as file upload
+    if (width <= MAX_IMAGE_WIDTH) {
+      setUploadedWidth(width);
+      setUploadedHeight(height);
+      setUploadedDataUrl(dataUrl);
+      setUploading(false);
+      return;
+    }
+
+    // Down-scale if wider than MAX_IMAGE_WIDTH
+    const img = new Image();
+    img.onload = () => {
+      const scale = MAX_IMAGE_WIDTH / width;
+      const w = MAX_IMAGE_WIDTH;
+      const h = Math.round(height * scale);
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      setUploadedWidth(w);
+      setUploadedHeight(h);
+      setUploadedDataUrl(canvas.toDataURL('image/jpeg', JPEG_QUALITY));
+      setUploading(false);
+    };
+    img.onerror = () => setUploading(false);
+    img.src = dataUrl;
+  };
+
   // ── Confirm step handlers ──────────────────────────────────────────────────
 
   const validateName = (name) => {
@@ -1539,6 +1581,16 @@ export default function BoardImageUpdateView({ currentImgSrc, currentImageName, 
   // Use currentImgSrc (with cache buster) for display in AlignStep
   const alignImgSrc = currentImgSrc || currentImageUrl || '/Barn_Set_01_V5.jpg';
 
+  // ── Guided camera overlay (full-viewport, rendered above everything) ───────
+  if (showGuidedCamera) {
+    return (
+      <GuidedCameraStep
+        onCaptured={handleGuidedCapture}
+        onCancel={() => setShowGuidedCamera(false)}
+      />
+    );
+  }
+
   return (
     <div style={{ padding: '16px 12px', maxWidth: '480px', margin: '0 auto' }}>
       {/* Header */}
@@ -1578,6 +1630,7 @@ export default function BoardImageUpdateView({ currentImgSrc, currentImageName, 
             Take a photo of the board or choose one from your gallery.
           </p>
 
+          {/* Gallery file input (no capture attribute — opens gallery on mobile) */}
           <input
             ref={fileInputRef}
             type="file"
@@ -1586,18 +1639,63 @@ export default function BoardImageUpdateView({ currentImgSrc, currentImageName, 
             style={{ display: 'none' }}
           />
 
+          {/* Native camera input (capture="environment" — opens camera directly) */}
+          <input
+            ref={nativeCameraInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            onChange={handleFileChange}
+            style={{ display: 'none' }}
+          />
+
+          {/* Guided camera — only on touch devices with getUserMedia */}
+          {hasGuidedCamera && (
+            <button
+              onClick={() => setShowGuidedCamera(true)}
+              disabled={uploading}
+              style={{
+                ...primaryBtnStyle,
+                width: '100%',
+                marginBottom: '10px',
+                opacity: uploading ? 0.6 : 1,
+                background: '#FF6B35',
+              }}
+            >
+              📷 Take Photo with Guide
+            </button>
+          )}
+
           <button
             onClick={() => fileInputRef.current?.click()}
             disabled={uploading}
             style={{
               ...primaryBtnStyle,
               width: '100%',
-              marginBottom: '12px',
+              marginBottom: '10px',
               opacity: uploading ? 0.6 : 1,
+              background: hasGuidedCamera ? 'rgba(0,71,255,0.85)' : '#0047FF',
             }}
           >
-            {uploading ? 'Loading…' : '📷 Choose / Take Photo'}
+            {uploading ? 'Loading…' : '🖼 Choose from Gallery'}
           </button>
+
+          {/* Native camera — only on touch devices */}
+          {('ontouchstart' in window || (typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0)) && (
+            <button
+              onClick={() => nativeCameraInputRef.current?.click()}
+              disabled={uploading}
+              style={{
+                ...primaryBtnStyle,
+                width: '100%',
+                marginBottom: '12px',
+                opacity: uploading ? 0.6 : 1,
+                background: 'rgba(0,71,255,0.65)',
+              }}
+            >
+              {uploading ? 'Loading…' : '📸 Native Camera'}
+            </button>
+          )}
 
           {/* Preview */}
           {uploadedDataUrl && (
