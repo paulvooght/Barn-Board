@@ -40,7 +40,7 @@ export default function App() {
   const [userRouteData, setUserRouteData] = useState({}); // { [routeId]: { sent, rating, angleSends } }
   const [communityRatings, setCommunityRatings] = useState({}); // { [routeId]: { avg, count } }
   const [communityGrades, setCommunityGrades]   = useState({}); // { [routeId]: { headline: {consensus, votes, count}, angles: {...} } }
-  const [boardImageConfig, setBoardImageConfig] = useState(null);
+  const [boardImageConfig, setBoardImageConfig] = useLocalStorage('barnboard_board_image_config', null);
   const [settings, setSettings] = useLocalStorage('barnboard_settings', { gradeSystem: 'V' });
 
   // Active session state (persisted so it survives page reload)
