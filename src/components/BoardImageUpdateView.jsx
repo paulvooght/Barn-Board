@@ -1585,6 +1585,7 @@ export default function BoardImageUpdateView({ currentImgSrc, currentImageName, 
   if (showGuidedCamera) {
     return (
       <GuidedCameraStep
+        holds={holds}
         onCaptured={handleGuidedCapture}
         onCancel={() => setShowGuidedCamera(false)}
       />

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import holdsData from '../data/holds.json';
 
 // ─── Board photo reference dimensions ────────────────────────────────────────
@@ -39,14 +39,13 @@ function selectAnchorHolds(holds) {
   return cells.filter(Boolean);
 }
 
-const ANCHOR_HOLDS = selectAnchorHolds(holdsData.holds);
 const BOARD_REGION = holdsData.boardRegion; // { left, top, width, height } as %
 
 // ─── Board outline + hold overlay (SVG) ──────────────────────────────────────
 // viewBox matches board photo dimensions (1500 × 1463).
 // boardRegion percentages are converted to viewBox coords.
 
-function GuideOverlay({ isPortrait }) {
+function GuideOverlay({ isPortrait, anchorHolds }) {
   if (!isPortrait) return null;
 
   // Board region in viewBox coords (px equivalent within PHOTO_W × PHOTO_H space)
@@ -109,7 +108,7 @@ function GuideOverlay({ isPortrait }) {
       })}
 
       {/* Anchor holds — low opacity polygons or ellipses */}
-      {ANCHOR_HOLDS.map((hold) => {
+      {anchorHolds.map((hold) => {
         const hasPolygon = hold.polygon && hold.polygon.length >= 3;
         if (hasPolygon) {
           const pts = hold.polygon
@@ -151,7 +150,8 @@ function GuideOverlay({ isPortrait }) {
 
 // ─── GuidedCameraStep ─────────────────────────────────────────────────────────
 
-export default function GuidedCameraStep({ onCaptured, onCancel }) {
+export default function GuidedCameraStep({ onCaptured, onCancel, holds = [] }) {
+  const anchorHolds = useMemo(() => selectAnchorHolds(holds), [holds]);
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const [error, setError] = useState(null);
@@ -327,7 +327,7 @@ export default function GuidedCameraStep({ onCaptured, onCancel }) {
         />
 
         {/* SVG board outline overlay — viewBox matches board photo dims, no distortion */}
-        <GuideOverlay isPortrait={isPortrait} />
+        <GuideOverlay isPortrait={isPortrait} anchorHolds={anchorHolds} />
 
         {/* Error message */}
         {error && (
