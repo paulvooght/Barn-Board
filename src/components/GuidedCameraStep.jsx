@@ -1,6 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import holdsData from '../data/holds.json';
 
+// ─── Board photo reference dimensions ────────────────────────────────────────
+// Source: holds.json imageFile (Barn_Set_01_V5.jpg) — 1500 × 1463 px natural size.
+// Future improvement: read from holds.json metadata dynamically.
+const PHOTO_W = 1500;
+const PHOTO_H = 1463;
+const TARGET_ASPECT = PHOTO_W / PHOTO_H; // ≈ 1.0253
+
 // ─── Anchor hold selection ────────────────────────────────────────────────────
 // Divide the board area into a 4×3 grid (columns × rows).
 // For each cell, pick the hold with the largest area (w_pct × h_pct).
@@ -36,25 +43,33 @@ const ANCHOR_HOLDS = selectAnchorHolds(holdsData.holds);
 const BOARD_REGION = holdsData.boardRegion; // { left, top, width, height } as %
 
 // ─── Board outline + hold overlay (SVG) ──────────────────────────────────────
-// viewBox is 100×100 (unitless) for simplicity — positions are already %.
+// viewBox matches board photo dimensions (1500 × 1463).
+// boardRegion percentages are converted to viewBox coords.
 
 function GuideOverlay({ isPortrait }) {
   if (!isPortrait) return null;
 
-  // Board rect in viewBox units (0-100)
-  const bLeft = BOARD_REGION.left;
-  const bTop = BOARD_REGION.top;
-  const bW = BOARD_REGION.width;
-  const bH = BOARD_REGION.height;
+  // Board region in viewBox coords (px equivalent within PHOTO_W × PHOTO_H space)
+  const bLeft = (BOARD_REGION.left / 100) * PHOTO_W;
+  const bTop = (BOARD_REGION.top / 100) * PHOTO_H;
+  const bW = (BOARD_REGION.width / 100) * PHOTO_W;
+  const bH = (BOARD_REGION.height / 100) * PHOTO_H;
 
-  // Convert a hold's board-area % to viewBox %
+  // Convert a hold's board-area % to viewBox coords
   const toVX = (x_pct) => bLeft + (x_pct / 100) * bW;
   const toVY = (y_pct) => bTop + (y_pct / 100) * bH;
 
+  // Stroke/dash sizes scaled to viewBox (1500px wide)
+  const outlineStroke = PHOTO_W * 0.004;   // ~6px
+  const tickStroke = PHOTO_W * 0.007;      // ~10.5px
+  const tickLen = PHOTO_W * 0.025;         // ~37.5px
+  const holdStroke = PHOTO_W * 0.0025;     // ~3.75px
+  const dashA = PHOTO_W * 0.012;
+  const dashB = PHOTO_W * 0.006;
+
   return (
     <svg
-      viewBox="0 0 100 100"
-      preserveAspectRatio="none"
+      viewBox={`0 0 ${PHOTO_W} ${PHOTO_H}`}
       style={{
         position: 'absolute',
         inset: 0,
@@ -71,9 +86,9 @@ function GuideOverlay({ isPortrait }) {
         height={bH}
         fill="rgba(255,107,53,0.08)"
         stroke="#FF6B35"
-        strokeWidth="0.4"
-        rx="0.2"
-        strokeDasharray="1.2 0.6"
+        strokeWidth={outlineStroke}
+        rx={outlineStroke * 0.5}
+        strokeDasharray={`${dashA} ${dashB}`}
       />
 
       {/* Corner tick marks for easier alignment */}
@@ -87,8 +102,8 @@ function GuideOverlay({ isPortrait }) {
         const dy = cy === bTop ? 1 : -1;
         return (
           <g key={i}>
-            <line x1={cx} y1={cy} x2={cx + dx * 2.5} y2={cy} stroke="#FF6B35" strokeWidth="0.7" strokeLinecap="round" />
-            <line x1={cx} y1={cy} x2={cx} y2={cy + dy * 2.5} stroke="#FF6B35" strokeWidth="0.7" strokeLinecap="round" />
+            <line x1={cx} y1={cy} x2={cx + dx * tickLen} y2={cy} stroke="#FF6B35" strokeWidth={tickStroke} strokeLinecap="round" />
+            <line x1={cx} y1={cy} x2={cx} y2={cy + dy * tickLen} stroke="#FF6B35" strokeWidth={tickStroke} strokeLinecap="round" />
           </g>
         );
       })}
@@ -98,7 +113,7 @@ function GuideOverlay({ isPortrait }) {
         const hasPolygon = hold.polygon && hold.polygon.length >= 3;
         if (hasPolygon) {
           const pts = hold.polygon
-            .map(([px, py]) => `${toVX(px).toFixed(3)},${toVY(py).toFixed(3)}`)
+            .map(([px, py]) => `${toVX(px).toFixed(1)},${toVY(py).toFixed(1)}`)
             .join(' ');
           return (
             <polygon
@@ -106,7 +121,7 @@ function GuideOverlay({ isPortrait }) {
               points={pts}
               fill="rgba(255,107,53,0.18)"
               stroke="#FF6B35"
-              strokeWidth="0.25"
+              strokeWidth={holdStroke}
               strokeLinejoin="round"
               opacity={0.75}
             />
@@ -121,11 +136,11 @@ function GuideOverlay({ isPortrait }) {
             key={hold.id}
             cx={cx}
             cy={cy}
-            rx={Math.max(rx, 0.3)}
-            ry={Math.max(ry, 0.3)}
+            rx={Math.max(rx, PHOTO_W * 0.003)}
+            ry={Math.max(ry, PHOTO_W * 0.003)}
             fill="rgba(255,107,53,0.18)"
             stroke="#FF6B35"
-            strokeWidth="0.25"
+            strokeWidth={holdStroke}
             opacity={0.75}
           />
         );
@@ -217,15 +232,33 @@ export default function GuidedCameraStep({ onCaptured, onCancel }) {
     setCapturing(true);
 
     try {
-      const w = video.videoWidth;
-      const h = video.videoHeight;
+      const videoW = video.videoWidth;
+      const videoH = video.videoHeight;
+      const videoAspect = videoW / videoH;
+
+      // Crop the captured frame to match the aspect ratio the user is framing against
+      let cropX, cropY, cropW, cropH;
+      if (videoAspect > TARGET_ASPECT) {
+        // Video is wider than target — crop horizontally
+        cropH = videoH;
+        cropW = videoH * TARGET_ASPECT;
+        cropX = (videoW - cropW) / 2;
+        cropY = 0;
+      } else {
+        // Video is taller than target — crop vertically
+        cropW = videoW;
+        cropH = videoW / TARGET_ASPECT;
+        cropX = 0;
+        cropY = (videoH - cropH) / 2;
+      }
+
       const canvas = document.createElement('canvas');
-      canvas.width = w;
-      canvas.height = h;
-      canvas.getContext('2d').drawImage(video, 0, 0, w, h);
+      canvas.width = cropW;
+      canvas.height = cropH;
+      canvas.getContext('2d').drawImage(video, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
       const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
       stopStream();
-      onCaptured(dataUrl, w, h);
+      onCaptured(dataUrl, cropW, cropH);
     } catch (err) {
       console.error('[GuidedCamera] Capture error:', err);
       setCapturing(false);
@@ -240,11 +273,42 @@ export default function GuidedCameraStep({ onCaptured, onCancel }) {
         zIndex: 9999,
         background: '#000',
         display: 'flex',
-        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
       }}
     >
-      {/* Camera + overlay */}
-      <div style={{ position: 'relative', flex: 1, overflow: 'hidden' }}>
+      {/* Tip text — absolute in outer container (letterbox area, top) */}
+      <div
+        style={{
+          position: 'absolute',
+          top: 16,
+          left: 0,
+          right: 0,
+          padding: '8px 16px',
+          color: '#fff',
+          fontSize: '13px',
+          fontFamily: 'DM Sans, sans-serif',
+          lineHeight: 1.4,
+          textAlign: 'center',
+          zIndex: 1,
+        }}
+      >
+        {isPortrait
+          ? 'Line up the board corners with the orange box, then tap Capture.'
+          : '↩ Rotate to portrait to use guided camera.'}
+      </div>
+
+      {/* Aspect-locked camera frame — matches board photo ratio */}
+      <div
+        style={{
+          position: 'relative',
+          aspectRatio: `${PHOTO_W} / ${PHOTO_H}`,
+          maxWidth: '100vw',
+          maxHeight: '100vh',
+          width: '100%',
+          overflow: 'hidden',
+        }}
+      >
         {/* Video feed */}
         <video
           ref={videoRef}
@@ -253,6 +317,8 @@ export default function GuidedCameraStep({ onCaptured, onCancel }) {
           autoPlay
           onCanPlay={() => setReady(true)}
           style={{
+            position: 'absolute',
+            inset: 0,
             width: '100%',
             height: '100%',
             objectFit: 'cover',
@@ -260,29 +326,8 @@ export default function GuidedCameraStep({ onCaptured, onCancel }) {
           }}
         />
 
-        {/* SVG board outline overlay */}
+        {/* SVG board outline overlay — viewBox matches board photo dims, no distortion */}
         <GuideOverlay isPortrait={isPortrait} />
-
-        {/* Tip text — top bar */}
-        <div
-          style={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            right: 0,
-            padding: '12px 16px',
-            background: 'rgba(0,0,0,0.55)',
-            color: '#fff',
-            fontSize: '13px',
-            fontFamily: 'DM Sans, sans-serif',
-            lineHeight: 1.4,
-            textAlign: 'center',
-          }}
-        >
-          {isPortrait
-            ? 'Line up the board corners with the orange box, then tap Capture.'
-            : '↩ Rotate to portrait to use guided camera.'}
-        </div>
 
         {/* Error message */}
         {error && (
@@ -323,15 +368,18 @@ export default function GuidedCameraStep({ onCaptured, onCancel }) {
         )}
       </div>
 
-      {/* Bottom controls */}
+      {/* Controls — absolute in outer container (letterbox area, bottom) */}
       <div
         style={{
+          position: 'absolute',
+          bottom: 0,
+          left: 0,
+          right: 0,
           display: 'flex',
           gap: '12px',
           padding: '16px',
-          background: 'rgba(0,0,0,0.75)',
-          safeAreaInsetBottom: 'env(safe-area-inset-bottom)',
-          paddingBottom: 'max(16px, env(safe-area-inset-bottom))',
+          paddingBottom: 'max(24px, env(safe-area-inset-bottom))',
+          zIndex: 1,
         }}
       >
         <button
@@ -344,7 +392,7 @@ export default function GuidedCameraStep({ onCaptured, onCancel }) {
             fontWeight: 700,
             cursor: 'pointer',
             border: '2px solid rgba(255,255,255,0.35)',
-            background: 'transparent',
+            background: 'rgba(0,0,0,0.55)',
             color: '#fff',
             fontFamily: 'DM Sans, sans-serif',
             minHeight: '56px',
