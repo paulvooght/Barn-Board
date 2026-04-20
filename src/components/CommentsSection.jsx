@@ -207,7 +207,7 @@ export default function CommentsSection({
       </button>
 
       {expanded && (
-        <div style={{ marginTop: '10px', padding: '10px', borderRadius: '8px', background: 'rgba(255,171,148,0.30)' }}>
+        <div style={{ marginTop: '10px', padding: '10px', borderRadius: '10px', background: 'var(--bg-card)', border: '1px solid var(--border)', boxShadow: '0 2px 8px rgba(26,10,0,0.06)' }}>
           {/* Comment list */}
           {loading ? (
             <div style={{ fontSize: '12px', color: 'rgba(26,10,0,0.4)', padding: '8px 0' }}>
