@@ -11,9 +11,7 @@ import holdsData from '../data/holds.json';
  *   onSaveDisplayName(name)  — async fn, throws on failure (e.g. duplicate name)
  */
 export default function Settings({ settings, updateSettings, allHolds, onSetupBoard, sessions = [], routes = [], isAdmin = true, userEmail, onSignOut, onViewSession, onUpdateBoardImage, currentImageName, displayName = '', onSaveDisplayName }) {
-  const totalHolds    = allHolds.length;
-  const customCount   = allHolds.filter(h => h.custom).length;
-  const verifiedCount = allHolds.filter(h => h.verified).length;
+  const totalHolds = allHolds.length;
   const [showChart, setShowChart] = useState(false);
   const [showSessions, setShowSessions] = useState(false);
   const [showBeta, setShowBeta] = useState(false);
