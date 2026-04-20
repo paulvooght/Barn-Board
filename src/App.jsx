@@ -11,6 +11,7 @@ const HoldEditorView = lazy(() => import('./components/HoldEditorView'));
 const SessionSummary = lazy(() => import('./components/SessionSummary'));
 const AuthView = lazy(() => import('./components/AuthView'));
 const BoardImageUpdateView = lazy(() => import('./components/BoardImageUpdateView'));
+const CommentsSection = lazy(() => import('./components/CommentsSection'));
 import { useLocalStorage } from './hooks/useLocalStorage';
 import { useCustomHolds } from './hooks/useCustomHolds';
 import holdsData from './data/holds.json';
@@ -1022,15 +1023,28 @@ export default function App() {
   // ─── Community grade suggestions ─────────────────────────────────
   const suggestGrade = useCallback((routeId, headline, angles) => {
     if (!user) return;
+
+    // Compute consensus from a votes object — preserves tiebreaker (higher grade wins)
+    const computeConsensus = (votes) => {
+      const entries = Object.entries(votes).filter(([, n]) => n > 0);
+      if (entries.length === 0) return null;
+      const total = entries.reduce((s, [, n]) => s + n, 0);
+      const sorted = entries.sort((a, b) =>
+        b[1] !== a[1] ? b[1] - a[1] : (gradeIndex[b[0]] ?? -1) - (gradeIndex[a[0]] ?? -1)
+      );
+      const cleanVotes = Object.fromEntries(entries);
+      return { consensus: sorted[0][0], votes: cleanVotes, count: total };
+    };
+
     setUserRouteData(prev => {
       const current = prev[routeId] || { sent: false, rating: 0, angleSends: [] };
-      const gradeSuggestions = { ...(current.gradeSuggestions || {}) };
+      const oldSuggestions = current.gradeSuggestions || {};
+      const gradeSuggestions = { ...oldSuggestions };
       if (headline !== undefined) {
         if (headline === null) { delete gradeSuggestions.headline; } else { gradeSuggestions.headline = headline; }
       }
       if (angles !== undefined) {
         gradeSuggestions.angles = { ...(gradeSuggestions.angles || {}), ...angles };
-        // Remove null entries
         for (const [k, v] of Object.entries(gradeSuggestions.angles)) {
           if (v === null || v === '') delete gradeSuggestions.angles[k];
         }
@@ -1041,9 +1055,43 @@ export default function App() {
         grade_suggestions: gradeSuggestions, updated_at: new Date().toISOString(),
       }, { onConflict: 'user_id,route_id' })
         .then(({ error }) => { if (error) console.error('[Supabase] grade suggestion error:', error); });
+
+      // Optimistically update communityGrades to include this user's own vote delta
+      setCommunityGrades(cgPrev => {
+        const cur = cgPrev[routeId] || { headline: null, angles: {} };
+        const next = { headline: cur.headline, angles: { ...cur.angles } };
+
+        if (headline !== undefined) {
+          const oldH = oldSuggestions.headline;
+          const newH = headline;
+          if (oldH !== newH) {
+            const votes = { ...(cur.headline?.votes || {}) };
+            if (oldH) votes[oldH] = Math.max(0, (votes[oldH] || 0) - 1);
+            if (newH) votes[newH] = (votes[newH] || 0) + 1;
+            next.headline = computeConsensus(votes);
+          }
+        }
+
+        if (angles !== undefined) {
+          for (const [angle, newG] of Object.entries(angles)) {
+            const oldG = oldSuggestions.angles?.[angle];
+            const finalG = (newG === null || newG === '') ? undefined : newG;
+            if (oldG === finalG) continue;
+            const votes = { ...(cur.angles[angle]?.votes || {}) };
+            if (oldG) votes[oldG] = Math.max(0, (votes[oldG] || 0) - 1);
+            if (finalG) votes[finalG] = (votes[finalG] || 0) + 1;
+            const consensus = computeConsensus(votes);
+            if (consensus) next.angles[angle] = consensus;
+            else delete next.angles[angle];
+          }
+        }
+
+        return { ...cgPrev, [routeId]: next };
+      });
+
       return { ...prev, [routeId]: { ...current, gradeSuggestions } };
     });
-  }, [user]);
+  }, [user, gradeIndex]);
 
   const acceptGradeSuggestion = useCallback((routeId, grade, angle) => {
     localRouteChange.current = true;
@@ -1599,6 +1647,18 @@ export default function App() {
           </div>
         );
       })()}
+
+      {/* Comments section — below route info when viewing a route */}
+      {view === 'viewRoute' && viewingRoute && (
+        <CommentsSection
+          routeId={viewingRoute.id}
+          routeCreatorId={viewingRoute.creatorId}
+          currentUserId={user?.id}
+          currentUserDisplayName={displayName}
+          profilesById={profilesById}
+          isAdmin={isAdmin}
+        />
+      )}
 
       {/* Board view CTA — below the board image */}
       {view === 'board' && (
