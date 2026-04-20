@@ -19,25 +19,36 @@ export default function Settings({ settings, updateSettings, allHolds, onSetupBo
   const [showBeta, setShowBeta] = useState(false);
 
   // ── Display Name state ──
+  const hasName = !!(displayName && displayName.trim());
+  const [nameEditing, setNameEditing] = useState(!hasName);
   const [nameInput, setNameInput] = useState(displayName);
   const [nameSaving, setNameSaving] = useState(false);
   const [nameError, setNameError] = useState('');
-  const [nameSaved, setNameSaved] = useState(false);
 
   const trimmed = nameInput.trim();
   const nameValid = trimmed.length >= 2 && trimmed.length <= 20;
   const nameUnchanged = trimmed === (displayName || '').trim();
   const nameSaveDisabled = nameUnchanged || !nameValid || nameSaving;
 
+  const startEditName = () => {
+    setNameInput(displayName || '');
+    setNameError('');
+    setNameEditing(true);
+  };
+
+  const cancelEditName = () => {
+    setNameInput(displayName || '');
+    setNameError('');
+    setNameEditing(false);
+  };
+
   const handleSaveName = async () => {
     if (nameSaveDisabled || !onSaveDisplayName) return;
     setNameSaving(true);
     setNameError('');
-    setNameSaved(false);
     try {
       await onSaveDisplayName(trimmed);
-      setNameSaved(true);
-      setTimeout(() => setNameSaved(false), 2000);
+      setNameEditing(false);
     } catch (err) {
       const msg = err?.message || '';
       if (msg.includes('unique') || msg.includes('duplicate') || msg.includes('already exists')) {
@@ -57,53 +68,96 @@ export default function Settings({ settings, updateSettings, allHolds, onSetupBo
       </h2>
 
       {/* ── Display Name ── */}
-      <div style={{ ...cardStyle, marginBottom: '24px' }}>
-        <div style={sectionTitleStyle}>Display Name</div>
-        <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginBottom: '10px', lineHeight: 1.4 }}>
-          Shown on your comments. 2–20 characters.
-        </div>
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-          <input
-            type="text"
-            value={nameInput}
-            onChange={(e) => { setNameInput(e.target.value); setNameError(''); setNameSaved(false); }}
-            onKeyDown={(e) => { if (e.key === 'Enter') handleSaveName(); }}
-            maxLength={20}
-            placeholder="Your display name"
-            style={{
-              flex: 1, padding: '9px 12px', borderRadius: '8px',
-              border: nameError ? '1.5px solid #e55' : '1.5px solid rgba(26,10,0,0.15)',
-              background: 'rgba(255,255,255,0.7)', fontSize: '14px',
-              color: 'var(--text-primary)', fontFamily: 'inherit', outline: 'none',
-            }}
-          />
-          <button
-            onClick={handleSaveName}
-            disabled={nameSaveDisabled}
-            style={{
-              padding: '9px 16px', borderRadius: '8px', fontSize: '13px', fontWeight: 700,
-              cursor: nameSaveDisabled ? 'not-allowed' : 'pointer',
-              border: 'none',
-              background: nameSaved ? '#22c55e' : nameSaveDisabled ? 'rgba(26,10,0,0.1)' : 'var(--accent)',
-              color: nameSaveDisabled && !nameSaved ? 'var(--text-muted)' : '#fff',
-              transition: 'background 0.2s',
-              flexShrink: 0,
-            }}
-          >
-            {nameSaving ? 'Saving…' : nameSaved ? 'Saved ✓' : 'Save'}
-          </button>
-        </div>
-        {nameError && (
-          <div style={{ fontSize: '11px', color: '#e55', marginTop: '6px' }}>
-            {nameError}
+      {hasName && !nameEditing ? (
+        <div
+          onClick={startEditName}
+          style={{
+            marginBottom: '24px',
+            padding: '10px 14px',
+            borderRadius: '12px',
+            background: 'rgba(255,255,255,0.5)',
+            border: '1.5px solid rgba(26,10,0,0.08)',
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            cursor: 'pointer',
+          }}
+        >
+          <div style={{ display: 'flex', flexDirection: 'column' }}>
+            <span style={{ fontSize: '10px', color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.6px', fontWeight: 700 }}>
+              Display Name
+            </span>
+            <span style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text-primary)', marginTop: '2px' }}>
+              {displayName}
+            </span>
           </div>
-        )}
-        {!nameError && trimmed.length > 0 && !nameValid && (
-          <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px' }}>
-            Must be 2–20 characters.
+          <span style={{ fontSize: '11px', color: 'var(--accent)', fontWeight: 700, letterSpacing: '0.5px' }}>
+            EDIT
+          </span>
+        </div>
+      ) : (
+        <div style={{ ...cardStyle, marginBottom: '24px' }}>
+          <div style={sectionTitleStyle}>Display Name</div>
+          <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginBottom: '10px', lineHeight: 1.4 }}>
+            Shown on your comments. 2–20 characters.
           </div>
-        )}
-      </div>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <input
+              type="text"
+              value={nameInput}
+              onChange={(e) => { setNameInput(e.target.value); setNameError(''); }}
+              onKeyDown={(e) => { if (e.key === 'Enter') handleSaveName(); if (e.key === 'Escape' && hasName) cancelEditName(); }}
+              maxLength={20}
+              placeholder="Your display name"
+              autoFocus
+              style={{
+                flex: 1, padding: '9px 12px', borderRadius: '8px',
+                border: nameError ? '1.5px solid #e55' : '1.5px solid rgba(26,10,0,0.15)',
+                background: 'rgba(255,255,255,0.7)', fontSize: '14px',
+                color: 'var(--text-primary)', fontFamily: 'inherit', outline: 'none',
+              }}
+            />
+            <button
+              onClick={handleSaveName}
+              disabled={nameSaveDisabled}
+              style={{
+                padding: '9px 16px', borderRadius: '8px', fontSize: '13px', fontWeight: 700,
+                cursor: nameSaveDisabled ? 'not-allowed' : 'pointer',
+                border: 'none',
+                background: nameSaveDisabled ? 'rgba(26,10,0,0.1)' : 'var(--accent)',
+                color: nameSaveDisabled ? 'var(--text-muted)' : '#fff',
+                transition: 'background 0.2s',
+                flexShrink: 0,
+              }}
+            >
+              {nameSaving ? 'Saving…' : 'Save'}
+            </button>
+            {hasName && (
+              <button
+                onClick={cancelEditName}
+                disabled={nameSaving}
+                style={{
+                  padding: '9px 12px', borderRadius: '8px', fontSize: '12px', fontWeight: 600,
+                  cursor: nameSaving ? 'not-allowed' : 'pointer',
+                  border: '1.5px solid rgba(26,10,0,0.15)',
+                  background: 'transparent', color: 'var(--text-secondary)',
+                  flexShrink: 0,
+                }}
+              >
+                Cancel
+              </button>
+            )}
+          </div>
+          {nameError && (
+            <div style={{ fontSize: '11px', color: '#e55', marginTop: '6px' }}>
+              {nameError}
+            </div>
+          )}
+          {!nameError && trimmed.length > 0 && !nameValid && (
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px' }}>
+              Must be 2–20 characters.
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ── Grading System ── */}
       <div style={{ marginBottom: '24px' }}>
