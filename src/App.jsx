@@ -2007,6 +2007,7 @@ function ViewRouteHeader({ route, sent, angleSends, isCreator, canEdit, grades, 
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [newAngle, setNewAngle] = useState(route.angle || 30);
   const [newGrade, setNewGrade] = useState(route.grade || grades[4]);
+  const [showAddAngleInputs, setShowAddAngleInputs] = useState(false);
   const angleGrades = route.angleGrades || [];
   const hasVideo = !!getYouTubeId(route.youtubeUrl);
   const showVideoThumbnail = settings?.betaVideoThumbnail;
@@ -2362,41 +2363,9 @@ function ViewRouteHeader({ route, sent, angleSends, isCreator, canEdit, grades, 
             }}>
               Add Grade at Angle
             </div>
-            <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-end' }}>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: '10px', color: 'var(--text-dim)', marginBottom: '3px' }}>Angle</div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  <input
-                    type="range"
-                    min={BOARD_SPECS.minAngle} max={BOARD_SPECS.maxAngle}
-                    value={newAngle}
-                    onChange={e => setNewAngle(Number(e.target.value))}
-                    style={{ flex: 1, accentColor: 'var(--accent)' }}
-                  />
-                  <span style={{
-                    fontFamily: 'var(--font-heading)', fontWeight: 700,
-                    fontSize: '13px', color: 'var(--accent)', minWidth: '28px', textAlign: 'right',
-                  }}>
-                    {newAngle}°
-                  </span>
-                </div>
-              </div>
-              <div style={{ width: '80px' }}>
-                <div style={{ fontSize: '10px', color: 'var(--text-dim)', marginBottom: '3px' }}>Grade</div>
-                <select
-                  value={newGrade}
-                  onChange={e => setNewGrade(e.target.value)}
-                  style={{
-                    width: '100%', padding: '6px 8px', borderRadius: '6px',
-                    border: '1.5px solid rgba(26,10,0,0.15)', background: 'var(--bg-input)',
-                    fontSize: '13px', fontFamily: 'var(--font-heading)', fontWeight: 700,
-                  }}
-                >
-                  {grades.map(g => <option key={g} value={g}>{g}</option>)}
-                </select>
-              </div>
+            {!showAddAngleInputs ? (
               <button
-                onClick={() => onAddAngleGrade(newAngle, newGrade)}
+                onClick={() => setShowAddAngleInputs(true)}
                 style={{
                   padding: '6px 12px', borderRadius: '8px', border: 'none',
                   background: 'var(--accent)', color: '#fff',
@@ -2406,7 +2375,53 @@ function ViewRouteHeader({ route, sent, angleSends, isCreator, canEdit, grades, 
               >
                 + Add
               </button>
-            </div>
+            ) : (
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-end' }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: '10px', color: 'var(--text-dim)', marginBottom: '3px' }}>Angle</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <input
+                      type="range"
+                      min={BOARD_SPECS.minAngle} max={BOARD_SPECS.maxAngle}
+                      value={newAngle}
+                      onChange={e => setNewAngle(Number(e.target.value))}
+                      style={{ flex: 1, accentColor: 'var(--accent)' }}
+                    />
+                    <span style={{
+                      fontFamily: 'var(--font-heading)', fontWeight: 700,
+                      fontSize: '13px', color: 'var(--accent)', minWidth: '28px', textAlign: 'right',
+                    }}>
+                      {newAngle}°
+                    </span>
+                  </div>
+                </div>
+                <div style={{ width: '80px' }}>
+                  <div style={{ fontSize: '10px', color: 'var(--text-dim)', marginBottom: '3px' }}>Grade</div>
+                  <select
+                    value={newGrade}
+                    onChange={e => setNewGrade(e.target.value)}
+                    style={{
+                      width: '100%', padding: '6px 8px', borderRadius: '6px',
+                      border: '1.5px solid rgba(26,10,0,0.15)', background: 'var(--bg-input)',
+                      fontSize: '13px', fontFamily: 'var(--font-heading)', fontWeight: 700,
+                    }}
+                  >
+                    {grades.map(g => <option key={g} value={g}>{g}</option>)}
+                  </select>
+                </div>
+                <button
+                  onClick={() => { onAddAngleGrade(newAngle, newGrade); setShowAddAngleInputs(false); }}
+                  style={{
+                    padding: '6px 12px', borderRadius: '8px', border: 'none',
+                    background: 'var(--accent)', color: '#fff',
+                    fontSize: '11px', fontWeight: 700, cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  + Add
+                </button>
+              </div>
+            )}
           </div>}
 
           {/* ── Unified angle/grade table ── */}
