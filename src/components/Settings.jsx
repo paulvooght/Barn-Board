@@ -63,37 +63,36 @@ export default function Settings({ settings, updateSettings, allHolds, onSetupBo
 
   return (
     <div style={{ padding: '16px 12px' }}>
-      <h2 style={{ margin: '0 0 20px', fontSize: '18px', fontWeight: 700 }}>
-        Settings
-      </h2>
-
-      {/* ── Display Name ── */}
-      {hasName && !nameEditing ? (
-        <div
-          onClick={startEditName}
-          style={{
-            marginBottom: '24px',
-            padding: '10px 14px',
-            borderRadius: '12px',
-            background: 'rgba(255,255,255,0.5)',
-            border: '1.5px solid rgba(26,10,0,0.08)',
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            cursor: 'pointer',
-          }}
-        >
-          <div style={{ display: 'flex', flexDirection: 'column' }}>
-            <span style={{ fontSize: '10px', color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.6px', fontWeight: 700 }}>
-              Display Name
-            </span>
-            <span style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text-primary)', marginTop: '2px' }}>
-              {displayName}
-            </span>
-          </div>
-          <span style={{ fontSize: '11px', color: 'var(--accent)', fontWeight: 700, letterSpacing: '0.5px' }}>
-            EDIT
+      {/* ── Header row: Settings title + Display Name on the right ── */}
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', margin: '0 0 20px', gap: '12px' }}>
+        <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 700 }}>
+          Settings
+        </h2>
+        {hasName && !nameEditing && (
+          <span
+            onClick={startEditName}
+            title="Tap to edit"
+            style={{
+              fontFamily: "'Kodchasan', sans-serif",
+              color: '#0047FF',
+              fontWeight: 700,
+              fontSize: 18,
+              cursor: 'pointer',
+              letterSpacing: '0.5px',
+              textTransform: 'uppercase',
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              maxWidth: '60%',
+            }}
+          >
+            {displayName}
           </span>
-        </div>
-      ) : (
+        )}
+      </div>
+
+      {/* ── Display Name edit card (only shown when editing or no name yet) ── */}
+      {(!hasName || nameEditing) && (
         <div style={{ ...cardStyle, marginBottom: '24px' }}>
           <div style={sectionTitleStyle}>Display Name</div>
           <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginBottom: '10px', lineHeight: 1.4 }}>
