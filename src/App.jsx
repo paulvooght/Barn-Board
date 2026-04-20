@@ -2262,7 +2262,7 @@ function ViewRouteHeader({ route, sent, angleSends, isCreator, canEdit, grades, 
           </button>
         )}
         <button
-          onClick={() => { setShowAnglePanel(prev => !prev); setShowPlaylistPanel(false); }}
+          onClick={() => { setShowAnglePanel(prev => !prev); setShowPlaylistPanel(false); setShowAddAngleInputs(false); }}
           style={actionBtn(showAnglePanel)}
         >
           {showAnglePanel ? '▾' : '▸'} Angles
@@ -2356,7 +2356,7 @@ function ViewRouteHeader({ route, sent, angleSends, isCreator, canEdit, grades, 
           boxShadow: '0 2px 8px rgba(26,10,0,0.06)',
         }}>
           {/* Add new angle/grade — only for users who can edit */}
-          {canEdit && <div style={{ marginBottom: angleGrades.length > 0 ? '12px' : 0 }}>
+          {canEdit && <div style={{ marginBottom: angleGrades.length > 0 ? '20px' : 0 }}>
             <div style={{
               fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)',
               letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '8px',
