@@ -7,8 +7,10 @@ import holdsData from '../data/holds.json';
  *   settings, updateSettings — grade system etc.
  *   allHolds                 — merged hold array from useCustomHolds
  *   onSetupBoard()           — open the Hold Manager
+ *   displayName              — current user display name (string)
+ *   onSaveDisplayName(name)  — async fn, throws on failure (e.g. duplicate name)
  */
-export default function Settings({ settings, updateSettings, allHolds, onSetupBoard, sessions = [], routes = [], isAdmin = true, userEmail, onSignOut, onViewSession, onUpdateBoardImage, currentImageName }) {
+export default function Settings({ settings, updateSettings, allHolds, onSetupBoard, sessions = [], routes = [], isAdmin = true, userEmail, onSignOut, onViewSession, onUpdateBoardImage, currentImageName, displayName = '', onSaveDisplayName }) {
   const totalHolds    = allHolds.length;
   const customCount   = allHolds.filter(h => h.custom).length;
   const verifiedCount = allHolds.filter(h => h.verified).length;
@@ -16,11 +18,92 @@ export default function Settings({ settings, updateSettings, allHolds, onSetupBo
   const [showSessions, setShowSessions] = useState(false);
   const [showBeta, setShowBeta] = useState(false);
 
+  // ── Display Name state ──
+  const [nameInput, setNameInput] = useState(displayName);
+  const [nameSaving, setNameSaving] = useState(false);
+  const [nameError, setNameError] = useState('');
+  const [nameSaved, setNameSaved] = useState(false);
+
+  const trimmed = nameInput.trim();
+  const nameValid = trimmed.length >= 2 && trimmed.length <= 20;
+  const nameUnchanged = trimmed === (displayName || '').trim();
+  const nameSaveDisabled = nameUnchanged || !nameValid || nameSaving;
+
+  const handleSaveName = async () => {
+    if (nameSaveDisabled || !onSaveDisplayName) return;
+    setNameSaving(true);
+    setNameError('');
+    setNameSaved(false);
+    try {
+      await onSaveDisplayName(trimmed);
+      setNameSaved(true);
+      setTimeout(() => setNameSaved(false), 2000);
+    } catch (err) {
+      const msg = err?.message || '';
+      if (msg.includes('unique') || msg.includes('duplicate') || msg.includes('already exists')) {
+        setNameError('That name is taken — try another.');
+      } else {
+        setNameError('Could not save. Please try again.');
+      }
+    } finally {
+      setNameSaving(false);
+    }
+  };
+
   return (
     <div style={{ padding: '16px 12px' }}>
       <h2 style={{ margin: '0 0 20px', fontSize: '18px', fontWeight: 700 }}>
         Settings
       </h2>
+
+      {/* ── Display Name ── */}
+      <div style={{ ...cardStyle, marginBottom: '24px' }}>
+        <div style={sectionTitleStyle}>Display Name</div>
+        <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginBottom: '10px', lineHeight: 1.4 }}>
+          Shown on your comments. 2–20 characters.
+        </div>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <input
+            type="text"
+            value={nameInput}
+            onChange={(e) => { setNameInput(e.target.value); setNameError(''); setNameSaved(false); }}
+            onKeyDown={(e) => { if (e.key === 'Enter') handleSaveName(); }}
+            maxLength={20}
+            placeholder="Your display name"
+            style={{
+              flex: 1, padding: '9px 12px', borderRadius: '8px',
+              border: nameError ? '1.5px solid #e55' : '1.5px solid rgba(26,10,0,0.15)',
+              background: 'rgba(255,255,255,0.7)', fontSize: '14px',
+              color: 'var(--text-primary)', fontFamily: 'inherit', outline: 'none',
+            }}
+          />
+          <button
+            onClick={handleSaveName}
+            disabled={nameSaveDisabled}
+            style={{
+              padding: '9px 16px', borderRadius: '8px', fontSize: '13px', fontWeight: 700,
+              cursor: nameSaveDisabled ? 'not-allowed' : 'pointer',
+              border: 'none',
+              background: nameSaved ? '#22c55e' : nameSaveDisabled ? 'rgba(26,10,0,0.1)' : 'var(--accent)',
+              color: nameSaveDisabled && !nameSaved ? 'var(--text-muted)' : '#fff',
+              transition: 'background 0.2s',
+              flexShrink: 0,
+            }}
+          >
+            {nameSaving ? 'Saving…' : nameSaved ? 'Saved ✓' : 'Save'}
+          </button>
+        </div>
+        {nameError && (
+          <div style={{ fontSize: '11px', color: '#e55', marginTop: '6px' }}>
+            {nameError}
+          </div>
+        )}
+        {!nameError && trimmed.length > 0 && !nameValid && (
+          <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px' }}>
+            Must be 2–20 characters.
+          </div>
+        )}
+      </div>
 
       {/* ── Grading System ── */}
       <div style={{ marginBottom: '24px' }}>

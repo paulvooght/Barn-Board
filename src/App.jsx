@@ -31,7 +31,14 @@ export default function App() {
   const [user, setUser]           = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [dataReady, setDataReady] = useState(false);
-  const isAdmin = ADMIN_EMAIL ? user?.email === ADMIN_EMAIL : true;
+
+  // ─── Profiles ─────────────────────────────────────────────────────
+  const [displayName, setDisplayName]       = useState('');
+  const [profilesById, setProfilesById]     = useState({}); // { [user_id]: { display_name, is_admin } }
+
+  // isAdmin: prefer DB flag (once profiles are loaded), fall back to ADMIN_EMAIL env var
+  const isAdmin = profilesById[user?.id]?.is_admin === true
+    || (ADMIN_EMAIL ? user?.email === ADMIN_EMAIL : true);
 
   // ─── Persistent state ─────────────────────────────────────────────
   const [routes, setRoutes]       = useState([]);
@@ -96,7 +103,7 @@ export default function App() {
 
   const loadDataFromSupabase = useCallback(async (userId, isFirstLoad) => {
     // Fire all queries in parallel — biggest startup speedup
-    const [routeResult, urdResult, ratingResult, gradeResult, sessionResult, plResult, imgConfigResult] = await Promise.all([
+    const [routeResult, urdResult, ratingResult, gradeResult, sessionResult, plResult, imgConfigResult, profilesResult] = await Promise.all([
       supabase.from('routes').select('id, user_id, data').order('created_at', { ascending: false }),
       supabase.from('user_route_data').select('route_id, sent, rating, angle_sends, grade_suggestions').eq('user_id', userId),
       supabase.from('user_route_data').select('route_id, rating').gt('rating', 0),
@@ -104,6 +111,7 @@ export default function App() {
       supabase.from('sessions').select('data').eq('user_id', userId).order('created_at', { ascending: false }),
       supabase.from('board_settings').select('data').eq('key', `playlists_${userId}`).maybeSingle(),
       supabase.from('board_settings').select('data').eq('key', 'board_image_config').maybeSingle(),
+      supabase.from('profiles').select('user_id, display_name, is_admin'),
     ]);
 
     // a) Routes
@@ -227,6 +235,17 @@ export default function App() {
     // g) Board image config
     if (imgConfigResult.data) {
       setBoardImageConfig(imgConfigResult.data.data);
+    }
+
+    // h) Profiles — build lookup map and set own display name
+    if (profilesResult.data) {
+      const map = {};
+      for (const row of profilesResult.data) {
+        map[row.user_id] = { display_name: row.display_name, is_admin: row.is_admin };
+      }
+      setProfilesById(map);
+      const own = map[userId];
+      if (own?.display_name) setDisplayName(own.display_name);
     }
 
     setDataReady(true);
@@ -432,6 +451,21 @@ export default function App() {
     } else if (!shared) {
       await supabase.from('shared_playlists').delete().eq('id', plId);
     }
+  }, [user]);
+
+  // ─── Display Name / Profiles ──────────────────────────────────────
+  const saveDisplayName = useCallback(async (newName) => {
+    if (!user) return;
+    const { error } = await supabase.from('profiles').upsert(
+      { user_id: user.id, display_name: newName },
+      { onConflict: 'user_id' }
+    );
+    if (error) throw error;
+    setDisplayName(newName);
+    setProfilesById(prev => ({
+      ...prev,
+      [user.id]: { ...(prev[user.id] || {}), display_name: newName },
+    }));
   }, [user]);
 
   const addSharedPlaylist = useCallback((sharedPl) => {
@@ -1721,6 +1755,8 @@ export default function App() {
           onSignOut={() => supabase.auth.signOut()}
           onViewSession={(session) => { setCompletedSession(session); setView('sessionSummary'); }}
           onUpdateBoardImage={() => setView('updateBoardImage')}
+          displayName={displayName}
+          onSaveDisplayName={saveDisplayName}
         />
       )}
 
