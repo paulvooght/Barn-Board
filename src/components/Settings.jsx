@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { BOARD_SPECS, GRADE_CONVERSION } from '../utils/constants';
+import { BOARD_SPECS, GRADE_CHART_ROWS } from '../utils/constants';
 import holdsData from '../data/holds.json';
 
 /**
@@ -215,32 +215,27 @@ export default function Settings({ settings, updateSettings, allHolds, onSetupBo
               <div style={{ padding: '8px 12px', textAlign: 'center' }}>V-Grade</div>
               <div style={{ padding: '8px 12px', textAlign: 'center' }}>Font</div>
             </div>
-            {GRADE_CONVERSION.map(([font, v], i) => {
-              // Check if this V-grade is same as next row (spans two Font grades)
-              const prevSameV = i > 0 && GRADE_CONVERSION[i - 1][1] === v;
-              return (
-                <div key={i} style={{
-                  display: 'grid', gridTemplateColumns: '1fr 1fr',
-                  fontSize: '13px', fontFamily: 'var(--font-heading)',
-                  borderBottom: i < GRADE_CONVERSION.length - 1 ? '1px solid rgba(26,10,0,0.06)' : 'none',
-                  background: i % 2 === 0 ? 'rgba(26,10,0,0.02)' : 'transparent',
+            {GRADE_CHART_ROWS.map(([v, font], i) => (
+              <div key={i} style={{
+                display: 'grid', gridTemplateColumns: '1fr 1fr',
+                fontSize: '13px', fontFamily: 'var(--font-heading)',
+                borderBottom: i < GRADE_CHART_ROWS.length - 1 ? '1px solid rgba(26,10,0,0.06)' : 'none',
+                background: i % 2 === 0 ? 'rgba(26,10,0,0.02)' : 'transparent',
+              }}>
+                <div style={{
+                  padding: '6px 12px', textAlign: 'center',
+                  fontWeight: 800, color: 'var(--accent)',
                 }}>
-                  <div style={{
-                    padding: '6px 12px', textAlign: 'center',
-                    fontWeight: 800,
-                    color: prevSameV ? 'var(--text-muted)' : 'var(--accent)',
-                  }}>
-                    {prevSameV ? '↑' : v}
-                  </div>
-                  <div style={{
-                    padding: '6px 12px', textAlign: 'center',
-                    fontWeight: 700, color: 'var(--text-primary)',
-                  }}>
-                    {font}
-                  </div>
+                  {v}
                 </div>
-              );
-            })}
+                <div style={{
+                  padding: '6px 12px', textAlign: 'center',
+                  fontWeight: 700, color: 'var(--text-primary)',
+                }}>
+                  {font}
+                </div>
+              </div>
+            ))}
             <div style={{
               padding: '6px', textAlign: 'center', fontSize: '9px',
               color: 'var(--text-dim)', borderTop: '1px solid rgba(26,10,0,0.06)',
