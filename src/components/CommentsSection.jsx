@@ -150,6 +150,23 @@ export default function CommentsSection({
     }
   }
 
+  async function handleEdit(commentId, newBody) {
+    setError('');
+    const { data, error: editErr } = await supabase
+      .from('route_comments')
+      .update({ body: newBody })
+      .eq('id', commentId)
+      .select()
+      .single();
+
+    if (editErr) {
+      console.error('CommentsSection edit error:', editErr);
+      setError('Failed to save edit.');
+      throw editErr;
+    }
+    setComments(prev => prev.map(c => c.id === commentId ? { ...c, ...data } : c));
+  }
+
   async function handleDelete(commentId) {
     setError('');
     const { error: deleteErr } = await supabase
@@ -217,6 +234,7 @@ export default function CommentsSection({
                   onLike={handleLike}
                   onFlag={handleFlag}
                   onDelete={handleDelete}
+                  onEdit={handleEdit}
                 />
               );
             })

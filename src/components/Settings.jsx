@@ -166,8 +166,8 @@ export default function Settings({ settings, updateSettings, allHolds, onSetupBo
             onClick={() => setShowChart(prev => !prev)}
             style={{
               padding: '3px 10px', borderRadius: '8px', fontSize: '10px', fontWeight: 700,
-              border: '1px solid var(--accent)', background: showChart ? 'var(--accent)' : 'transparent',
-              color: showChart ? '#fff' : 'var(--accent)', cursor: 'pointer',
+              border: '1px solid #1A0A00', background: showChart ? '#1A0A00' : 'transparent',
+              color: showChart ? '#FFAB94' : '#1A0A00', cursor: 'pointer',
               letterSpacing: '0.5px', textTransform: 'uppercase',
             }}
           >

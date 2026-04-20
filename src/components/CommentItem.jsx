@@ -36,6 +36,7 @@ function relativeTime(isoString) {
  *   onLike(id)      – toggle like for this comment
  *   onFlag(id)      – toggle flag for this comment
  *   onDelete(id)    – hard-delete this comment (admin only)
+ *   onEdit(id,body) – save edited body (own comment only)
  */
 export default function CommentItem({
   comment,
@@ -48,10 +49,43 @@ export default function CommentItem({
   onLike,
   onFlag,
   onDelete,
+  onEdit,
 }) {
   const liked  = currentUserId && comment.likes.includes(currentUserId);
   const flagged = currentUserId && comment.flags.includes(currentUserId);
   const flagCount = comment.flags.length;
+
+  const [editing, setEditing] = useState(false);
+  const [editText, setEditText] = useState(comment.body);
+  const [saving, setSaving] = useState(false);
+
+  const trimmedEdit = editText.trim();
+  const editValid = trimmedEdit.length >= 1 && trimmedEdit.length <= 500;
+  const editChanged = trimmedEdit !== comment.body.trim();
+  const canSaveEdit = editValid && editChanged && !saving;
+
+  function startEdit() {
+    setEditText(comment.body);
+    setEditing(true);
+  }
+
+  function cancelEdit() {
+    setEditText(comment.body);
+    setEditing(false);
+  }
+
+  async function saveEdit() {
+    if (!canSaveEdit || !onEdit) return;
+    setSaving(true);
+    try {
+      await onEdit(comment.id, trimmedEdit);
+      setEditing(false);
+    } catch {
+      // parent surfaces the error via its own state; stay in edit mode
+    } finally {
+      setSaving(false);
+    }
+  }
 
   function handleDelete() {
     if (window.confirm('Delete this comment?')) {
@@ -93,16 +127,67 @@ export default function CommentItem({
         )}
       </div>
 
-      {/* Body */}
-      <div style={{
-        fontSize: '13px',
-        color: '#1A0A00',
-        lineHeight: 1.45,
-        marginBottom: '8px',
-        wordBreak: 'break-word',
-      }}>
-        {comment.body}
-      </div>
+      {/* Body — read mode or edit mode */}
+      {editing ? (
+        <div style={{ marginBottom: '8px' }}>
+          <textarea
+            value={editText}
+            onChange={e => setEditText(e.target.value.slice(0, 500))}
+            maxLength={500}
+            rows={2}
+            autoFocus
+            style={{
+              width: '100%',
+              padding: '8px 10px',
+              borderRadius: '8px',
+              border: '1.5px solid rgba(26,10,0,0.15)',
+              background: '#fff',
+              fontSize: '13px',
+              color: '#1A0A00',
+              resize: 'vertical',
+              fontFamily: 'inherit',
+              boxSizing: 'border-box',
+              outline: 'none',
+            }}
+          />
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '6px', marginTop: '6px' }}>
+            <button
+              onClick={cancelEdit}
+              disabled={saving}
+              style={{
+                padding: '5px 12px', borderRadius: '6px', fontSize: '11px', fontWeight: 600,
+                border: '1px solid rgba(26,10,0,0.15)', background: 'transparent',
+                color: 'rgba(26,10,0,0.55)', cursor: saving ? 'not-allowed' : 'pointer',
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              onClick={saveEdit}
+              disabled={!canSaveEdit}
+              style={{
+                padding: '5px 14px', borderRadius: '6px', fontSize: '11px', fontWeight: 700,
+                border: 'none',
+                background: canSaveEdit ? '#0047FF' : 'rgba(26,10,0,0.1)',
+                color: canSaveEdit ? '#fff' : 'rgba(26,10,0,0.3)',
+                cursor: canSaveEdit ? 'pointer' : 'default',
+              }}
+            >
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div style={{
+          fontSize: '13px',
+          color: '#1A0A00',
+          lineHeight: 1.45,
+          marginBottom: '8px',
+          wordBreak: 'break-word',
+        }}>
+          {comment.body}
+        </div>
+      )}
 
       {/* Footer row: timestamp + actions */}
       <div style={{
@@ -149,6 +234,23 @@ export default function CommentItem({
           <span style={{ fontSize: '12px' }}>👍</span>
           <span>{comment.likes.length}</span>
         </button>
+
+        {/* Edit button — own comments only, hidden while editing */}
+        {isMine && !editing && onEdit && (
+          <button
+            onClick={startEdit}
+            style={{
+              padding: '4px 8px', borderRadius: '6px',
+              border: '1px solid rgba(26,10,0,0.15)',
+              background: 'transparent',
+              color: 'rgba(26,10,0,0.55)',
+              fontSize: '11px', fontWeight: 600, cursor: 'pointer',
+              minHeight: '28px',
+            }}
+          >
+            Edit
+          </button>
+        )}
 
         {/* Flag button — hidden for own comments */}
         {!isMine && (
