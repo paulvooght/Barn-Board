@@ -1998,6 +1998,7 @@ function NewAngleSuggestionRow({ grades, existingAngles, onSuggest }) {
 
 // ─── View Route Header with Angle-Grade Management ──────────────────
 function ViewRouteHeader({ route, sent, angleSends, isCreator, canEdit, grades, gradeSystem, playlists, settings, allHolds, communityGrades, myGradeSuggestions, onSuggestGrade, onAcceptGrade, onEdit, onClose, onDelete, onToggleSent, onAddAngleGrade, onRemoveAngleGrade, onSetHeadline, onToggleAngleSent, onAddToPlaylist, onCreatePlaylist }) {
+  const [nameExpanded, setNameExpanded] = useState(false);
   const [showAnglePanel, setShowAnglePanel] = useState(false);
   const [showPlaylistPanel, setShowPlaylistPanel] = useState(false);
   const [showGradePanel, setShowGradePanel] = useState(false);
@@ -2068,18 +2069,23 @@ function ViewRouteHeader({ route, sent, angleSends, isCreator, canEdit, grades, 
           );
         })()}
         <div style={{
-          flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: '6px',
+          flex: 1, minWidth: 0, display: 'flex', alignItems: 'flex-start', gap: '6px',
         }}>
-          <span style={{
-            fontWeight: 700, fontSize: '20px', lineHeight: 1.2,
-            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-          }}>
+          <span
+            onClick={() => setNameExpanded(prev => !prev)}
+            style={{
+              fontWeight: 700, fontSize: '20px', lineHeight: 1.2, cursor: 'pointer',
+              ...(nameExpanded
+                ? { whiteSpace: 'normal', wordBreak: 'break-word' }
+                : { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }),
+            }}
+          >
             {route.name}
           </span>
           {hasVideo && (
             <a href={route.youtubeUrl} target="_blank" rel="noopener noreferrer"
               onClick={e => e.stopPropagation()}
-              style={{ flexShrink: 0, display: 'flex', alignItems: 'center', textDecoration: 'none', opacity: 0.45 }}
+              style={{ flexShrink: 0, display: 'flex', alignItems: 'center', textDecoration: 'none', opacity: 0.45, marginTop: '2px' }}
             >
               <Icon name="video" size={16}/>
             </a>

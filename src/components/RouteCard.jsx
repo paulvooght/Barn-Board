@@ -1,7 +1,9 @@
+import { useState } from 'react';
 import { getYouTubeId } from '../utils/constants';
 import Icon from './Icon';
 
 export default function RouteCard({ route, sent, communityRating, ratingCount, communityGrade, onView, onRate, onToggleSent, missingHoldCount, onRemoveFromPlaylist }) {
+  const [nameExpanded, setNameExpanded] = useState(false);
   const displayRating = Math.round(communityRating || 0);
   const hasVideo  = !!getYouTubeId(route.youtubeUrl);
   const hasAngleGrades = (route.angleGrades || []).length > 0;
@@ -59,15 +61,20 @@ export default function RouteCard({ route, sent, communityRating, ratingCount, c
               </span>
             )}
           </div>
-          <div style={{ minWidth: 0, display: 'flex', alignItems: 'center', gap: '5px', paddingTop: '3px' }}>
-            <span style={{
-              fontWeight: 700, color: 'var(--text-primary)', fontSize: '16px',
-              whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-              lineHeight: 1.2,
-            }}>
+          <div style={{ minWidth: 0, display: 'flex', alignItems: 'flex-start', gap: '5px', paddingTop: '3px' }}>
+            <span
+              onClick={(e) => { e.stopPropagation(); setNameExpanded(prev => !prev); }}
+              style={{
+                fontWeight: 700, color: 'var(--text-primary)', fontSize: '16px',
+                lineHeight: 1.2, cursor: 'pointer',
+                ...(nameExpanded
+                  ? { whiteSpace: 'normal', wordBreak: 'break-word' }
+                  : { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }),
+              }}
+            >
               {route.name}
             </span>
-            {hasVideo && <Icon name="video" size={13} style={{ opacity: 0.4, flexShrink: 0 }}/>}
+            {hasVideo && <Icon name="video" size={13} style={{ opacity: 0.4, flexShrink: 0, marginTop: '2px' }}/>}
           </div>
         </div>
       </div>
