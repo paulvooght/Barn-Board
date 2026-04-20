@@ -1,13 +1,14 @@
 export const V_GRADES = [
-  'VB', 'V0-', 'V0', 'V0+', 'V1', 'V2', 'V3', 'V4', 'V5', 'V6',
+  'VB', 'V0', 'V1', 'V2', 'V3', 'V4', 'V5', 'V6',
   'V7', 'V8', 'V9', 'V10', 'V11', 'V12', 'V13', 'V14', 'V15',
+  'V16', 'V17',
 ];
 
 export const FONT_GRADES = [
   '3', '3+', '4', '4+', '5', '5+',
   '6A', '6A+', '6B', '6B+', '6C', '6C+',
   '7A', '7A+', '7B', '7B+', '7C', '7C+',
-  '8A', '8A+', '8B', '8B+', '8C',
+  '8A', '8A+', '8B', '8B+', '8C', '8C+', '9A',
 ];
 
 export const V_GRADE_INDEX = Object.fromEntries(V_GRADES.map((g, i) => [g, i]));
@@ -74,9 +75,8 @@ export const MODE_LABELS = {
 // Where a V-Grade spans two Font grades, both rows map to that V-Grade.
 export const GRADE_CONVERSION = [
   ['3',   'VB'],
-  ['3+',  'V0-'],
+  ['4',   'VB'],
   ['4',   'V0'],
-  ['4+',  'V0+'],
   ['5',   'V1'],
   ['5+',  'V2'],
   ['6A',  'V3'],
@@ -88,14 +88,16 @@ export const GRADE_CONVERSION = [
   ['7A',  'V6'],
   ['7A+', 'V7'],
   ['7B',  'V8'],
-  ['7B+', 'V9'],
-  ['7C',  'V10'],
-  ['7C+', 'V11'],
-  ['8A',  'V12'],
-  ['8A+', 'V13'],
-  ['8B',  'V14'],
-  ['8B+', 'V15'],
+  ['7B+', 'V8'],
+  ['7C',  'V9'],
+  ['7C+', 'V10'],
+  ['8A',  'V11'],
+  ['8A+', 'V12'],
+  ['8B',  'V13'],
+  ['8B+', 'V14'],
   ['8C',  'V15'],
+  ['8C+', 'V16'],
+  ['9A',  'V17'],
 ];
 
 // Build lookup maps: V→Font and Font→V (uses first match for many-to-one)
