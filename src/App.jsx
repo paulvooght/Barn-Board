@@ -2356,7 +2356,7 @@ function ViewRouteHeader({ route, sent, angleSends, isCreator, canEdit, grades, 
           boxShadow: '0 2px 8px rgba(26,10,0,0.06)',
         }}>
           {/* Add new angle/grade — only for users who can edit */}
-          {canEdit && <div style={{ marginBottom: angleGrades.length > 0 ? '20px' : 0 }}>
+          {canEdit && <div style={{ marginBottom: angleGrades.length > 0 ? '24px' : 0, paddingBottom: angleGrades.length > 0 ? '12px' : 0, borderBottom: angleGrades.length > 0 ? '1px solid rgba(26,10,0,0.06)' : 'none' }}>
             <div style={{
               fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)',
               letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '8px',
