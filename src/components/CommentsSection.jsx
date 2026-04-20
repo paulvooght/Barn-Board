@@ -195,8 +195,8 @@ export default function CommentsSection({
         style={{
           display: 'flex', alignItems: 'center', gap: '6px',
           padding: '7px 12px', borderRadius: '8px',
-          border: '1.5px solid rgba(26,10,0,0.12)',
-          background: expanded ? 'rgba(0,71,255,0.06)' : 'rgba(255,255,255,0.6)',
+          border: '1.5px solid rgba(26,10,0,0.6)',
+          background: '#FFAB94',
           color: expanded ? '#0047FF' : 'rgba(26,10,0,0.6)',
           fontSize: '12px', fontWeight: 700,
           cursor: 'pointer', width: '100%', textAlign: 'left',
@@ -207,7 +207,7 @@ export default function CommentsSection({
       </button>
 
       {expanded && (
-        <div style={{ marginTop: '10px' }}>
+        <div style={{ marginTop: '10px', padding: '10px', borderRadius: '8px', background: 'rgba(255,171,148,0.30)' }}>
           {/* Comment list */}
           {loading ? (
             <div style={{ fontSize: '12px', color: 'rgba(26,10,0,0.4)', padding: '8px 0' }}>
