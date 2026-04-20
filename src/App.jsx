@@ -1650,14 +1650,16 @@ export default function App() {
 
       {/* Comments section — below route info when viewing a route */}
       {view === 'viewRoute' && viewingRoute && (
-        <CommentsSection
-          routeId={viewingRoute.id}
-          routeCreatorId={viewingRoute.creatorId}
-          currentUserId={user?.id}
-          currentUserDisplayName={displayName}
-          profilesById={profilesById}
-          isAdmin={isAdmin}
-        />
+        <Suspense fallback={<div style={{ padding: '12px', fontSize: 12, color: 'rgba(26,10,0,0.4)' }}>Loading comments…</div>}>
+          <CommentsSection
+            routeId={viewingRoute.id}
+            routeCreatorId={viewingRoute.creatorId}
+            currentUserId={user?.id}
+            currentUserDisplayName={displayName}
+            profilesById={profilesById}
+            isAdmin={isAdmin}
+          />
+        </Suspense>
       )}
 
       {/* Board view CTA — below the board image */}
