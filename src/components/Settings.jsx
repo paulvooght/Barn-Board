@@ -115,6 +115,36 @@ export default function Settings({ settings, updateSettings, allHolds, onSetupBo
         )}
       </div>
 
+      {/* ── Admin / Climber mode toggle (admin only) ── */}
+      {isAdmin && (
+        <div style={{ ...cardStyle, marginBottom: '16px' }}>
+          <div style={sectionTitleStyle}>Mode</div>
+          <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+            {[
+              { val: 'climber', label: 'Climber mode' },
+              { val: 'admin',   label: 'Admin mode'   },
+            ].map(({ val, label }) => (
+              <button
+                key={val}
+                onClick={() => updateSettings('adminMode', val)}
+                style={{
+                  flex: 1, padding: '10px', borderRadius: '10px', cursor: 'pointer',
+                  border:     (settings.adminMode ?? 'climber') === val ? '2px solid var(--accent)' : '2px solid rgba(26,10,0,0.12)',
+                  background: (settings.adminMode ?? 'climber') === val ? 'var(--accent-dim)'       : 'rgba(255,255,255,0.5)',
+                  color:      (settings.adminMode ?? 'climber') === val ? 'var(--accent)'            : 'var(--text-secondary)',
+                  fontSize: '13px', fontWeight: 600, textAlign: 'center',
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <div style={{ fontSize: '11px', color: 'var(--text-dim)', lineHeight: 1.4 }}>
+            Admin mode: edit any route. Climber mode: participate in community grade suggestions.
+          </div>
+        </div>
+      )}
+
       {/* ── Hold Manager (admin only) ── */}
       {isAdmin && (
         <div style={{ marginBottom: '12px' }}>

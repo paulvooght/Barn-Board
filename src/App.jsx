@@ -41,7 +41,7 @@ export default function App() {
   const [communityRatings, setCommunityRatings] = useState({}); // { [routeId]: { avg, count } }
   const [communityGrades, setCommunityGrades]   = useState({}); // { [routeId]: { headline: {consensus, votes, count}, angles: {...} } }
   const [boardImageConfig, setBoardImageConfig] = useLocalStorage('barnboard_board_image_config', null);
-  const [settings, setSettings] = useLocalStorage('barnboard_settings', { gradeSystem: 'V' });
+  const [settings, setSettings] = useLocalStorage('barnboard_settings', { gradeSystem: 'V', adminMode: 'climber' });
 
   // Active session state (persisted so it survives page reload)
   const [activeSession, setActiveSession] = useLocalStorage('barnboard_active_session', null);
@@ -1239,12 +1239,18 @@ export default function App() {
             marginTop: isHome ? '4px' : '1px',
             textTransform: 'uppercase',
             fontWeight: 600,
+            display: 'flex', alignItems: 'center', gap: '6px',
           }}>
-            {view === 'addHold'    ? 'Add Hold'
-              : view === 'editHold'   ? 'Edit Hold'
-              : view === 'holdSelect' ? 'Select Hold'
-              : view === 'sessionSummary' ? 'Session Summary'
-              : 'Route Logger'}
+            <span>
+              {view === 'addHold'    ? 'Add Hold'
+                : view === 'editHold'   ? 'Edit Hold'
+                : view === 'holdSelect' ? 'Select Hold'
+                : view === 'sessionSummary' ? 'Session Summary'
+                : 'Route Logger'}
+            </span>
+            {isAdmin && (settings.adminMode ?? 'climber') === 'admin' && (
+              <Icon name="shield" size={isHome ? 14 : 11} style={{ color: 'var(--accent)', opacity: 0.7, flexShrink: 0 }} />
+            )}
           </div>
           {/* Session timer in header */}
           {activeSession && (
@@ -1413,7 +1419,8 @@ export default function App() {
               route={viewingRoute}
               sent={userRouteData[viewingRoute.id]?.sent || false}
               angleSends={userRouteData[viewingRoute.id]?.angleSends || []}
-              isCreator={viewingRoute.creatorId === user?.id || isAdmin}
+              isCreator={viewingRoute.creatorId === user?.id}
+              canEdit={viewingRoute.creatorId === user?.id || (isAdmin && (settings.adminMode ?? 'climber') === 'admin')}
               grades={grades}
               gradeSystem={settings.gradeSystem}
               playlists={playlists}
@@ -1892,7 +1899,7 @@ function NewAngleSuggestionRow({ grades, existingAngles, onSuggest }) {
 }
 
 // ─── View Route Header with Angle-Grade Management ──────────────────
-function ViewRouteHeader({ route, sent, angleSends, isCreator, grades, gradeSystem, playlists, settings, allHolds, communityGrades, myGradeSuggestions, onSuggestGrade, onAcceptGrade, onEdit, onClose, onDelete, onToggleSent, onAddAngleGrade, onRemoveAngleGrade, onSetHeadline, onToggleAngleSent, onAddToPlaylist, onCreatePlaylist }) {
+function ViewRouteHeader({ route, sent, angleSends, isCreator, canEdit, grades, gradeSystem, playlists, settings, allHolds, communityGrades, myGradeSuggestions, onSuggestGrade, onAcceptGrade, onEdit, onClose, onDelete, onToggleSent, onAddAngleGrade, onRemoveAngleGrade, onSetHeadline, onToggleAngleSent, onAddToPlaylist, onCreatePlaylist }) {
   const [showAnglePanel, setShowAnglePanel] = useState(false);
   const [showPlaylistPanel, setShowPlaylistPanel] = useState(false);
   const [showGradePanel, setShowGradePanel] = useState(false);
@@ -2056,7 +2063,7 @@ function ViewRouteHeader({ route, sent, angleSends, isCreator, grades, gradeSyst
                 </select>
               </div>
             )}
-            {isCreator && communityGrades?.headline?.consensus !== route.grade && (
+            {canEdit && communityGrades?.headline?.consensus !== route.grade && (
               <button
                 onClick={() => { onAcceptGrade(communityGrades.headline.consensus); setShowGradePanel(false); }}
                 style={{
@@ -2100,7 +2107,7 @@ function ViewRouteHeader({ route, sent, angleSends, isCreator, grades, gradeSyst
             <span style={{ fontSize: '11px', fontWeight: 800, color: '#FF1493', flex: 1 }}>
               {missingCount} hold{missingCount > 1 ? 's' : ''} removed
             </span>
-            {isCreator && (
+            {canEdit && (
               <button
                 onClick={onEdit}
                 style={{
@@ -2144,7 +2151,7 @@ function ViewRouteHeader({ route, sent, angleSends, isCreator, grades, gradeSyst
       <div style={{
         display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap',
       }}>
-        {isCreator && (
+        {canEdit && (
           <button onClick={onEdit} style={actionBtn(false)}>
             ✏ Edit
           </button>
@@ -2169,7 +2176,7 @@ function ViewRouteHeader({ route, sent, angleSends, isCreator, grades, gradeSyst
         >
           Playlist
         </button>
-        {isCreator && (!confirmDelete ? (
+        {canEdit && (!confirmDelete ? (
           <button
             onClick={() => setConfirmDelete(true)}
             style={{
@@ -2243,8 +2250,8 @@ function ViewRouteHeader({ route, sent, angleSends, isCreator, grades, gradeSyst
           background: 'var(--bg-card)', border: '1px solid var(--border)',
           boxShadow: '0 2px 8px rgba(26,10,0,0.06)',
         }}>
-          {/* Add new angle/grade */}
-          <div style={{ marginBottom: angleGrades.length > 0 ? '12px' : 0 }}>
+          {/* Add new angle/grade — only for users who can edit */}
+          {canEdit && <div style={{ marginBottom: angleGrades.length > 0 ? '12px' : 0 }}>
             <div style={{
               fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)',
               letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '8px',
@@ -2296,7 +2303,7 @@ function ViewRouteHeader({ route, sent, angleSends, isCreator, grades, gradeSyst
                 + Add
               </button>
             </div>
-          </div>
+          </div>}
 
           {/* ── Unified angle/grade table ── */}
           {(unifiedAngleRows.length > 0 || !isCreator) && (
@@ -2364,7 +2371,7 @@ function ViewRouteHeader({ route, sent, angleSends, isCreator, grades, gradeSyst
                             {/* Expanded */}
                             {expanded && (
                               <>
-                                {isCreator && angleCommunity && angleCommunity.consensus !== row.grade && (
+                                {canEdit && angleCommunity && angleCommunity.consensus !== row.grade && (
                                   <button onClick={() => { onAcceptGrade(angleCommunity.consensus, row.angle); setShowAngleSuggest(null); }}
                                     style={{ padding: '2px 8px', borderRadius: '4px', fontSize: '10px', border: 'none', background: 'var(--accent)', color: '#fff', cursor: 'pointer', fontWeight: 700, whiteSpace: 'nowrap' }}
                                   >
@@ -2402,7 +2409,7 @@ function ViewRouteHeader({ route, sent, angleSends, isCreator, grades, gradeSyst
                             {expanded && (
                               <>
                                 <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', fontFamily: 'var(--font-heading)' }}>{row.grade}</span>
-                                {isCreator && (
+                                {canEdit && (
                                   <button onClick={() => { onAcceptGrade(row.grade, row.angle); setShowAngleSuggest(null); }}
                                     style={{ padding: '2px 8px', borderRadius: '4px', fontSize: '10px', border: 'none', background: 'var(--accent)', color: '#fff', cursor: 'pointer', fontWeight: 700, whiteSpace: 'nowrap' }}
                                   >
@@ -2444,7 +2451,7 @@ function ViewRouteHeader({ route, sent, angleSends, isCreator, grades, gradeSyst
                       </div>,
                       /* Set Main (official + creator only) */
                       <div key={`s${i}`} style={{ ...agCell, background: bg, textAlign: 'center' }}>
-                        {isOfficial && isCreator && (
+                        {isOfficial && canEdit && (
                           <button
                             onClick={() => onSetHeadline(row.angle, row.grade)}
                             title="Set as headline"
@@ -2460,7 +2467,7 @@ function ViewRouteHeader({ route, sent, angleSends, isCreator, grades, gradeSyst
                       </div>,
                       /* Delete / Remove suggestion — far right */
                       <div key={`d${i}`} style={{ ...agCell, background: bg, textAlign: 'center' }}>
-                        {isOfficial && isCreator && (
+                        {isOfficial && canEdit && (
                           <button onClick={() => onRemoveAngleGrade(row.angle)}
                             style={{ padding: '2px 6px', borderRadius: '4px', fontSize: '10px', border: '1px solid rgba(255,82,82,0.3)', background: 'rgba(255,82,82,0.06)', color: '#FF5252', cursor: 'pointer' }}
                           >✕</button>
