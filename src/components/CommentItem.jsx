@@ -1,6 +1,28 @@
 import { useState } from 'react';
 
 /**
+ * Returns a relative time string for a given ISO timestamp.
+ * Falls back to a short absolute date for anything older than ~8 weeks.
+ */
+function relativeTime(isoString) {
+  const now = Date.now();
+  const then = new Date(isoString).getTime();
+  const diffMs = now - then;
+  const diffSec = Math.floor(diffMs / 1000);
+  if (diffSec < 60)  return 'just now';
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60)  return `${diffMin}m ago`;
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24)   return `${diffHr}h ago`;
+  const diffDay = Math.floor(diffHr / 24);
+  if (diffDay < 14)  return `${diffDay}d ago`;
+  const diffWk = Math.floor(diffDay / 7);
+  if (diffWk < 8)    return `${diffWk}w ago`;
+  // Older than ~8 weeks — short absolute date
+  return new Date(isoString).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+/**
  * CommentItem — single comment row in a route's comment thread.
  *
  * Props:
@@ -90,8 +112,11 @@ export default function CommentItem({
         flexWrap: 'wrap',
       }}>
         {/* Timestamp */}
-        <span style={{ fontSize: '10px', color: 'rgba(26,10,0,0.4)', flex: 1 }}>
-          {new Date(comment.created_at).toLocaleString()}
+        <span
+          title={new Date(comment.created_at).toLocaleString()}
+          style={{ fontSize: '10px', color: 'rgba(26,10,0,0.4)', flex: 1, cursor: 'default' }}
+        >
+          {relativeTime(comment.created_at)}
         </span>
 
         {/* Flag badge (admin) */}

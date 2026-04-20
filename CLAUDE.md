@@ -17,6 +17,7 @@ Multiple users share one physical board. Any user can create routes, and all rou
 - **Hold types, techniques, styles** — set by the route creator only. Other users can view this info but not change it.
 - **Angle-grades** — shared across all users (e.g. "V4 at 30°, V5 at 35°").
 - **Hold data** — one physical board, hold positions/metadata shared by all users.
+- **Comments** — anyone can post on any route; everyone sees them. The route creator's name is highlighted yellow with a 'setter' pill. Admin can hard-delete; users can flag 'Neg' for admin review, or 'Like' with a thumb.
 
 ## Tech Stack
 - **React 18** + **Vite 6** — no router, no state library, single-page app with view state machine
@@ -51,6 +52,8 @@ board → addHold / editHold (HoldEditorView — polygon + metadata editor)
 | `routes` | `id` (text) | `user_id`, `data` (full route JSON), timestamps |
 | `sessions` | `id` (text) | `user_id`, `data` (full session JSON), timestamps |
 | `board_settings` | `key` (text) | `data` (JSON blob) — shared across all users |
+| `profiles` | `user_id` | `display_name`, `is_admin`, timestamps |
+| `route_comments` | `id` | `route_id`, `user_id`, `body`, `likes[]`, `flags[]`, timestamps |
 
 **board_settings keys:** `hold_overrides`, `custom_holds`, `playlists_${userId}`
 
@@ -64,6 +67,7 @@ board → addHold / editHold (HoldEditorView — polygon + metadata editor)
 - `VITE_ADMIN_EMAIL` env var determines the admin user
 - Only admin sees Hold Manager button in Settings
 - Hold data (overrides + custom holds) is shared across all users (one physical board)
+- Admin status is now sourced from `profiles.is_admin` (set manually via SQL after first signup). `VITE_ADMIN_EMAIL` remains as a bootstrap fallback so the first admin isn't locked out before promoting their profile row.
 
 ### Key Files
 | File | Lines | Purpose |
@@ -81,6 +85,8 @@ board → addHold / editHold (HoldEditorView — polygon + metadata editor)
 | `src/components/AuthView.jsx` | ~85 | Email/password login + signup |
 | `src/components/ModeSelector.jsx` | ~28 | Hold selection mode buttons |
 | `src/components/TagPicker.jsx` | ~42 | Multi-select tag picker with auto-highlight |
+| `src/components/CommentsSection.jsx` | ~260 | Comments thread on viewRoute — fetch, post, like, flag, admin-delete |
+| `src/components/CommentItem.jsx` | ~165 | Single comment row — name/setter pill, body, like/flag/delete actions |
 | `src/hooks/useCustomHolds.js` | ~147 | Three-layer hold data + Supabase sync |
 | `src/hooks/useLocalStorage.js` | ~27 | localStorage-backed React state |
 | `src/hooks/useUndoRedo.js` | ~70 | Undo/redo state snapshots (max 50) |

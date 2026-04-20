@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import CommentItem from './CommentItem';
 
@@ -26,6 +26,9 @@ export default function CommentsSection({
   const [loading, setLoading]         = useState(true);
   const [composeText, setComposeText] = useState('');
   const [posting, setPosting]         = useState(false);
+  const [error, setError]             = useState('');
+  const expandedRef = useRef(expanded);
+  expandedRef.current = expanded;
 
   // Eagerly fetch comments on mount (table will be small per route)
   useEffect(() => {
@@ -34,15 +37,15 @@ export default function CommentsSection({
 
     async function fetchComments() {
       setLoading(true);
-      const { data, error } = await supabase
+      const { data, error: fetchErr } = await supabase
         .from('route_comments')
         .select('*')
         .eq('route_id', routeId)
         .order('created_at', { ascending: true });
 
       if (cancelled) return;
-      if (error) {
-        console.error('CommentsSection fetch error:', error);
+      if (fetchErr) {
+        console.error('CommentsSection fetch error:', fetchErr);
       } else {
         setComments(data || []);
       }
@@ -53,20 +56,43 @@ export default function CommentsSection({
     return () => { cancelled = true; };
   }, [routeId]);
 
+  // Tab-visibility refetch for multi-device sync (only when expanded)
+  useEffect(() => {
+    function handleVisibility() {
+      if (document.visibilityState === 'visible' && expandedRef.current && routeId) {
+        supabase
+          .from('route_comments')
+          .select('*')
+          .eq('route_id', routeId)
+          .order('created_at', { ascending: true })
+          .then(({ data, error: fetchErr }) => {
+            if (fetchErr) {
+              console.error('CommentsSection visibility refetch error:', fetchErr);
+            } else {
+              setComments(data || []);
+            }
+          });
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, [routeId]);
+
   async function handlePost() {
     const body = composeText.trim();
     if (!body || !currentUserId || !currentUserDisplayName || posting) return;
 
+    setError('');
     setPosting(true);
-    const { data, error } = await supabase
+    const { data, error: postErr } = await supabase
       .from('route_comments')
       .insert({ route_id: routeId, user_id: currentUserId, body })
       .select()
       .single();
 
-    if (error) {
-      console.error('CommentsSection post error:', error);
-      alert('Failed to post comment. Please try again.');
+    if (postErr) {
+      console.error('CommentsSection post error:', postErr);
+      setError('Failed to post comment. Please try again.');
     } else {
       setComments(prev => [...prev, data]);
       setComposeText('');
@@ -125,14 +151,15 @@ export default function CommentsSection({
   }
 
   async function handleDelete(commentId) {
-    const { error } = await supabase
+    setError('');
+    const { error: deleteErr } = await supabase
       .from('route_comments')
       .delete()
       .eq('id', commentId);
 
-    if (error) {
-      console.error('CommentsSection delete error:', error);
-      alert('Failed to delete comment.');
+    if (deleteErr) {
+      console.error('CommentsSection delete error:', deleteErr);
+      setError('Failed to delete comment.');
     } else {
       setComments(prev => prev.filter(c => c.id !== commentId));
     }
@@ -168,6 +195,10 @@ export default function CommentsSection({
           {loading ? (
             <div style={{ fontSize: '12px', color: 'rgba(26,10,0,0.4)', padding: '8px 0' }}>
               Loading…
+            </div>
+          ) : comments.length === 0 ? (
+            <div style={{ fontSize: '12px', color: 'rgba(26,10,0,0.4)', fontStyle: 'italic', padding: '8px 0' }}>
+              No comments yet — be the first.
             </div>
           ) : (
             comments.map(comment => {
@@ -205,9 +236,10 @@ export default function CommentsSection({
                 <div style={{ position: 'relative' }}>
                   <textarea
                     value={composeText}
-                    onChange={e => setComposeText(e.target.value.slice(0, 500))}
+                    onChange={e => { setComposeText(e.target.value.slice(0, 500)); setError(''); }}
                     placeholder="Add a comment…"
                     rows={2}
+                    maxLength={500}
                     style={{
                       width: '100%',
                       padding: '8px 10px',
@@ -247,6 +279,11 @@ export default function CommentsSection({
                     {posting ? 'Posting…' : 'Post'}
                   </button>
                 </div>
+                {error && (
+                  <div style={{ fontSize: '11px', color: '#e74c3c', marginTop: '4px' }}>
+                    {error}
+                  </div>
+                )}
               </>
             )}
           </div>
