@@ -1261,6 +1261,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
             }}
           >Multi</button>
           <button onClick={selectAllHolds} style={secBtnStyle}>Select All</button>
+          <button onClick={clearSelection} style={secBtnStyle}>Deselect</button>
           {selectedIds.length === 1 && (
             <>
               <button onClick={copySelected} style={secBtnStyle} disabled={!selectedHold?.polygon}>Copy</button>
