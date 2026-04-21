@@ -964,10 +964,20 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
               />
             </>
           ) : (
-            <polyline points={pts.join(' ')}
-              fill="none" stroke="#0047FF"
-              strokeWidth={Math.round(1.5 * zPx)} strokeDasharray={`${Math.round(4 * zPx)} ${Math.round(3 * zPx)}`}
-            />
+            <>
+              {/* White outline behind dashes — keeps them visible against dark board areas */}
+              <polyline points={pts.join(' ')}
+                fill="none" stroke="rgba(255,255,255,0.55)"
+                strokeWidth={Math.max(Math.round(3 * zPx), 2.5)}
+                strokeLinecap="round" strokeLinejoin="round"
+              />
+              <polyline points={pts.join(' ')}
+                fill="none" stroke="#0047FF"
+                strokeWidth={Math.max(Math.round(1.5 * zPx), 1.5)}
+                strokeDasharray={`${Math.max(Math.round(4 * zPx), 4)} ${Math.max(Math.round(3 * zPx), 2)}`}
+                strokeLinecap="round" strokeLinejoin="round"
+              />
+            </>
           )
         ) : null}
         {drawMode === 'polygon' && drawPoints.map(([x, y], idx) => {
