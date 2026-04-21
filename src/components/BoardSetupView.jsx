@@ -1043,7 +1043,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
             </>
           )
         ) : null}
-        {drawMode === 'polygon' && drawPoints.map(([x, y], idx) => {
+        {drawMode === 'polygon' && !isSelectLasso && drawPoints.map(([x, y], idx) => {
           const sx = toSvgX(x), sy = toSvgY(y);
           return (
             <circle key={idx}
