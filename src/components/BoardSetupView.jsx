@@ -3,7 +3,7 @@ import { useUndoRedo } from '../hooks/useUndoRedo';
 import {
   centroid, boundingBox,
   rotatePolygon, scalePolygon, translatePolygon,
-  simplifyPath, findHoldAtPoint, holdFromPolygon,
+  simplifyPath, findHoldAtPoint, holdFromPolygon, pointInPolygon,
 } from '../utils/polygonUtils';
 import { HOLD_COLOR_DOT } from '../utils/constants';
 import holdsData from '../data/holds.json';
@@ -90,6 +90,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
   const lassoPosRef = useRef(null);         // { clientX, clientY } during touch lasso draw — for loupe
   const lassoBoardPctRef = useRef(null);    // { x, y } board-% of current lasso point — for loupe
   const [lassoLoupeUpdate, setLassoLoupeUpdate] = useState(0); // force lasso loupe re-render
+  const [lassoSelectActive, setLassoSelectActive] = useState(false); // select-lasso sub-mode
 
   // Copy/paste state — copy selected, click to place
   const [clipboard, setClipboard] = useState(null);     // source hold shape
@@ -287,6 +288,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
   function clearSelection() {
     setSelectedIds([]);
     setMultiSelectMode(false);
+    setLassoSelectActive(false);
     setSelectRotation(0);
     setSelectScale(100);
     selectOrigPolysRef.current = {};
@@ -450,6 +452,32 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
     setActiveTool(TOOLS.SELECT);
   }
 
+  // Select-lasso: on release, hit-test holds against the freehand polygon and REPLACE selection.
+  function finishLassoSelect() {
+    lassoActiveRef.current = false;
+    lassoPosRef.current = null;
+    lassoBoardPctRef.current = null;
+    setLassoSelectActive(false);
+    if (drawPoints.length < 3) { setDrawPoints([]); return; }
+    const lassoPolygon = simplifyPath(drawPoints, 0.4);
+    if (lassoPolygon.length < 3) { setDrawPoints([]); return; }
+    const matched = [];
+    for (const hold of holds) {
+      if (!hold.polygon || hold.polygon.length < 3) {
+        // Fallback: check centroid of holds without polygon
+        if (pointInPolygon(hold.cx, hold.cy, lassoPolygon)) matched.push(hold.id);
+        continue;
+      }
+      // Hit if ANY hold vertex is inside lasso OR any lasso vertex is inside hold polygon
+      const holdInsideLasso = hold.polygon.some(([x, y]) => pointInPolygon(x, y, lassoPolygon));
+      if (holdInsideLasso) { matched.push(hold.id); continue; }
+      const lassoInsideHold = lassoPolygon.some(([x, y]) => pointInPolygon(x, y, hold.polygon));
+      if (lassoInsideHold) matched.push(hold.id);
+    }
+    setDrawPoints([]);
+    if (matched.length > 0) setSelectedIds(matched);
+  }
+
   function addVertexToSelected() {
     if (!selectedHold?.polygon || selectedHold.polygon.length < 3) return;
     const poly = selectedHold.polygon;
@@ -521,8 +549,9 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
       };
       return;
     }
-    // Lasso draw — start freehand path
-    if (activeTool === TOOLS.DRAW && drawMode === 'lasso') {
+    // Lasso draw — start freehand path (draw tool OR select-lasso sub-mode)
+    if ((activeTool === TOOLS.DRAW && drawMode === 'lasso') ||
+        (activeTool === TOOLS.SELECT && multiSelectMode && lassoSelectActive)) {
       const pct = clientToBoardPct(e.clientX, e.clientY);
       if (pct) {
         lassoActiveRef.current = true;
@@ -597,7 +626,15 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
 
   function handleMouseUp(e) {
     if (isSynthesizedMouse()) { panDragRef.current.active = false; return; }
-    if (lassoActiveRef.current) { lassoActiveRef.current = false; finishLasso(); return; }
+    if (lassoActiveRef.current) {
+      lassoActiveRef.current = false;
+      if (activeTool === TOOLS.SELECT && multiSelectMode && lassoSelectActive) {
+        finishLassoSelect();
+      } else {
+        finishLasso();
+      }
+      return;
+    }
     if (draggingHold) { setDraggingHold(null); moveMultiLastRef.current = null; return; }
     if (draggingVertex) { setDraggingVertex(null); return; }
     if (panDragRef.current.active && !panDragRef.current.moved) {
@@ -676,8 +713,9 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
         };
         return;
       }
-      // Lasso draw — start freehand path
-      if (activeTool === TOOLS.DRAW && drawMode === 'lasso') {
+      // Lasso draw — start freehand path (draw tool OR select-lasso sub-mode)
+      if ((activeTool === TOOLS.DRAW && drawMode === 'lasso') ||
+          (activeTool === TOOLS.SELECT && multiSelectMode && lassoSelectActive)) {
         const pct = clientToBoardPct(touch.clientX, touch.clientY);
         if (pct) {
           lassoActiveRef.current = true;
@@ -782,7 +820,19 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
   }
 
   function handleTouchEnd(e) {
-    if (lassoActiveRef.current) { lassoActiveRef.current = false; lassoPosRef.current = null; lassoBoardPctRef.current = null; finishLasso(); pinchRef.current.active = false; panDragRef.current.active = false; return; }
+    if (lassoActiveRef.current) {
+      lassoActiveRef.current = false;
+      lassoPosRef.current = null;
+      lassoBoardPctRef.current = null;
+      pinchRef.current.active = false;
+      panDragRef.current.active = false;
+      if (activeTool === TOOLS.SELECT && multiSelectMode && lassoSelectActive) {
+        finishLassoSelect();
+      } else {
+        finishLasso();
+      }
+      return;
+    }
     if (draggingHold) { setDraggingHold(null); moveMultiLastRef.current = null; pinchRef.current.active = false; panDragRef.current.active = false; return; }
     if (draggingVertexRef.current) {
       const wasTap = !vertexDragActiveRef.current;
@@ -832,6 +882,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
     setDrawPoints([]);
     setDrawClosed(false);
     lassoActiveRef.current = false;
+    setLassoSelectActive(false);
     setDrawMode('polygon');
     if (tool !== TOOLS.COPY) {
       setClipboard(null);
@@ -937,7 +988,9 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
   }
 
   function renderDrawingState() {
-    if (activeTool !== TOOLS.DRAW || drawPoints.length === 0) return null;
+    const isSelectLasso = activeTool === TOOLS.SELECT && multiSelectMode && lassoSelectActive;
+    if (activeTool !== TOOLS.DRAW && !isSelectLasso) return null;
+    if (drawPoints.length === 0) return null;
     const zPx = pxScale / scale;
     const pts = drawPoints.map(([x, y]) => `${toSvgX(x)},${toSvgY(y)}`);
     return (
@@ -958,7 +1011,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
             />
           </>
         ) : drawPoints.length >= 2 ? (
-          drawMode === 'lasso' ? (
+          (drawMode === 'lasso' || isSelectLasso) ? (
             <>
               {/* White outline behind dashes — keeps them visible against dark board areas */}
               <polyline points={pts.join(' ')}
@@ -1259,16 +1312,42 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
             </>
           )}
 
-          {/* Select tool actions — three rows:
-              1) Multi · Select All · Deselect · Copy
+          {/* Select tool actions — three rows (full) or minimal stub when nothing selected:
+              1) Multi · [Lasso when multi on] · Select All · [Deselect · Copy when selection exists]
               2) + Vertex · − Vertex (single-select only)
               3) Rotate · Scale · Delete (right-aligned) */}
+          {activeTool === TOOLS.SELECT && selectedIds.length === 0 && (
+            /* Minimal toolbar: available before any selection is made */
+            <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+              <button
+                onClick={() => { setMultiSelectMode(prev => !prev); setLassoSelectActive(false); }}
+                style={{
+                  ...secBtnStyle,
+                  background: multiSelectMode ? 'var(--accent)' : secBtnStyle.background,
+                  color: multiSelectMode ? '#fff' : secBtnStyle.color,
+                  borderColor: multiSelectMode ? 'var(--accent)' : secBtnStyle.borderColor,
+                }}
+              >Multi</button>
+              {multiSelectMode && (
+                <button
+                  onClick={() => setLassoSelectActive(prev => !prev)}
+                  style={{
+                    ...secBtnStyle,
+                    background: lassoSelectActive ? 'var(--accent)' : secBtnStyle.background,
+                    color: lassoSelectActive ? '#fff' : secBtnStyle.color,
+                    borderColor: lassoSelectActive ? 'var(--accent)' : secBtnStyle.borderColor,
+                  }}
+                >Lasso</button>
+              )}
+              <button onClick={selectAllHolds} style={secBtnStyle}>Select All</button>
+            </div>
+          )}
           {activeTool === TOOLS.SELECT && selectedIds.length > 0 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', width: '100%' }}>
               {/* Row 1 */}
               <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
                 <button
-                  onClick={() => setMultiSelectMode(prev => !prev)}
+                  onClick={() => { setMultiSelectMode(prev => !prev); setLassoSelectActive(false); }}
                   style={{
                     ...secBtnStyle,
                     background: multiSelectMode ? 'var(--accent)' : secBtnStyle.background,
@@ -1276,6 +1355,17 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
                     borderColor: multiSelectMode ? 'var(--accent)' : secBtnStyle.borderColor,
                   }}
                 >Multi</button>
+                {multiSelectMode && (
+                  <button
+                    onClick={() => setLassoSelectActive(prev => !prev)}
+                    style={{
+                      ...secBtnStyle,
+                      background: lassoSelectActive ? 'var(--accent)' : secBtnStyle.background,
+                      color: lassoSelectActive ? '#fff' : secBtnStyle.color,
+                      borderColor: lassoSelectActive ? 'var(--accent)' : secBtnStyle.borderColor,
+                    }}
+                  >Lasso</button>
+                )}
                 <button onClick={selectAllHolds} style={secBtnStyle}>Select All</button>
                 <button onClick={clearSelection} style={secBtnStyle}>Deselect</button>
                 {selectedIds.length === 1 && (
