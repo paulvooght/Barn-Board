@@ -1249,74 +1249,89 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
             </>
           )}
 
-          {/* Select tool actions — order: Select All · Copy · +Vertex · Rotate · Scale · Delete */}
-          {activeTool === TOOLS.SELECT && selectedIds.length > 0 && (<>
-          <button
-            onClick={() => setMultiSelectMode(prev => !prev)}
-            style={{
-              ...secBtnStyle,
-              background: multiSelectMode ? 'var(--accent)' : secBtnStyle.background,
-              color: multiSelectMode ? '#fff' : secBtnStyle.color,
-              borderColor: multiSelectMode ? 'var(--accent)' : secBtnStyle.borderColor,
-            }}
-          >Multi</button>
-          <button onClick={selectAllHolds} style={secBtnStyle}>Select All</button>
-          <button onClick={clearSelection} style={secBtnStyle}>Deselect</button>
-          {selectedIds.length === 1 && (
-            <>
-              <button onClick={copySelected} style={secBtnStyle} disabled={!selectedHold?.polygon}>Copy</button>
-              <button onClick={addVertexToSelected} style={secBtnStyle} disabled={!selectedHold?.polygon}>+ Vertex</button>
-              <button onClick={removeVertexFromSelected} style={secBtnStyle} disabled={!selectedHold?.polygon || selectedHold.polygon.length <= 3}>− Vertex</button>
-              {selectedHold?.confidence === 'medium' && (
+          {/* Select tool actions — three rows:
+              1) Multi · Select All · Deselect · Copy
+              2) + Vertex · − Vertex (single-select only)
+              3) Rotate · Scale · Delete (right-aligned) */}
+          {activeTool === TOOLS.SELECT && selectedIds.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', width: '100%' }}>
+              {/* Row 1 */}
+              <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
                 <button
-                  onClick={() => setHolds(prev => prev.map(h => h.id === selectedId ? { ...h, confidence: 'high' } : h))}
-                  style={{ ...secBtnStyle, background: '#22c55e', color: '#fff', borderColor: '#22c55e' }}
-                >Confirm</button>
+                  onClick={() => setMultiSelectMode(prev => !prev)}
+                  style={{
+                    ...secBtnStyle,
+                    background: multiSelectMode ? 'var(--accent)' : secBtnStyle.background,
+                    color: multiSelectMode ? '#fff' : secBtnStyle.color,
+                    borderColor: multiSelectMode ? 'var(--accent)' : secBtnStyle.borderColor,
+                  }}
+                >Multi</button>
+                <button onClick={selectAllHolds} style={secBtnStyle}>Select All</button>
+                <button onClick={clearSelection} style={secBtnStyle}>Deselect</button>
+                {selectedIds.length === 1 && (
+                  <button onClick={copySelected} style={secBtnStyle} disabled={!selectedHold?.polygon}>Copy</button>
+                )}
+              </div>
+
+              {/* Row 2 — single-select only */}
+              {selectedIds.length === 1 && (
+                <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <button onClick={addVertexToSelected} style={secBtnStyle} disabled={!selectedHold?.polygon}>+ Vertex</button>
+                  <button onClick={removeVertexFromSelected} style={secBtnStyle} disabled={!selectedHold?.polygon || selectedHold.polygon.length <= 3}>− Vertex</button>
+                  {selectedHold?.confidence === 'medium' && (
+                    <button
+                      onClick={() => setHolds(prev => prev.map(h => h.id === selectedId ? { ...h, confidence: 'high' } : h))}
+                      style={{ ...secBtnStyle, background: '#22c55e', color: '#fff', borderColor: '#22c55e' }}
+                    >Confirm</button>
+                  )}
+                </div>
               )}
-            </>
+
+              {/* Row 3 */}
+              <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600 }}>Rotate</span>
+                  <input type="range" min="-180" max="180" step="5"
+                    value={selectRotation}
+                    onMouseDown={snapshotOrigPolys}
+                    onTouchStart={snapshotOrigPolys}
+                    onChange={(e) => {
+                      const rot = parseInt(e.target.value);
+                      setSelectRotation(rot);
+                      applyRotationToSelected(rot);
+                    }}
+                    style={{ width: '60px', accentColor: 'var(--accent)' }}
+                  />
+                  <span style={{ fontSize: '10px', color: 'var(--text-primary)', fontWeight: 700, minWidth: '26px' }}>
+                    {selectRotation}°
+                  </span>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600 }}>Scale</span>
+                  <input type="range" min="25" max="300" step="5"
+                    value={selectScale}
+                    onMouseDown={snapshotOrigPolys}
+                    onTouchStart={snapshotOrigPolys}
+                    onChange={(e) => {
+                      const s = parseInt(e.target.value);
+                      setSelectScale(s);
+                      applyScaleToSelected(s);
+                    }}
+                    style={{ width: '60px', accentColor: 'var(--accent)' }}
+                  />
+                  <span style={{ fontSize: '10px', color: 'var(--text-primary)', fontWeight: 700, minWidth: '30px' }}>
+                    {selectScale}%
+                  </span>
+                </div>
+
+                <button onClick={deleteSelected}
+                  style={{ ...secBtnStyle, marginLeft: 'auto', color: '#FF5252', borderColor: 'rgba(255,82,82,0.35)', background: 'rgba(255,171,148,0.25)' }}>
+                  Delete{selectedIds.length > 1 ? ` (${selectedIds.length})` : ''}
+                </button>
+              </div>
+            </div>
           )}
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-            <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600 }}>Rotate</span>
-            <input type="range" min="-180" max="180" step="5"
-              value={selectRotation}
-              onMouseDown={snapshotOrigPolys}
-              onTouchStart={snapshotOrigPolys}
-              onChange={(e) => {
-                const rot = parseInt(e.target.value);
-                setSelectRotation(rot);
-                applyRotationToSelected(rot);
-              }}
-              style={{ width: '60px', accentColor: 'var(--accent)' }}
-            />
-            <span style={{ fontSize: '10px', color: 'var(--text-primary)', fontWeight: 700, minWidth: '26px' }}>
-              {selectRotation}°
-            </span>
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-            <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600 }}>Scale</span>
-            <input type="range" min="25" max="300" step="5"
-              value={selectScale}
-              onMouseDown={snapshotOrigPolys}
-              onTouchStart={snapshotOrigPolys}
-              onChange={(e) => {
-                const s = parseInt(e.target.value);
-                setSelectScale(s);
-                applyScaleToSelected(s);
-              }}
-              style={{ width: '60px', accentColor: 'var(--accent)' }}
-            />
-            <span style={{ fontSize: '10px', color: 'var(--text-primary)', fontWeight: 700, minWidth: '30px' }}>
-              {selectScale}%
-            </span>
-          </div>
-
-          <button onClick={deleteSelected}
-            style={{ ...secBtnStyle, marginLeft: 'auto', color: '#FF5252', borderColor: 'rgba(255,82,82,0.35)', background: 'rgba(255,171,148,0.25)' }}>
-            Delete{selectedIds.length > 1 ? ` (${selectedIds.length})` : ''}
-          </button>
-          </>)}
         </div>
       )}
 
