@@ -915,7 +915,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
         {showVertices && activeTool === TOOLS.SELECT && hold.polygon.map(([x, y], idx) => {
           const sx = toSvgX(x), sy = toSvgY(y);
           const svgScale = getSvgScale();
-          const vr = Math.round(2.0 * pxScale);
+          const vr = Math.round(2.5 * pxScale);
           const hitR = 30 / svgScale;
           return (
             <g key={idx} style={{ cursor: 'move' }}
@@ -943,10 +943,20 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
     return (
       <g style={{ pointerEvents: 'none' }}>
         {drawClosed ? (
-          <polygon points={pts.join(' ')}
-            fill="rgba(0,71,255,0.15)" stroke="#0047FF"
-            strokeWidth={Math.round(1.5 * zPx)} strokeDasharray={`${Math.round(5 * zPx)} ${Math.round(3 * zPx)}`}
-          />
+          <>
+            {/* White outline behind dashes — keeps them visible against dark board areas */}
+            <polygon points={pts.join(' ')}
+              fill="rgba(0,71,255,0.15)" stroke="rgba(255,255,255,0.55)"
+              strokeWidth={Math.max(Math.round(3 * zPx), 2.5)}
+              strokeLinejoin="round"
+            />
+            <polygon points={pts.join(' ')}
+              fill="none" stroke="#0047FF"
+              strokeWidth={Math.max(Math.round(1.5 * zPx), 1.5)}
+              strokeDasharray={`${Math.max(Math.round(5 * zPx), 4)} ${Math.max(Math.round(3 * zPx), 2)}`}
+              strokeLinejoin="round"
+            />
+          </>
         ) : drawPoints.length >= 2 ? (
           drawMode === 'lasso' ? (
             <>
