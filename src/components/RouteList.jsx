@@ -617,7 +617,7 @@ export default function RouteList({
                 display: 'flex', justifyContent: 'space-between', alignItems: 'center',
               }}
             >
-              <span>Include Hidden Angle Grades</span>
+              <span>Show alternative angle grades</span>
               <span style={{
                 width: '16px', height: '16px', borderRadius: '4px',
                 border: showHiddenAngles ? '2px solid var(--accent)' : '2px solid rgba(26,10,0,0.2)',
