@@ -16,7 +16,7 @@ export const FONT_GRADE_INDEX = Object.fromEntries(FONT_GRADES.map((g, i) => [g,
 
 export const HOLD_TYPES = [
   'Crimps', 'Slopers', 'Pinches', 'Jugs', 'Mini jug',
-  'Pockets', 'Edges', 'Undercuts', 'Volumes', 'Jibs', 'Macro',
+  'Pockets', 'Gastons', 'Undercuts', 'Volumes', 'Jibs', 'Macro',
 ];
 
 // Physical hold color name → display hex (for dots/indicators)
@@ -31,17 +31,17 @@ export const MATERIALS = ['Wood', 'PU', 'Fibreglass', 'Dual-tex'];
 // Map hold-level singular types → route-level plural types
 export const HOLD_TYPE_SINGULAR_TO_PLURAL = {
   'Jug': 'Jugs', 'Mini Jug': 'Mini jug', 'Crimp': 'Crimps', 'Half Crimp': 'Crimps',
-  'Pinch': 'Pinches', 'Sloper': 'Slopers', 'Edge': 'Edges',
+  'Pinch': 'Pinches', 'Sloper': 'Slopers', 'Gaston': 'Gastons',
   'Pocket': 'Pockets', 'Undercut': 'Undercuts', 'Volume': 'Volumes', 'Macro': 'Macro',
 };
 
 export const TECHNIQUES = [
   'Heel hooks', 'Toe hooks', 'Dynos',
-  'Drop knee', 'Bat hang', 'Campus',
+  'Drop knee', 'Feet first', 'Campus',
 ];
 
 export const STYLES = [
-  'Power', 'Technical', 'Endurance',
+  'Power', 'Technical', 'Endurance', 'Compression',
 ];
 
 export const SELECTION_MODES = {
