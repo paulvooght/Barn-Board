@@ -1675,7 +1675,7 @@ export default function App() {
           >
             + CREATE ROUTE
           </button>
-          {!activeSession && (
+          {settings.betaSessionRecord && !activeSession && (
             <button
               onClick={startSession}
               style={{
@@ -1691,7 +1691,7 @@ export default function App() {
             </button>
           )}
           {/* Stop session button */}
-          {activeSession && (
+          {settings.betaSessionRecord && activeSession && (
             <button
               onClick={endSession}
               style={{
@@ -1742,6 +1742,29 @@ export default function App() {
             </div>
           )}
         </div>
+      )}
+
+      {/* Session Record FAB — floating round button, bottom-right, beta feature */}
+      {view === 'board' && settings.betaSessionRecord && (
+        <button
+          onClick={activeSession ? endSession : startSession}
+          style={{
+            position: 'fixed', bottom: '24px', right: '16px',
+            width: '56px', height: '56px', borderRadius: '50%',
+            border: 'none', cursor: 'pointer',
+            background: activeSession ? '#FF5252' : 'var(--accent)',
+            color: '#fff',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            boxShadow: '0 4px 16px rgba(26,10,0,0.25)',
+            zIndex: 200,
+            transition: 'background 0.2s',
+          }}
+        >
+          {activeSession
+            ? <span style={{ fontSize: '16px', lineHeight: 1 }}>■</span>
+            : <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><polygon points="6,3 20,12 6,21"/></svg>
+          }
+        </button>
       )}
 
       <Suspense fallback={<div style={{ padding: '40px 16px', textAlign: 'center', color: '#1A0A00', opacity: 0.4, fontSize: 13 }}>Loading...</div>}>

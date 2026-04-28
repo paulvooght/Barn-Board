@@ -537,6 +537,38 @@ export default function Settings({ settings, updateSettings, allHolds, onSetupBo
               </button>
             </div>
 
+            {/* Session Record toggle */}
+            <div style={{
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+              padding: '8px 0', borderBottom: '1px solid rgba(26,10,0,0.06)',
+            }}>
+              <div>
+                <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                  Session Record
+                </div>
+                <div style={{ fontSize: '10px', color: 'var(--text-dim)', marginTop: '2px' }}>
+                  Show a round start/stop button on the home screen to record climbing sessions.
+                </div>
+              </div>
+              <button
+                onClick={() => updateSettings('betaSessionRecord', !settings.betaSessionRecord)}
+                style={{
+                  width: '44px', height: '24px', borderRadius: '12px',
+                  border: 'none', cursor: 'pointer', flexShrink: 0, marginLeft: '12px',
+                  background: settings.betaSessionRecord ? '#FF2D78' : 'rgba(26,10,0,0.15)',
+                  position: 'relative', transition: 'background 0.2s',
+                }}
+              >
+                <div style={{
+                  width: '18px', height: '18px', borderRadius: '50%',
+                  background: '#fff', position: 'absolute', top: '3px',
+                  left: settings.betaSessionRecord ? '23px' : '3px',
+                  transition: 'left 0.2s',
+                  boxShadow: '0 1px 3px rgba(26,10,0,0.2)',
+                }} />
+              </button>
+            </div>
+
             {/* Video Thumbnail toggle */}
             <div style={{
               display: 'flex', justifyContent: 'space-between', alignItems: 'center',
