@@ -6,7 +6,7 @@ import {
   simplifyPath, findHoldAtPoint, holdFromPolygon, pointInPolygon,
 } from '../utils/polygonUtils';
 import { HOLD_COLOR_DOT, HOLD_TYPES, TECHNIQUES, STYLES } from '../utils/constants';
-import { computeHoldCounts, computePercentiles, availableAngles, countPassingRoutes } from '../utils/heatMap';
+import { computeHoldCounts, computePercentiles, colorForPercentile, availableAngles, countPassingRoutes } from '../utils/heatMap';
 import holdsData from '../data/holds.json';
 
 const { boardRegion } = holdsData;
@@ -691,6 +691,8 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
   }
 
   function handleClick(pct) {
+    // Heatmap mode — read-only, no interaction
+    if (managerMode === 'heatmap') return;
     // Metadata mode — tap to inspect hold
     if (managerMode === 'metadata') {
       const hitId = findHoldAtPoint(pct.x, pct.y, holds, 3);
@@ -954,6 +956,54 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
     const confidence = hold.confidence || 'high';
     const isHigh = confidence === 'high';
 
+    // ─── Heat map rendering ───────────────────────────────────────────
+    const isHeatMode = managerMode === 'heatmap';
+    if (isHeatMode) {
+      const heatPct = heatPercentiles[hold.id]; // undefined if unused (count 0)
+      const heatColor = heatPct !== undefined ? colorForPercentile(heatPct) : null;
+      const zPx = pxScale / scale;
+      const lineWidth = Math.max(Math.round(0.7 * zPx), 1);
+
+      if (!hasPoly) {
+        const cx = toSvgX(hold.cx);
+        const cy = toSvgY(hold.cy);
+        const w = hold.w_pct || hold.r * 2 || 4;
+        const h = hold.h_pct || hold.r * 2 || 4;
+        const rx = Math.max((w / 100) * bW / 2, 4);
+        const ry = Math.max((h / 100) * bH / 2, 4);
+        return (
+          <g key={hold.id}>
+            <ellipse cx={cx} cy={cy} rx={rx} ry={ry}
+              fill={heatColor ? heatColor : 'rgba(180,180,180,0.10)'}
+              fillOpacity={heatColor ? 0.55 : 1}
+              stroke={heatColor ? heatColor : 'rgba(180,180,180,0.45)'}
+              strokeOpacity={heatColor ? 1.0 : 1}
+              strokeWidth={lineWidth}
+              strokeDasharray="none"
+              style={{ pointerEvents: 'none' }}
+            />
+          </g>
+        );
+      }
+
+      const pts = hold.polygon.map(([x, y]) => `${toSvgX(x)},${toSvgY(y)}`).join(' ');
+      return (
+        <g key={hold.id}>
+          <polygon points={pts}
+            fill={heatColor ? heatColor : 'rgba(180,180,180,0.10)'}
+            fillOpacity={heatColor ? 0.55 : 1}
+            stroke={heatColor ? heatColor : 'rgba(180,180,180,0.45)'}
+            strokeOpacity={heatColor ? 1.0 : 1}
+            strokeWidth={lineWidth}
+            strokeLinejoin="round"
+            strokeDasharray="none"
+            style={{ pointerEvents: 'none' }}
+          />
+        </g>
+      );
+    }
+
+    // ─── Normal (boundaries / metadata) rendering ─────────────────────
     // In metadata mode, use brand blue for all outlines (easier to see)
     const outlineColor = managerMode === 'metadata'
       ? '#0047FF'
@@ -1728,13 +1778,42 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
                   overflow: 'visible', pointerEvents: 'none',
                 }}
               >
-                {showAllOutlines && holds.map(hold => renderHoldOutline(hold))}
-                {!showAllOutlines && selectedIds.length > 0 && holds.filter(h => selectedIds.includes(h.id)).map(h => renderHoldOutline(h))}
+                {(showAllOutlines || managerMode === 'heatmap') && holds.map(hold => renderHoldOutline(hold))}
+                {!showAllOutlines && managerMode !== 'heatmap' && selectedIds.length > 0 && holds.filter(h => selectedIds.includes(h.id)).map(h => renderHoldOutline(h))}
                 {renderDrawingState()}
               </svg>
             )}
           </div>
         </div>
+
+        {/* Heat map legend — bottom-right of canvas, read-only overlay */}
+        {managerMode === 'heatmap' && (
+          <div style={{
+            position: 'absolute', bottom: 14, right: 14,
+            background: 'var(--bg-card)',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.18)',
+            borderRadius: '8px',
+            padding: '8px 10px',
+            pointerEvents: 'none',
+            zIndex: 20,
+            minWidth: 0,
+          }}>
+            {/* Gradient swatches */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '2px', marginBottom: '5px' }}>
+              {['#3b82f6', '#06b6d4', '#fbbf24', '#f97316', '#ef4444'].map(c => (
+                <div key={c} style={{ width: 14, height: 14, borderRadius: '3px', background: c, flexShrink: 0 }} />
+              ))}
+            </div>
+            <div style={{ fontSize: '9px', color: 'var(--text-muted)', fontFamily: 'DM Sans, sans-serif', letterSpacing: '0.3px', marginBottom: '5px' }}>
+              low &rarr; high
+            </div>
+            {/* Unused swatch */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+              <div style={{ width: 10, height: 10, borderRadius: '50%', background: 'rgba(180,180,180,0.45)', border: '1px solid rgba(180,180,180,0.6)', flexShrink: 0 }} />
+              <span style={{ fontSize: '9px', color: 'var(--text-muted)', fontFamily: 'DM Sans, sans-serif' }}>unused</span>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Vertex drag magnifier loupe — touch only */}
