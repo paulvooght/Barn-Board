@@ -1869,6 +1869,7 @@ export default function App() {
           initialManagerMode={holdManagerMode}
           onManagerModeChange={setHoldManagerMode}
           onEditHold={(hold) => handleEditHold(hold, 'setupBoard')}
+          routes={routes}
         />
       )}
 

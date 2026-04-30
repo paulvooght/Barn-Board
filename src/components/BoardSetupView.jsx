@@ -1,11 +1,12 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useUndoRedo } from '../hooks/useUndoRedo';
 import {
   centroid, boundingBox,
   rotatePolygon, scalePolygon, translatePolygon,
   simplifyPath, findHoldAtPoint, holdFromPolygon, pointInPolygon,
 } from '../utils/polygonUtils';
-import { HOLD_COLOR_DOT } from '../utils/constants';
+import { HOLD_COLOR_DOT, HOLD_TYPES, TECHNIQUES, STYLES } from '../utils/constants';
+import { computeHoldCounts, computePercentiles, colorForPercentile, availableAngles, countPassingRoutes } from '../utils/heatMap';
 import holdsData from '../data/holds.json';
 
 const { boardRegion } = holdsData;
@@ -69,11 +70,29 @@ function positivityLabel(val) {
   return 'Very juggy';
 }
 
-export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc, imgSrcSet, imgSizes, initialManagerMode, onManagerModeChange, onEditHold }) {
+export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc, imgSrcSet, imgSizes, initialManagerMode, onManagerModeChange, onEditHold, routes }) {
   const { state: holds, setState: setHolds, undo, redo, canUndo, canRedo, beginCoalesce, endCoalesce } = useUndoRedo(initialHolds);
 
-  const [managerMode, setManagerMode] = useState(initialManagerMode || 'boundaries'); // 'boundaries' | 'metadata'
+  const [managerMode, setManagerMode] = useState(initialManagerMode || 'boundaries'); // 'boundaries' | 'metadata' | 'heatmap'
   const [inspectedHoldId, setInspectedHoldId] = useState(null);
+
+  // ─── Heat Map filter state ───────────────────────────────────────────
+  const [hmHoldTypes, setHmHoldTypes]   = useState([]);
+  const [hmTechniques, setHmTechniques] = useState([]);
+  const [hmStyles, setHmStyles]         = useState([]);
+  const [hmSetter, setHmSetter]         = useState('');
+  const [hmAngle, setHmAngle]           = useState(null);   // number | null
+  const [hmIncludeFeet, setHmIncludeFeet] = useState(true);
+  const [hmFiltersOpen, setHmFiltersOpen] = useState(false);
+
+  // Setter input has its own uncontrolled buffer for debounce feel (we update hmSetter on change directly — no debounce needed for filter math)
+  const toggleHmTag = (list, setter, val) =>
+    setter(prev => prev.includes(val) ? prev.filter(v => v !== val) : [...prev, val]);
+
+  const clearHmFilters = () => {
+    setHmHoldTypes([]); setHmTechniques([]); setHmStyles([]);
+    setHmSetter(''); setHmAngle(null); setHmIncludeFeet(true);
+  };
 
   const [activeTool, setActiveTool] = useState(TOOLS.SELECT);
   const [selectedIds, setSelectedIds] = useState([]);       // multi-select: array of hold IDs
@@ -242,6 +261,34 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
     el.addEventListener('wheel', onWheel, { passive: false });
     return () => el.removeEventListener('wheel', onWheel);
   }, []);
+
+  // ─── Heat Map derived data ───────────────────────────────────────────
+  const hmFilters = useMemo(() => ({
+    holdTypes: hmHoldTypes,
+    techniques: hmTechniques,
+    styles: hmStyles,
+    setter: hmSetter,
+    angle: hmAngle,
+    includeFeet: hmIncludeFeet,
+  }), [hmHoldTypes, hmTechniques, hmStyles, hmSetter, hmAngle, hmIncludeFeet]);
+
+  const heatCounts = useMemo(
+    () => managerMode === 'heatmap' ? computeHoldCounts(routes || [], hmFilters) : {},
+    [managerMode, routes, hmFilters]
+  );
+  const heatPercentiles = useMemo(
+    () => computePercentiles(heatCounts),
+    [heatCounts]
+  );
+  const hmRouteCount = useMemo(
+    () => managerMode === 'heatmap' ? countPassingRoutes(routes || [], hmFilters) : 0,
+    [managerMode, routes, hmFilters]
+  );
+  const hmHoldCount = useMemo(
+    () => Object.values(heatCounts).filter(c => c > 0).length,
+    [heatCounts]
+  );
+  const hmAngles = useMemo(() => availableAngles(routes || []), [routes]);
 
   // ─── Tool actions ───────────────────────────────────────────────────
 
@@ -647,6 +694,8 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
   }
 
   function handleClick(pct) {
+    // Heatmap mode — read-only, no interaction
+    if (managerMode === 'heatmap') return;
     // Metadata mode — tap to inspect hold
     if (managerMode === 'metadata') {
       const hitId = findHoldAtPoint(pct.x, pct.y, holds, 3);
@@ -913,6 +962,54 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
     const confidence = hold.confidence || 'high';
     const isHigh = confidence === 'high';
 
+    // ─── Heat map rendering ───────────────────────────────────────────
+    const isHeatMode = managerMode === 'heatmap';
+    if (isHeatMode) {
+      const heatPct = heatPercentiles[hold.id]; // undefined if unused (count 0)
+      const heatColor = heatPct !== undefined ? colorForPercentile(heatPct) : null;
+      const zPx = pxScale / scale;
+      const lineWidth = Math.max(Math.round(0.7 * zPx), 1);
+
+      if (!hasPoly) {
+        const cx = toSvgX(hold.cx);
+        const cy = toSvgY(hold.cy);
+        const w = hold.w_pct || hold.r * 2 || 4;
+        const h = hold.h_pct || hold.r * 2 || 4;
+        const rx = Math.max((w / 100) * bW / 2, 4);
+        const ry = Math.max((h / 100) * bH / 2, 4);
+        return (
+          <g key={hold.id}>
+            <ellipse cx={cx} cy={cy} rx={rx} ry={ry}
+              fill={heatColor ? heatColor : 'rgba(180,180,180,0.10)'}
+              fillOpacity={heatColor ? 0.55 : 1}
+              stroke={heatColor ? heatColor : 'rgba(180,180,180,0.45)'}
+              strokeOpacity={heatColor ? 1.0 : 1}
+              strokeWidth={lineWidth}
+              strokeDasharray="none"
+              style={{ pointerEvents: 'none' }}
+            />
+          </g>
+        );
+      }
+
+      const pts = hold.polygon.map(([x, y]) => `${toSvgX(x)},${toSvgY(y)}`).join(' ');
+      return (
+        <g key={hold.id}>
+          <polygon points={pts}
+            fill={heatColor ? heatColor : 'rgba(180,180,180,0.10)'}
+            fillOpacity={heatColor ? 0.55 : 1}
+            stroke={heatColor ? heatColor : 'rgba(180,180,180,0.45)'}
+            strokeOpacity={heatColor ? 1.0 : 1}
+            strokeWidth={lineWidth}
+            strokeLinejoin="round"
+            strokeDasharray="none"
+            style={{ pointerEvents: 'none' }}
+          />
+        </g>
+      );
+    }
+
+    // ─── Normal (boundaries / metadata) rendering ─────────────────────
     // In metadata mode, use brand blue for all outlines (easier to see)
     const outlineColor = managerMode === 'metadata'
       ? '#0047FF'
@@ -1102,14 +1199,14 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
         </div>
       </div>
 
-      {/* Mode toggle: Boundaries / Hold Info */}
+      {/* Mode toggle: Boundaries / Hold Info / Heat Map */}
       <div style={{
         padding: '4px 12px', borderBottom: '1px solid var(--border)',
         background: 'rgba(255,255,255,0.3)', display: 'flex', justifyContent: 'center',
         flexShrink: 0,
       }}>
         <div style={{ display: 'inline-flex', borderRadius: '6px', overflow: 'hidden', border: '1px solid var(--border)' }}>
-          {[{ key: 'boundaries', label: 'Boundaries' }, { key: 'metadata', label: 'Hold Info' }].map(m => (
+          {[{ key: 'boundaries', label: 'Boundaries' }, { key: 'metadata', label: 'Hold Info' }, { key: 'heatmap', label: 'Heat Map' }].map(m => (
             <button key={m.key}
               onClick={() => { setManagerMode(m.key); onManagerModeChange?.(m.key); if (m.key === 'metadata') { setSelectedIds([]); setInspectedHoldId(null); } }}
               style={{
@@ -1187,6 +1284,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
           {inspectedHoldId ? 'Hold selected — see details below' : 'Tap a hold to view its info'}
         </div>
       )}
+
 
       {/* Metadata info card */}
       {managerMode === 'metadata' && inspectedHoldId && (() => {
@@ -1489,6 +1587,8 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
                 display: 'block', opacity: imageLoaded ? 1 : 0.3,
                 borderRadius: '6px',
                 WebkitTouchCallout: 'none', WebkitUserSelect: 'none',
+                filter: managerMode === 'heatmap' ? 'grayscale(100%) brightness(0.85)' : 'none',
+                transition: 'filter 0.2s',
               }}
               draggable={false}
             />
@@ -1539,14 +1639,221 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
                   overflow: 'visible', pointerEvents: 'none',
                 }}
               >
-                {showAllOutlines && holds.map(hold => renderHoldOutline(hold))}
-                {!showAllOutlines && selectedIds.length > 0 && holds.filter(h => selectedIds.includes(h.id)).map(h => renderHoldOutline(h))}
+                {(showAllOutlines || managerMode === 'heatmap') && holds.map(hold => renderHoldOutline(hold))}
+                {!showAllOutlines && managerMode !== 'heatmap' && selectedIds.length > 0 && holds.filter(h => selectedIds.includes(h.id)).map(h => renderHoldOutline(h))}
                 {renderDrawingState()}
               </svg>
             )}
           </div>
         </div>
+
+        {/* Heat map legend — bottom-right of canvas, read-only overlay */}
+        {managerMode === 'heatmap' && (
+          <div style={{
+            position: 'absolute', bottom: 14, right: 14,
+            background: 'var(--bg-card)',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.18)',
+            borderRadius: '8px',
+            padding: '8px 10px',
+            pointerEvents: 'none',
+            zIndex: 20,
+            minWidth: 0,
+          }}>
+            {/* Gradient swatches */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '2px', marginBottom: '5px' }}>
+              {['#3b82f6', '#06b6d4', '#fbbf24', '#f97316', '#ef4444'].map(c => (
+                <div key={c} style={{ width: 14, height: 14, borderRadius: '3px', background: c, flexShrink: 0 }} />
+              ))}
+            </div>
+            <div style={{ fontSize: '9px', color: 'var(--text-muted)', fontFamily: 'DM Sans, sans-serif', letterSpacing: '0.3px', marginBottom: '5px' }}>
+              low &rarr; high
+            </div>
+            {/* Unused swatch */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+              <div style={{ width: 10, height: 10, borderRadius: '50%', background: 'rgba(180,180,180,0.45)', border: '1px solid rgba(180,180,180,0.6)', flexShrink: 0 }} />
+              <span style={{ fontSize: '9px', color: 'var(--text-muted)', fontFamily: 'DM Sans, sans-serif' }}>unused</span>
+            </div>
+          </div>
+        )}
       </div>
+
+      {/* Heat Map filter panel — below the board, collapsible */}
+      {managerMode === 'heatmap' && (
+        <div style={{
+          flexShrink: 0,
+          borderTop: '1px solid var(--border)',
+          background: 'rgba(255,255,255,0.6)',
+          display: 'flex', flexDirection: 'column',
+        }}>
+          {/* Header — always visible, click to expand/collapse */}
+          <div
+            onClick={() => setHmFiltersOpen(prev => !prev)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: '8px',
+              padding: '8px 12px', cursor: 'pointer', userSelect: 'none',
+              minHeight: '40px',
+            }}
+          >
+            <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)', fontFamily: 'var(--font-heading)' }}>
+              Filters
+            </span>
+            <span style={{ fontSize: '10px', color: 'var(--text-muted)', transition: 'transform 0.15s', display: 'inline-block', transform: hmFiltersOpen ? 'rotate(90deg)' : 'rotate(0deg)' }}>
+              ▸
+            </span>
+            <span style={{ flex: 1, fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', whiteSpace: 'nowrap', textAlign: 'right' }}>
+              {hmRouteCount} routes · {hmHoldCount} holds used
+            </span>
+          </div>
+
+          {/* Expanded body — filter rows + action row */}
+          {hmFiltersOpen && (
+            <div style={{
+              padding: '4px 12px 8px 12px',
+              borderTop: '1px solid rgba(26,10,0,0.06)',
+              overflowY: 'auto', maxHeight: '40vh',
+            }}>
+              {/* Row 1: Hold Types */}
+              <div style={{ marginBottom: '6px' }}>
+                <div style={{ fontSize: '9px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '3px' }}>Hold Types</div>
+                <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                  {HOLD_TYPES.map(ht => {
+                    const on = hmHoldTypes.includes(ht);
+                    return (
+                      <button key={ht} onClick={() => toggleHmTag(hmHoldTypes, setHmHoldTypes, ht)}
+                        style={{
+                          padding: '3px 8px', borderRadius: '8px', fontSize: '10px',
+                          border: on ? '1.5px solid var(--accent)' : '1.5px solid rgba(26,10,0,0.1)',
+                          background: on ? 'var(--accent-dim)' : 'transparent',
+                          color: on ? 'var(--accent)' : 'var(--text-muted)',
+                          cursor: 'pointer', fontWeight: 500,
+                        }}
+                      >{ht}</button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Row 2: Techniques */}
+              <div style={{ marginBottom: '6px' }}>
+                <div style={{ fontSize: '9px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '3px' }}>Techniques</div>
+                <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                  {TECHNIQUES.map(t => {
+                    const on = hmTechniques.includes(t);
+                    return (
+                      <button key={t} onClick={() => toggleHmTag(hmTechniques, setHmTechniques, t)}
+                        style={{
+                          padding: '3px 8px', borderRadius: '8px', fontSize: '10px',
+                          border: on ? '1.5px solid var(--accent)' : '1.5px solid rgba(26,10,0,0.1)',
+                          background: on ? 'var(--accent-dim)' : 'transparent',
+                          color: on ? 'var(--accent)' : 'var(--text-muted)',
+                          cursor: 'pointer', fontWeight: 500,
+                        }}
+                      >{t}</button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Row 3: Styles */}
+              <div style={{ marginBottom: '6px' }}>
+                <div style={{ fontSize: '9px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '3px' }}>Styles</div>
+                <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                  {STYLES.map(s => {
+                    const on = hmStyles.includes(s);
+                    return (
+                      <button key={s} onClick={() => toggleHmTag(hmStyles, setHmStyles, s)}
+                        style={{
+                          padding: '3px 8px', borderRadius: '8px', fontSize: '10px',
+                          border: on ? '1.5px solid var(--accent)' : '1.5px solid rgba(26,10,0,0.1)',
+                          background: on ? 'var(--accent-dim)' : 'transparent',
+                          color: on ? 'var(--accent)' : 'var(--text-muted)',
+                          cursor: 'pointer', fontWeight: 500,
+                        }}
+                      >{s}</button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Row 4: Setter input */}
+              <div style={{ marginBottom: '6px' }}>
+                <div style={{ fontSize: '9px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '3px' }}>Setter</div>
+                <input
+                  type="text"
+                  value={hmSetter}
+                  onChange={e => setHmSetter(e.target.value)}
+                  placeholder="Filter by setter…"
+                  style={{
+                    width: '100%', boxSizing: 'border-box',
+                    padding: '5px 8px', borderRadius: '6px',
+                    border: '1.5px solid rgba(26,10,0,0.15)', background: 'var(--bg-input)',
+                    color: 'var(--text-primary)', fontSize: '12px',
+                  }}
+                />
+              </div>
+
+              {/* Row 5: Angle dropdown */}
+              <div style={{ marginBottom: '8px' }}>
+                <div style={{ fontSize: '9px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '3px' }}>Angle</div>
+                <select
+                  value={hmAngle === null ? '' : String(hmAngle)}
+                  onChange={e => setHmAngle(e.target.value === '' ? null : Number(e.target.value))}
+                  style={{
+                    padding: '5px 8px', borderRadius: '6px',
+                    border: '1.5px solid rgba(26,10,0,0.15)', background: 'var(--bg-input)',
+                    color: 'var(--text-primary)', fontSize: '12px', cursor: 'pointer',
+                  }}
+                >
+                  <option value="">All</option>
+                  {hmAngles.map(a => (
+                    <option key={a} value={String(a)}>{a}°</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Action row: Include feet toggle + Clear button */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                <button
+                  onClick={() => setHmIncludeFeet(prev => !prev)}
+                  style={{
+                    padding: '5px 10px', borderRadius: '16px', fontSize: '11px',
+                    fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px',
+                    border: hmIncludeFeet ? '1.5px solid rgba(26,10,0,0.15)' : '1.5px solid var(--accent)',
+                    background: hmIncludeFeet ? 'transparent' : 'var(--accent-dim)',
+                    color: hmIncludeFeet ? 'var(--text-secondary)' : 'var(--accent)',
+                  }}
+                >
+                  <div style={{
+                    width: '28px', height: '16px', borderRadius: '8px', position: 'relative',
+                    background: hmIncludeFeet ? 'rgba(26,10,0,0.15)' : 'var(--accent)',
+                    transition: 'background 0.2s', flexShrink: 0,
+                  }}>
+                    <div style={{
+                      width: '12px', height: '12px', borderRadius: '50%', background: '#fff',
+                      position: 'absolute', top: '2px',
+                      left: hmIncludeFeet ? '14px' : '2px',
+                      transition: 'left 0.2s',
+                      boxShadow: '0 1px 2px rgba(26,10,0,0.2)',
+                    }} />
+                  </div>
+                  Include feet
+                </button>
+                <button
+                  onClick={clearHmFilters}
+                  style={{
+                    padding: '4px 10px', borderRadius: '8px',
+                    border: '1px solid rgba(255,82,82,0.3)', background: 'rgba(255,82,82,0.06)',
+                    color: '#FF5252', fontSize: '10px', fontWeight: 700, cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  Clear
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Vertex drag magnifier loupe — touch only */}
       {draggingVertex && touchPosRef.current && dragVertexPctRef.current && (() => {
