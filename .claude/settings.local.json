@@ -83,7 +83,8 @@
       "Bash(sips -g pixelWidth -g pixelHeight public/Barn_Set_01_V6_TEST.jpg)",
       "Bash(git add *)",
       "Bash(git commit -m ' *)",
-      "Bash(git push *)"
+      "Bash(git push *)",
+      "Bash(gh pr *)"
     ]
   }
 }

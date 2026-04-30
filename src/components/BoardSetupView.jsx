@@ -1282,9 +1282,13 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
       {/* Heat Map filter bar */}
       {managerMode === 'heatmap' && (
         <div style={{
-          padding: '8px 12px', borderBottom: '1px solid var(--border)',
+          borderBottom: '1px solid var(--border)',
           background: 'rgba(255,255,255,0.4)', flexShrink: 0,
-          overflowY: 'auto', maxHeight: '260px',
+          display: 'flex', flexDirection: 'column',
+        }}>
+        <div style={{
+          padding: '8px 12px 4px 12px',
+          overflowY: 'auto', maxHeight: '180px',
         }}>
           {/* Row 1: Hold Types */}
           <div style={{ marginBottom: '6px' }}>
@@ -1384,9 +1388,16 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
               ))}
             </select>
           </div>
+        </div>
 
-          {/* Row 6: Include feet toggle + Clear filters */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+        {/* Pinned action row — always visible, never scrolls */}
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px',
+          padding: '8px 12px',
+          borderTop: '1px solid rgba(26,10,0,0.08)',
+          background: 'rgba(255,255,255,0.7)',
+          flexShrink: 0,
+        }}>
             <button
               onClick={() => setHmIncludeFeet(prev => !prev)}
               style={{
@@ -1728,6 +1739,8 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
                 display: 'block', opacity: imageLoaded ? 1 : 0.3,
                 borderRadius: '6px',
                 WebkitTouchCallout: 'none', WebkitUserSelect: 'none',
+                filter: managerMode === 'heatmap' ? 'grayscale(100%) brightness(0.85)' : 'none',
+                transition: 'filter 0.2s',
               }}
               draggable={false}
             />
