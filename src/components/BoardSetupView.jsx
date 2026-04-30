@@ -83,6 +83,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
   const [hmSetter, setHmSetter]         = useState('');
   const [hmAngle, setHmAngle]           = useState(null);   // number | null
   const [hmIncludeFeet, setHmIncludeFeet] = useState(true);
+  const [hmFiltersOpen, setHmFiltersOpen] = useState(false);
 
   // Setter input has its own uncontrolled buffer for debounce feel (we update hmSetter on change directly — no debounce needed for filter math)
   const toggleHmTag = (list, setter, val) =>
@@ -1279,170 +1280,6 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
         </div>
       )}
 
-      {/* Heat Map filter bar */}
-      {managerMode === 'heatmap' && (
-        <div style={{
-          borderBottom: '1px solid var(--border)',
-          background: 'rgba(255,255,255,0.4)', flexShrink: 0,
-          display: 'flex', flexDirection: 'column',
-        }}>
-        <div style={{
-          padding: '8px 12px 4px 12px',
-          overflowY: 'auto', maxHeight: '180px',
-        }}>
-          {/* Row 1: Hold Types */}
-          <div style={{ marginBottom: '6px' }}>
-            <div style={{ fontSize: '9px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '3px' }}>Hold Types</div>
-            <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-              {HOLD_TYPES.map(ht => {
-                const on = hmHoldTypes.includes(ht);
-                return (
-                  <button key={ht} onClick={() => toggleHmTag(hmHoldTypes, setHmHoldTypes, ht)}
-                    style={{
-                      padding: '3px 8px', borderRadius: '8px', fontSize: '10px',
-                      border: on ? '1.5px solid var(--accent)' : '1.5px solid rgba(26,10,0,0.1)',
-                      background: on ? 'var(--accent-dim)' : 'transparent',
-                      color: on ? 'var(--accent)' : 'var(--text-muted)',
-                      cursor: 'pointer', fontWeight: 500,
-                    }}
-                  >{ht}</button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Row 2: Techniques */}
-          <div style={{ marginBottom: '6px' }}>
-            <div style={{ fontSize: '9px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '3px' }}>Techniques</div>
-            <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-              {TECHNIQUES.map(t => {
-                const on = hmTechniques.includes(t);
-                return (
-                  <button key={t} onClick={() => toggleHmTag(hmTechniques, setHmTechniques, t)}
-                    style={{
-                      padding: '3px 8px', borderRadius: '8px', fontSize: '10px',
-                      border: on ? '1.5px solid var(--accent)' : '1.5px solid rgba(26,10,0,0.1)',
-                      background: on ? 'var(--accent-dim)' : 'transparent',
-                      color: on ? 'var(--accent)' : 'var(--text-muted)',
-                      cursor: 'pointer', fontWeight: 500,
-                    }}
-                  >{t}</button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Row 3: Styles */}
-          <div style={{ marginBottom: '6px' }}>
-            <div style={{ fontSize: '9px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '3px' }}>Styles</div>
-            <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-              {STYLES.map(s => {
-                const on = hmStyles.includes(s);
-                return (
-                  <button key={s} onClick={() => toggleHmTag(hmStyles, setHmStyles, s)}
-                    style={{
-                      padding: '3px 8px', borderRadius: '8px', fontSize: '10px',
-                      border: on ? '1.5px solid var(--accent)' : '1.5px solid rgba(26,10,0,0.1)',
-                      background: on ? 'var(--accent-dim)' : 'transparent',
-                      color: on ? 'var(--accent)' : 'var(--text-muted)',
-                      cursor: 'pointer', fontWeight: 500,
-                    }}
-                  >{s}</button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Row 4: Setter input */}
-          <div style={{ marginBottom: '6px' }}>
-            <div style={{ fontSize: '9px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '3px' }}>Setter</div>
-            <input
-              type="text"
-              value={hmSetter}
-              onChange={e => setHmSetter(e.target.value)}
-              placeholder="Filter by setter…"
-              style={{
-                width: '100%', boxSizing: 'border-box',
-                padding: '5px 8px', borderRadius: '6px',
-                border: '1.5px solid rgba(26,10,0,0.15)', background: 'var(--bg-input)',
-                color: 'var(--text-primary)', fontSize: '12px',
-              }}
-            />
-          </div>
-
-          {/* Row 5: Angle dropdown */}
-          <div style={{ marginBottom: '6px' }}>
-            <div style={{ fontSize: '9px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '3px' }}>Angle</div>
-            <select
-              value={hmAngle === null ? '' : String(hmAngle)}
-              onChange={e => setHmAngle(e.target.value === '' ? null : Number(e.target.value))}
-              style={{
-                padding: '5px 8px', borderRadius: '6px',
-                border: '1.5px solid rgba(26,10,0,0.15)', background: 'var(--bg-input)',
-                color: 'var(--text-primary)', fontSize: '12px', cursor: 'pointer',
-              }}
-            >
-              <option value="">All</option>
-              {hmAngles.map(a => (
-                <option key={a} value={String(a)}>{a}°</option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        {/* Pinned action row — always visible, never scrolls */}
-        <div style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px',
-          padding: '8px 12px',
-          borderTop: '1px solid rgba(26,10,0,0.08)',
-          background: 'rgba(255,255,255,0.7)',
-          flexShrink: 0,
-        }}>
-            <button
-              onClick={() => setHmIncludeFeet(prev => !prev)}
-              style={{
-                padding: '5px 10px', borderRadius: '16px', fontSize: '11px',
-                fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px',
-                border: hmIncludeFeet ? '1.5px solid rgba(26,10,0,0.15)' : '1.5px solid var(--accent)',
-                background: hmIncludeFeet ? 'transparent' : 'var(--accent-dim)',
-                color: hmIncludeFeet ? 'var(--text-secondary)' : 'var(--accent)',
-              }}
-            >
-              <div style={{
-                width: '28px', height: '16px', borderRadius: '8px', position: 'relative',
-                background: hmIncludeFeet ? 'rgba(26,10,0,0.15)' : 'var(--accent)',
-                transition: 'background 0.2s', flexShrink: 0,
-              }}>
-                <div style={{
-                  width: '12px', height: '12px', borderRadius: '50%', background: '#fff',
-                  position: 'absolute', top: '2px',
-                  left: hmIncludeFeet ? '14px' : '2px',
-                  transition: 'left 0.2s',
-                  boxShadow: '0 1px 2px rgba(26,10,0,0.2)',
-                }} />
-              </div>
-              Include feet
-            </button>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
-                {hmRouteCount} routes · {hmHoldCount} holds used
-              </span>
-              <button
-                onClick={clearHmFilters}
-                style={{
-                  padding: '4px 10px', borderRadius: '8px',
-                  border: '1px solid rgba(255,82,82,0.3)', background: 'rgba(255,82,82,0.06)',
-                  color: '#FF5252', fontSize: '10px', fontWeight: 700, cursor: 'pointer',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                Clear
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Metadata info card */}
       {managerMode === 'metadata' && inspectedHoldId && (() => {
@@ -1828,6 +1665,184 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
           </div>
         )}
       </div>
+
+      {/* Heat Map filter panel — below the board, collapsible */}
+      {managerMode === 'heatmap' && (
+        <div style={{
+          flexShrink: 0,
+          borderTop: '1px solid var(--border)',
+          background: 'rgba(255,255,255,0.6)',
+          display: 'flex', flexDirection: 'column',
+        }}>
+          {/* Header — always visible, click to expand/collapse */}
+          <div
+            onClick={() => setHmFiltersOpen(prev => !prev)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: '8px',
+              padding: '8px 12px', cursor: 'pointer', userSelect: 'none',
+              minHeight: '40px',
+            }}
+          >
+            <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)', fontFamily: 'var(--font-heading)' }}>
+              Filters
+            </span>
+            <span style={{ fontSize: '10px', color: 'var(--text-muted)', transition: 'transform 0.15s', display: 'inline-block', transform: hmFiltersOpen ? 'rotate(90deg)' : 'rotate(0deg)' }}>
+              ▸
+            </span>
+            <span style={{ flex: 1, fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', whiteSpace: 'nowrap', textAlign: 'right' }}>
+              {hmRouteCount} routes · {hmHoldCount} holds used
+            </span>
+          </div>
+
+          {/* Expanded body — filter rows + action row */}
+          {hmFiltersOpen && (
+            <div style={{
+              padding: '4px 12px 8px 12px',
+              borderTop: '1px solid rgba(26,10,0,0.06)',
+              overflowY: 'auto', maxHeight: '40vh',
+            }}>
+              {/* Row 1: Hold Types */}
+              <div style={{ marginBottom: '6px' }}>
+                <div style={{ fontSize: '9px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '3px' }}>Hold Types</div>
+                <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                  {HOLD_TYPES.map(ht => {
+                    const on = hmHoldTypes.includes(ht);
+                    return (
+                      <button key={ht} onClick={() => toggleHmTag(hmHoldTypes, setHmHoldTypes, ht)}
+                        style={{
+                          padding: '3px 8px', borderRadius: '8px', fontSize: '10px',
+                          border: on ? '1.5px solid var(--accent)' : '1.5px solid rgba(26,10,0,0.1)',
+                          background: on ? 'var(--accent-dim)' : 'transparent',
+                          color: on ? 'var(--accent)' : 'var(--text-muted)',
+                          cursor: 'pointer', fontWeight: 500,
+                        }}
+                      >{ht}</button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Row 2: Techniques */}
+              <div style={{ marginBottom: '6px' }}>
+                <div style={{ fontSize: '9px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '3px' }}>Techniques</div>
+                <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                  {TECHNIQUES.map(t => {
+                    const on = hmTechniques.includes(t);
+                    return (
+                      <button key={t} onClick={() => toggleHmTag(hmTechniques, setHmTechniques, t)}
+                        style={{
+                          padding: '3px 8px', borderRadius: '8px', fontSize: '10px',
+                          border: on ? '1.5px solid var(--accent)' : '1.5px solid rgba(26,10,0,0.1)',
+                          background: on ? 'var(--accent-dim)' : 'transparent',
+                          color: on ? 'var(--accent)' : 'var(--text-muted)',
+                          cursor: 'pointer', fontWeight: 500,
+                        }}
+                      >{t}</button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Row 3: Styles */}
+              <div style={{ marginBottom: '6px' }}>
+                <div style={{ fontSize: '9px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '3px' }}>Styles</div>
+                <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                  {STYLES.map(s => {
+                    const on = hmStyles.includes(s);
+                    return (
+                      <button key={s} onClick={() => toggleHmTag(hmStyles, setHmStyles, s)}
+                        style={{
+                          padding: '3px 8px', borderRadius: '8px', fontSize: '10px',
+                          border: on ? '1.5px solid var(--accent)' : '1.5px solid rgba(26,10,0,0.1)',
+                          background: on ? 'var(--accent-dim)' : 'transparent',
+                          color: on ? 'var(--accent)' : 'var(--text-muted)',
+                          cursor: 'pointer', fontWeight: 500,
+                        }}
+                      >{s}</button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Row 4: Setter input */}
+              <div style={{ marginBottom: '6px' }}>
+                <div style={{ fontSize: '9px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '3px' }}>Setter</div>
+                <input
+                  type="text"
+                  value={hmSetter}
+                  onChange={e => setHmSetter(e.target.value)}
+                  placeholder="Filter by setter…"
+                  style={{
+                    width: '100%', boxSizing: 'border-box',
+                    padding: '5px 8px', borderRadius: '6px',
+                    border: '1.5px solid rgba(26,10,0,0.15)', background: 'var(--bg-input)',
+                    color: 'var(--text-primary)', fontSize: '12px',
+                  }}
+                />
+              </div>
+
+              {/* Row 5: Angle dropdown */}
+              <div style={{ marginBottom: '8px' }}>
+                <div style={{ fontSize: '9px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '3px' }}>Angle</div>
+                <select
+                  value={hmAngle === null ? '' : String(hmAngle)}
+                  onChange={e => setHmAngle(e.target.value === '' ? null : Number(e.target.value))}
+                  style={{
+                    padding: '5px 8px', borderRadius: '6px',
+                    border: '1.5px solid rgba(26,10,0,0.15)', background: 'var(--bg-input)',
+                    color: 'var(--text-primary)', fontSize: '12px', cursor: 'pointer',
+                  }}
+                >
+                  <option value="">All</option>
+                  {hmAngles.map(a => (
+                    <option key={a} value={String(a)}>{a}°</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Action row: Include feet toggle + Clear button */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                <button
+                  onClick={() => setHmIncludeFeet(prev => !prev)}
+                  style={{
+                    padding: '5px 10px', borderRadius: '16px', fontSize: '11px',
+                    fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px',
+                    border: hmIncludeFeet ? '1.5px solid rgba(26,10,0,0.15)' : '1.5px solid var(--accent)',
+                    background: hmIncludeFeet ? 'transparent' : 'var(--accent-dim)',
+                    color: hmIncludeFeet ? 'var(--text-secondary)' : 'var(--accent)',
+                  }}
+                >
+                  <div style={{
+                    width: '28px', height: '16px', borderRadius: '8px', position: 'relative',
+                    background: hmIncludeFeet ? 'rgba(26,10,0,0.15)' : 'var(--accent)',
+                    transition: 'background 0.2s', flexShrink: 0,
+                  }}>
+                    <div style={{
+                      width: '12px', height: '12px', borderRadius: '50%', background: '#fff',
+                      position: 'absolute', top: '2px',
+                      left: hmIncludeFeet ? '14px' : '2px',
+                      transition: 'left 0.2s',
+                      boxShadow: '0 1px 2px rgba(26,10,0,0.2)',
+                    }} />
+                  </div>
+                  Include feet
+                </button>
+                <button
+                  onClick={clearHmFilters}
+                  style={{
+                    padding: '4px 10px', borderRadius: '8px',
+                    border: '1px solid rgba(255,82,82,0.3)', background: 'rgba(255,82,82,0.06)',
+                    color: '#FF5252', fontSize: '10px', fontWeight: 700, cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  Clear
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Vertex drag magnifier loupe — touch only */}
       {draggingVertex && touchPosRef.current && dragVertexPctRef.current && (() => {
