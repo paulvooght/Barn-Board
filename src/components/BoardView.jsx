@@ -11,7 +11,7 @@ function clamp(val, min, max) {
 
 const { boardRegion } = holdsData;
 
-export default function BoardView({ holds, selection, onHoldTap, interactive, dimBoard, imgSrc, imgSrcSet, imgSizes, holdSnapshots, children }) {
+export default function BoardView({ holds, selection, onHoldTap, onBoardClick, interactive, dimBoard, imgSrc, imgSrcSet, imgSizes, holdSnapshots, children }) {
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imgSize, setImgSize]         = useState({ w: 1200, h: 900 });
   const [scale, setScale]             = useState(1);
@@ -165,6 +165,9 @@ export default function BoardView({ holds, selection, onHoldTap, interactive, di
 
   function handleTouchStart(e) {
     lastTouchTimeRef.current = Date.now();
+    if (onBoardClick && !interactive && scaleRef.current === 1 && e.touches.length === 1) {
+      setBoardPressed(true);
+    }
     if (e.touches.length === 2) {
       pinchRef.current.active = true;
       dragRef.current.active  = false;
@@ -213,15 +216,20 @@ export default function BoardView({ holds, selection, onHoldTap, interactive, di
 
   function handleTouchEnd(e) {
     // If single-finger tap (no drag movement), check for hold hit
-    if (dragRef.current.active && !dragRef.current.moved && interactive && onHoldTap) {
-      const touch = e.changedTouches?.[0];
-      const clientX = touch ? touch.clientX : dragRef.current.startX;
-      const clientY = touch ? touch.clientY : dragRef.current.startY;
-      const hitId = findHoldAtPoint(clientX, clientY);
-      if (hitId) onHoldTap(hitId);
+    if (dragRef.current.active && !dragRef.current.moved) {
+      if (interactive && onHoldTap) {
+        const touch = e.changedTouches?.[0];
+        const clientX = touch ? touch.clientX : dragRef.current.startX;
+        const clientY = touch ? touch.clientY : dragRef.current.startY;
+        const hitId = findHoldAtPoint(clientX, clientY);
+        if (hitId) onHoldTap(hitId);
+      } else if (!interactive && onBoardClick && !isZoomed) {
+        onBoardClick();
+      }
     }
     pinchRef.current.active = false;
     dragRef.current.active  = false;
+    setBoardPressed(false);
   }
 
   // ─── Mouse drag-to-pan (desktop) ──────────────────────────────────────
@@ -236,6 +244,7 @@ export default function BoardView({ holds, selection, onHoldTap, interactive, di
       moved: false,
     };
     if (scaleRef.current > 1) setMouseDown(true);
+    if (onBoardClick && !interactive && scaleRef.current === 1) setBoardPressed(true);
   }
 
   function handleMouseMove(e) {
@@ -258,12 +267,17 @@ export default function BoardView({ holds, selection, onHoldTap, interactive, di
   function handleMouseUp(e) {
     if (isSynthesizedMouse()) { mouseRef.current.active = false; return; }
     // If click (no drag movement), check for hold hit
-    if (mouseRef.current.active && !mouseRef.current.moved && interactive && onHoldTap) {
-      const hitId = findHoldAtPoint(e.clientX, e.clientY);
-      if (hitId) onHoldTap(hitId);
+    if (mouseRef.current.active && !mouseRef.current.moved) {
+      if (interactive && onHoldTap) {
+        const hitId = findHoldAtPoint(e.clientX, e.clientY);
+        if (hitId) onHoldTap(hitId);
+      } else if (!interactive && onBoardClick && !isZoomed) {
+        onBoardClick();
+      }
     }
     mouseRef.current.active = false;
     setMouseDown(false);
+    setBoardPressed(false);
   }
 
   function resetZoom() {
@@ -273,6 +287,7 @@ export default function BoardView({ holds, selection, onHoldTap, interactive, di
 
   const isZoomed  = scale > 1;
   const [mouseDown, setMouseDown] = useState(false);
+  const [boardPressed, setBoardPressed] = useState(false);
 
   const zoomBtnStyle = {
     width: '32px', height: '32px',
@@ -287,8 +302,10 @@ export default function BoardView({ holds, selection, onHoldTap, interactive, di
     boxShadow: '0 1px 4px rgba(26,10,0,0.12)',
   };
 
+  const asButton = !!onBoardClick && !isZoomed;
+
   return (
-    <div style={{ padding: '0 0 4px' }}>
+    <div style={{ padding: asButton ? '4px 12px 4px' : '0 0 4px' }}>
       {children && (
         <div style={{ padding: '8px 12px 6px' }}>
           {children}
@@ -310,12 +327,16 @@ export default function BoardView({ holds, selection, onHoldTap, interactive, di
           width: '100%',
           overflow: 'hidden',
           border: '1px solid var(--border)',
-          borderLeft: 'none',
-          borderRight: 'none',
+          borderLeft: asButton ? '1px solid var(--border)' : 'none',
+          borderRight: asButton ? '1px solid var(--border)' : 'none',
+          borderRadius: asButton ? '16px' : 0,
+          boxShadow: asButton ? '0 6px 20px rgba(26,10,0,0.18)' : 'none',
           background: 'rgba(26,10,0,0.05)',
           touchAction: (isZoomed || interactive) ? 'none' : 'pan-y',
           userSelect: 'none',
-          cursor: isZoomed ? (mouseDown ? 'grabbing' : 'grab') : 'default',
+          cursor: isZoomed ? (mouseDown ? 'grabbing' : 'grab') : (asButton ? 'pointer' : 'default'),
+          transition: 'transform 0.1s ease, box-shadow 0.1s ease',
+          transform: asButton && boardPressed ? 'scale(0.99)' : 'scale(1)',
         }}
       >
         <div
@@ -457,6 +478,30 @@ export default function BoardView({ holds, selection, onHoldTap, interactive, di
           )}
           </div>{/* end yellow border wrapper */}
         </div>
+
+        {asButton && (
+          <div style={{
+            position: 'absolute',
+            bottom: '12px',
+            right: '12px',
+            width: '44px',
+            height: '44px',
+            borderRadius: '50%',
+            background: 'var(--accent)',
+            color: '#fff',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: '28px',
+            fontWeight: 300,
+            lineHeight: 1,
+            boxShadow: '0 4px 12px rgba(0,71,255,0.4)',
+            pointerEvents: 'none',
+            zIndex: 20,
+          }}>
+            +
+          </div>
+        )}
 
         {/* Zoom controls — always render all 3 so layout never shifts on first zoom */}
         <div style={{

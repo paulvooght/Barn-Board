@@ -1377,11 +1377,6 @@ export default function App() {
         </div>
         <nav style={{ display: 'flex', gap: '6px' }}>
           <NavButton
-            active={isBoard}
-            onClick={() => { resetCreate(); setViewingRoute(null); setView('board'); }}
-            label="◈"
-          />
-          <NavButton
             active={view === 'routes'}
             onClick={() => { setHoldSelection({}); setViewingRoute(null); setShowRouteTags(false); setView('routes'); }}
             label="☰"
@@ -1403,6 +1398,7 @@ export default function App() {
             // Only allow tapping holds that are in the route
             if (viewingRoute?.holds?.[id]) setInspectedRouteHoldId(prev => prev === id ? null : id);
           } : undefined}
+          onBoardClick={view === 'board' ? () => { resetCreate(); setView('create'); } : undefined}
           interactive={view === 'create' || (view === 'viewRoute' && holdDataMode)}
           dimBoard={view === 'viewRoute'}
           imgSrc={imgSrc}
@@ -1665,16 +1661,6 @@ export default function App() {
       {/* Board view CTA — below the board image */}
       {view === 'board' && (
         <div style={{ textAlign: 'center', padding: '16px 12px 24px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' }}>
-          <button
-            onClick={() => { resetCreate(); setView('create'); }}
-            style={{
-              padding: '14px 48px', borderRadius: '24px', border: 'none',
-              background: 'var(--accent)', color: '#fff',
-              fontSize: '14px', fontWeight: 700, cursor: 'pointer', letterSpacing: '0.5px',
-            }}
-          >
-            + CREATE ROUTE
-          </button>
           {!activeSession && (
             <button
               onClick={startSession}

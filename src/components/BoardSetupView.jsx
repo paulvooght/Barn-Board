@@ -71,7 +71,7 @@ function positivityLabel(val) {
 }
 
 export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc, imgSrcSet, imgSizes, initialManagerMode, onManagerModeChange, onEditHold, routes }) {
-  const { state: holds, setState: setHolds, undo, redo, canUndo, canRedo } = useUndoRedo(initialHolds);
+  const { state: holds, setState: setHolds, undo, redo, canUndo, canRedo, beginCoalesce, endCoalesce } = useUndoRedo(initialHolds);
 
   const [managerMode, setManagerMode] = useState(initialManagerMode || 'boundaries'); // 'boundaries' | 'metadata' | 'heatmap'
   const [inspectedHoldId, setInspectedHoldId] = useState(null);
@@ -462,6 +462,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
 
   // Snapshot original polygons when rotation/scale interaction starts
   function snapshotOrigPolys() {
+    beginCoalesce();
     const origPolys = {};
     for (const id of selectedIds) {
       const h = holds.find(hh => hh.id === id);
@@ -619,6 +620,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
           const [hcx, hcy] = holdObj?.polygon ? centroid(holdObj.polygon) : [holdObj?.cx ?? pct.x, holdObj?.cy ?? pct.y];
           const offsetX = pct.x - hcx;
           const offsetY = pct.y - hcy;
+          beginCoalesce();
           setDraggingHold({ holdId: hitId, isMulti: multi, offsetX, offsetY });
           if (multi) moveMultiLastRef.current = pct;
           return;
@@ -682,8 +684,8 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
       }
       return;
     }
-    if (draggingHold) { setDraggingHold(null); moveMultiLastRef.current = null; return; }
-    if (draggingVertex) { setDraggingVertex(null); return; }
+    if (draggingHold) { endCoalesce(); setDraggingHold(null); moveMultiLastRef.current = null; return; }
+    if (draggingVertex) { endCoalesce(); setDraggingVertex(null); return; }
     if (panDragRef.current.active && !panDragRef.current.moved) {
       const pct = clientToBoardPct(e.clientX, e.clientY);
       if (pct) handleClick(pct);
@@ -786,6 +788,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
             const [hcx, hcy] = holdObj?.polygon ? centroid(holdObj.polygon) : [holdObj?.cx ?? pct.x, holdObj?.cy ?? pct.y];
             const offsetX = pct.x - hcx;
             const offsetY = pct.y - hcy;
+            beginCoalesce();
             setDraggingHold({ holdId: hitId, isMulti: multi, offsetX, offsetY });
             if (multi) moveMultiLastRef.current = pct;
             return;
@@ -882,8 +885,9 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
       }
       return;
     }
-    if (draggingHold) { setDraggingHold(null); moveMultiLastRef.current = null; pinchRef.current.active = false; panDragRef.current.active = false; return; }
+    if (draggingHold) { endCoalesce(); setDraggingHold(null); moveMultiLastRef.current = null; pinchRef.current.active = false; panDragRef.current.active = false; return; }
     if (draggingVertexRef.current) {
+      endCoalesce();
       const wasTap = !vertexDragActiveRef.current;
       setDraggingVertex(null); draggingVertexRef.current = null; touchPosRef.current = null; dragVertexPctRef.current = null;
       vertexDragStartRef.current = null; vertexDragActiveRef.current = false;
@@ -909,6 +913,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
   function startVertexDrag(holdId, vertexIdx, e) {
     e.stopPropagation();
     e.preventDefault();
+    beginCoalesce();
     vertexDragActiveRef.current = false;
     if (e.type === 'touchstart') {
       lastTouchTimeRef.current = Date.now();
@@ -1493,6 +1498,9 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
                     value={selectRotation}
                     onMouseDown={snapshotOrigPolys}
                     onTouchStart={snapshotOrigPolys}
+                    onMouseUp={endCoalesce}
+                    onTouchEnd={endCoalesce}
+                    onTouchCancel={endCoalesce}
                     onChange={(e) => {
                       const rot = parseInt(e.target.value);
                       setSelectRotation(rot);
@@ -1511,6 +1519,9 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
                     value={selectScale}
                     onMouseDown={snapshotOrigPolys}
                     onTouchStart={snapshotOrigPolys}
+                    onMouseUp={endCoalesce}
+                    onTouchEnd={endCoalesce}
+                    onTouchCancel={endCoalesce}
                     onChange={(e) => {
                       const s = parseInt(e.target.value);
                       setSelectScale(s);
