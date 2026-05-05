@@ -981,7 +981,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
           <g key={hold.id}>
             <ellipse cx={cx} cy={cy} rx={rx} ry={ry}
               fill={heatColor ? heatColor : 'rgba(180,180,180,0.10)'}
-              fillOpacity={heatColor ? 0.88 : 1}
+              fillOpacity={heatColor ? 0.55 : 1}
               stroke={heatColor ? heatColor : 'rgba(180,180,180,0.45)'}
               strokeOpacity={heatColor ? 1.0 : 1}
               strokeWidth={lineWidth}
@@ -997,7 +997,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
         <g key={hold.id}>
           <polygon points={pts}
             fill={heatColor ? heatColor : 'rgba(180,180,180,0.10)'}
-            fillOpacity={heatColor ? 0.88 : 1}
+            fillOpacity={heatColor ? 0.55 : 1}
             stroke={heatColor ? heatColor : 'rgba(180,180,180,0.45)'}
             strokeOpacity={heatColor ? 1.0 : 1}
             strokeWidth={lineWidth}
@@ -1587,7 +1587,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
                 display: 'block', opacity: imageLoaded ? 1 : 0.3,
                 borderRadius: '6px',
                 WebkitTouchCallout: 'none', WebkitUserSelect: 'none',
-                filter: managerMode === 'heatmap' ? 'grayscale(100%) brightness(0.85)' : 'none',
+                filter: managerMode === 'heatmap' ? 'grayscale(100%) brightness(1.15) contrast(0.45)' : 'none',
                 transition: 'filter 0.2s',
               }}
               draggable={false}
