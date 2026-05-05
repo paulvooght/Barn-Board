@@ -980,9 +980,9 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
         return (
           <g key={hold.id}>
             <ellipse cx={cx} cy={cy} rx={rx} ry={ry}
-              fill={heatColor ? heatColor : 'rgba(180,180,180,0.10)'}
+              fill={heatColor ? heatColor : 'rgba(220,220,220,0.70)'}
               fillOpacity={heatColor ? 0.55 : 1}
-              stroke={heatColor ? heatColor : 'rgba(180,180,180,0.45)'}
+              stroke={heatColor ? heatColor : 'rgba(160,160,160,0.30)'}
               strokeOpacity={heatColor ? 1.0 : 1}
               strokeWidth={lineWidth}
               strokeDasharray="none"
@@ -996,9 +996,9 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
       return (
         <g key={hold.id}>
           <polygon points={pts}
-            fill={heatColor ? heatColor : 'rgba(180,180,180,0.10)'}
+            fill={heatColor ? heatColor : 'rgba(220,220,220,0.70)'}
             fillOpacity={heatColor ? 0.55 : 1}
-            stroke={heatColor ? heatColor : 'rgba(180,180,180,0.45)'}
+            stroke={heatColor ? heatColor : 'rgba(160,160,160,0.30)'}
             strokeOpacity={heatColor ? 1.0 : 1}
             strokeWidth={lineWidth}
             strokeLinejoin="round"
