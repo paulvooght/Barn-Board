@@ -1,3 +1,13 @@
+import { useState, useMemo } from 'react';
+import PeriodPicker from './PeriodPicker';
+import ClimberCard from './ClimberCard';
+import {
+  makePeriod,
+  computeStats,
+  computeDelta,
+  previousPeriod,
+} from '../utils/sessionStats';
+
 export default function SessionsView({
   activeSession,
   onStartSession,
@@ -7,7 +17,47 @@ export default function SessionsView({
   sessions,
   settings,
   displayName,
+  userRouteData,
+  routes,
 }) {
+  const safeSessions = sessions || [];
+  const safeRoutes = routes || [];
+  const safeURD = userRouteData || {};
+  const gradeSystem = settings?.gradeSystem || 'V';
+
+  // ── Default period: most recent session, or all-time if none exist ────────
+  const defaultPeriod = useMemo(() => {
+    if (safeSessions.length === 0) return makePeriod('all', null, []);
+    const sorted = [...safeSessions].sort(
+      (a, b) => new Date(b.startTime) - new Date(a.startTime)
+    );
+    return makePeriod('session', sorted[0].id, safeSessions);
+  }, []); // intentionally stable — only computed once on mount
+
+  const [period, setPeriod] = useState(defaultPeriod);
+
+  // ── Stats computation (memoised) ──────────────────────────────────────────
+  const stats = useMemo(
+    () => computeStats(safeSessions, safeRoutes, safeURD, period, gradeSystem),
+    [safeSessions, safeRoutes, safeURD, period, gradeSystem]
+  );
+
+  const prevPeriod = useMemo(
+    () => previousPeriod(period, safeSessions),
+    [period, safeSessions]
+  );
+
+  const previousStats = useMemo(() => {
+    if (!prevPeriod) return null;
+    return computeStats(safeSessions, safeRoutes, safeURD, prevPeriod, gradeSystem);
+  }, [prevPeriod, safeSessions, safeRoutes, safeURD, gradeSystem]);
+
+  const delta = useMemo(
+    () => computeDelta(stats, previousStats),
+    [stats, previousStats]
+  );
+
+  // ── Styles ────────────────────────────────────────────────────────────────
   const containerStyle = {
     maxWidth: '480px',
     margin: '0 auto',
@@ -172,30 +222,21 @@ export default function SessionsView({
         </div>
       )}
 
-      {/* Climber Card placeholder */}
-      <div style={{
-        ...cardStyle,
-        border: '1px solid rgba(255,171,148,0.5)',
-      }}>
-        <div style={{
-          fontSize: '11px',
-          fontWeight: 800,
-          color: 'var(--accent)',
-          letterSpacing: '1px',
-          textTransform: 'uppercase',
-          marginBottom: '8px',
-        }}>
-          Climber Card
-        </div>
-        <div style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-          {sessions.length === 0
-            ? 'No sessions yet — start your first one above.'
-            : 'Stats arriving in the next update.'}
-        </div>
-        <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '6px' }}>
-          Your stats will appear here after your first session.
-        </div>
-      </div>
+      {/* Period Picker */}
+      <PeriodPicker
+        sessions={safeSessions}
+        period={period}
+        onChange={setPeriod}
+      />
+
+      {/* Climber Card */}
+      <ClimberCard
+        stats={stats}
+        previousStats={previousStats}
+        delta={delta}
+        gradeSystem={gradeSystem}
+        displayName={displayName}
+      />
     </div>
   );
 }

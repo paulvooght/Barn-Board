@@ -1810,6 +1810,8 @@ export default function App() {
             sessions={sessions}
             settings={settings}
             displayName={displayName}
+            userRouteData={userRouteData}
+            routes={routes}
           />
         </Suspense>
       )}
