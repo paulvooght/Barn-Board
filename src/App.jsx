@@ -1661,7 +1661,7 @@ export default function App() {
       {/* Board view CTA — below the board image */}
       {view === 'board' && (
         <div style={{ textAlign: 'center', padding: '16px 12px 24px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' }}>
-          {!activeSession && (
+          {!activeSession && settings.betaSessionLogger && (
             <button
               onClick={startSession}
               style={{
