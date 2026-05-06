@@ -20,6 +20,7 @@ export default function CommentsSection({
   currentUserDisplayName,
   profilesById,
   isAdmin,
+  onMarkAttempted,
 }) {
   const [expanded, setExpanded]       = useState(false);
   const [comments, setComments]       = useState([]);
@@ -96,6 +97,8 @@ export default function CommentsSection({
     } else {
       setComments(prev => [...prev, data]);
       setComposeText('');
+      // Posting a comment is a deliberate engagement — mark as attempted
+      if (onMarkAttempted) onMarkAttempted();
     }
     setPosting(false);
   }

@@ -45,7 +45,7 @@ export default function App() {
   const [routes, setRoutes]       = useState([]);
   const [sessions, setSessions]   = useState([]);
   const [playlists, setPlaylists] = useState([]);
-  const [userRouteData, setUserRouteData] = useState({}); // { [routeId]: { sent, rating, angleSends } }
+  const [userRouteData, setUserRouteData] = useState({}); // { [routeId]: { sent, rating, angleSends, attempted } }
   const [communityRatings, setCommunityRatings] = useState({}); // { [routeId]: { avg, count } }
   const [communityGrades, setCommunityGrades]   = useState({}); // { [routeId]: { headline: {consensus, votes, count}, angles: {...} } }
   const [boardImageConfig, setBoardImageConfig] = useLocalStorage('barnboard_board_image_config', null);
@@ -106,7 +106,7 @@ export default function App() {
     // Fire all queries in parallel — biggest startup speedup
     const [routeResult, urdResult, ratingResult, gradeResult, sessionResult, plResult, imgConfigResult, profilesResult] = await Promise.all([
       supabase.from('routes').select('id, user_id, data').order('created_at', { ascending: false }),
-      supabase.from('user_route_data').select('route_id, sent, rating, angle_sends, grade_suggestions').eq('user_id', userId),
+      supabase.from('user_route_data').select('route_id, sent, rating, angle_sends, grade_suggestions, attempted').eq('user_id', userId),
       supabase.from('user_route_data').select('route_id, rating').gt('rating', 0),
       supabase.from('user_route_data').select('route_id, grade_suggestions').not('grade_suggestions', 'eq', '{}'),
       supabase.from('sessions').select('data').eq('user_id', userId).order('created_at', { ascending: false }),
@@ -134,7 +134,7 @@ export default function App() {
             const angleSends = (r.angleGrades || []).filter(ag => ag.sent).map(ag => ag.angle);
             await supabase.from('user_route_data').upsert({
               user_id: userId, route_id: r.id,
-              sent: !!r.sent, rating: r.rating || 0, angle_sends: angleSends,
+              sent: !!r.sent, rating: r.rating || 0, angle_sends: angleSends, attempted: r.attempted || false,
             }, { onConflict: 'user_id,route_id' })
               .then(({ error }) => { if (error) console.error('[Supabase] user_route_data sync error:', error); });
           }
@@ -146,7 +146,7 @@ export default function App() {
     const urdMap = {};
     if (urdResult.data) {
       for (const row of urdResult.data) {
-        urdMap[row.route_id] = { sent: row.sent, rating: row.rating, angleSends: row.angle_sends || [], gradeSuggestions: row.grade_suggestions || {} };
+        urdMap[row.route_id] = { sent: row.sent, rating: row.rating, angleSends: row.angle_sends || [], gradeSuggestions: row.grade_suggestions || {}, attempted: row.attempted || false };
       }
     }
     setUserRouteData(urdMap);
@@ -633,6 +633,25 @@ export default function App() {
     });
   }, [activeSession, setActiveSession]);
 
+  // markAttempted — unified entry point for deliberate user interaction with a route.
+  // Sets the lifetime per-user `attempted` flag and also logs to the active session.
+  const markAttempted = useCallback((routeId) => {
+    if (!user) return;
+    setUserRouteData(prev => {
+      const current = prev[routeId] || { sent: false, rating: 0, angleSends: [], gradeSuggestions: {}, attempted: false };
+      if (current.attempted) return prev; // already set — idempotent
+      supabase.from('user_route_data').upsert({
+        user_id: user.id, route_id: routeId,
+        sent: current.sent, rating: current.rating, angle_sends: current.angleSends,
+        grade_suggestions: current.gradeSuggestions || {}, attempted: true,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'user_id,route_id' })
+        .then(({ error }) => { if (error) console.error('[Supabase] markAttempted error:', error); });
+      return { ...prev, [routeId]: { ...current, attempted: true } };
+    });
+    logRouteAttempted(routeId);
+  }, [user, logRouteAttempted]);
+
   const logRouteSent = useCallback((routeId, angle, grade) => {
     if (!activeSession) return;
     setActiveSession(prev => {
@@ -760,8 +779,7 @@ export default function App() {
       return didBackfill ? prev.map(r => r.id === updated.id ? updated : r) : prev;
     });
     setView('viewRoute');
-    logRouteAttempted(route.id);
-  }, [logRouteAttempted, setRoutes, allHolds]);
+  }, [setRoutes, allHolds]);
 
   const startEditRoute = useCallback((route) => {
     // Read fresh route from state to ensure holds are current
@@ -837,11 +855,12 @@ export default function App() {
   const toggleSent = useCallback((routeId) => {
     if (!user) return;
     setUserRouteData(prev => {
-      const current = prev[routeId] || { sent: false, rating: 0, angleSends: [] };
+      const current = prev[routeId] || { sent: false, rating: 0, angleSends: [], attempted: false };
       const newSent = !current.sent;
       supabase.from('user_route_data').upsert({
         user_id: user.id, route_id: routeId,
         sent: newSent, rating: current.rating, angle_sends: current.angleSends,
+        attempted: true, // toggling sent always counts as an attempt
         updated_at: new Date().toISOString(),
       }, { onConflict: 'user_id,route_id' })
         .then(({ error }) => { if (error) console.error('[Supabase] user_route_data sync error:', error); });
@@ -852,9 +871,11 @@ export default function App() {
           if (route.angle) logAngleClimbed(route.angle);
         }
       }
-      return { ...prev, [routeId]: { ...current, sent: newSent } };
+      // Also log to active session (idempotent)
+      logRouteAttempted(routeId);
+      return { ...prev, [routeId]: { ...current, sent: newSent, attempted: true } };
     });
-  }, [user, logRouteSent, logAngleClimbed]);
+  }, [user, logRouteSent, logAngleClimbed, logRouteAttempted]);
 
   const deleteRoute = useCallback((routeId) => {
     setRoutes(prev => prev.filter(r => r.id !== routeId));
@@ -962,7 +983,7 @@ export default function App() {
   const toggleAngleSent = useCallback((routeId, angle) => {
     if (!user) return;
     setUserRouteData(prev => {
-      const current = prev[routeId] || { sent: false, rating: 0, angleSends: [] };
+      const current = prev[routeId] || { sent: false, rating: 0, angleSends: [], attempted: false };
       const wasSent = current.angleSends.includes(angle);
       const angleSends = wasSent
         ? current.angleSends.filter(a => a !== angle)
@@ -970,6 +991,7 @@ export default function App() {
       supabase.from('user_route_data').upsert({
         user_id: user.id, route_id: routeId,
         sent: current.sent, rating: current.rating, angle_sends: angleSends,
+        attempted: true, // toggling angle sent always counts as an attempt
         updated_at: new Date().toISOString(),
       }, { onConflict: 'user_id,route_id' })
         .then(({ error }) => { if (error) console.error('[Supabase] user_route_data sync error:', error); });
@@ -979,9 +1001,11 @@ export default function App() {
         logRouteSent(routeId, angle, ag?.grade || route?.grade);
         logAngleClimbed(angle);
       }
-      return { ...prev, [routeId]: { ...current, angleSends } };
+      // Also log to active session (idempotent)
+      logRouteAttempted(routeId);
+      return { ...prev, [routeId]: { ...current, angleSends, attempted: true } };
     });
-  }, [user, logRouteSent, logAngleClimbed]);
+  }, [user, logRouteSent, logAngleClimbed, logRouteAttempted]);
 
   const setHeadlineAngleGrade = useCallback((routeId, newAngle, newGrade) => {
     const applyHeadlineSwap = (r) => {
@@ -1037,7 +1061,7 @@ export default function App() {
     };
 
     setUserRouteData(prev => {
-      const current = prev[routeId] || { sent: false, rating: 0, angleSends: [] };
+      const current = prev[routeId] || { sent: false, rating: 0, angleSends: [], attempted: false };
       const oldSuggestions = current.gradeSuggestions || {};
       const gradeSuggestions = { ...oldSuggestions };
       if (headline !== undefined) {
@@ -1052,7 +1076,8 @@ export default function App() {
       supabase.from('user_route_data').upsert({
         user_id: user.id, route_id: routeId,
         sent: current.sent, rating: current.rating, angle_sends: current.angleSends,
-        grade_suggestions: gradeSuggestions, updated_at: new Date().toISOString(),
+        grade_suggestions: gradeSuggestions, attempted: true,
+        updated_at: new Date().toISOString(),
       }, { onConflict: 'user_id,route_id' })
         .then(({ error }) => { if (error) console.error('[Supabase] grade suggestion error:', error); });
 
@@ -1089,9 +1114,11 @@ export default function App() {
         return { ...cgPrev, [routeId]: next };
       });
 
-      return { ...prev, [routeId]: { ...current, gradeSuggestions } };
+      // Suggesting a grade counts as engagement — mark attempted
+      logRouteAttempted(routeId);
+      return { ...prev, [routeId]: { ...current, gradeSuggestions, attempted: true } };
     });
-  }, [user, gradeIndex]);
+  }, [user, gradeIndex, logRouteAttempted]);
 
   const acceptGradeSuggestion = useCallback((routeId, grade, angle) => {
     localRouteChange.current = true;
@@ -1496,6 +1523,7 @@ export default function App() {
             <ViewRouteHeader
               route={viewingRoute}
               sent={userRouteData[viewingRoute.id]?.sent || false}
+              attempted={userRouteData[viewingRoute.id]?.attempted || false}
               angleSends={userRouteData[viewingRoute.id]?.angleSends || []}
               isCreator={viewingRoute.creatorId === user?.id}
               canEdit={viewingRoute.creatorId === user?.id || (isAdmin && (settings.adminMode ?? 'climber') === 'admin')}
@@ -1512,6 +1540,31 @@ export default function App() {
               onClose={() => { setHoldSelection({}); setViewingRoute(null); setShowRouteTags(false); setHoldDataMode(false); setInspectedRouteHoldId(null); setView('routes'); }}
               onDelete={() => deleteRoute(viewingRoute.id)}
               onToggleSent={() => toggleSent(viewingRoute.id)}
+              onMarkAttempted={(on) => {
+                if (on) {
+                  markAttempted(viewingRoute.id);
+                } else {
+                  // Turn off: clear attempted in state + Supabase, remove from session routesAttempted
+                  setUserRouteData(prev => {
+                    const current = prev[viewingRoute.id] || {};
+                    supabase.from('user_route_data').upsert({
+                      user_id: user?.id, route_id: viewingRoute.id,
+                      sent: current.sent || false, rating: current.rating || 0,
+                      angle_sends: current.angleSends || [],
+                      grade_suggestions: current.gradeSuggestions || {},
+                      attempted: false,
+                      updated_at: new Date().toISOString(),
+                    }, { onConflict: 'user_id,route_id' })
+                      .then(({ error }) => { if (error) console.error('[Supabase] unmarkAttempted error:', error); });
+                    return { ...prev, [viewingRoute.id]: { ...current, attempted: false } };
+                  });
+                  setActiveSession(prev => {
+                    if (!prev) return prev;
+                    return { ...prev, routesAttempted: prev.routesAttempted.filter(id => id !== viewingRoute.id) };
+                  });
+                }
+              }}
+              inActiveSession={!!activeSession}
               onAddAngleGrade={(angle, grade) => addAngleGrade(viewingRoute.id, angle, grade)}
               onRemoveAngleGrade={(angle) => removeAngleGrade(viewingRoute.id, angle)}
               onSetHeadline={(angle, grade) => setHeadlineAngleGrade(viewingRoute.id, angle, grade)}
@@ -1654,6 +1707,7 @@ export default function App() {
             currentUserDisplayName={displayName}
             profilesById={profilesById}
             isAdmin={isAdmin}
+            onMarkAttempted={() => markAttempted(viewingRoute.id)}
           />
         </Suspense>
       )}
@@ -1983,7 +2037,7 @@ function NewAngleSuggestionRow({ grades, existingAngles, onSuggest }) {
 }
 
 // ─── View Route Header with Angle-Grade Management ──────────────────
-function ViewRouteHeader({ route, sent, angleSends, isCreator, canEdit, grades, gradeSystem, playlists, settings, allHolds, communityGrades, myGradeSuggestions, onSuggestGrade, onAcceptGrade, onEdit, onClose, onDelete, onToggleSent, onAddAngleGrade, onRemoveAngleGrade, onSetHeadline, onToggleAngleSent, onAddToPlaylist, onCreatePlaylist }) {
+function ViewRouteHeader({ route, sent, attempted, angleSends, isCreator, canEdit, grades, gradeSystem, playlists, settings, allHolds, communityGrades, myGradeSuggestions, onSuggestGrade, onAcceptGrade, onEdit, onClose, onDelete, onToggleSent, onMarkAttempted, inActiveSession, onAddAngleGrade, onRemoveAngleGrade, onSetHeadline, onToggleAngleSent, onAddToPlaylist, onCreatePlaylist }) {
   const [nameExpanded, setNameExpanded] = useState(false);
   const [showAnglePanel, setShowAnglePanel] = useState(false);
   const [showPlaylistPanel, setShowPlaylistPanel] = useState(false);
@@ -2078,6 +2132,24 @@ function ViewRouteHeader({ route, sent, angleSends, isCreator, canEdit, grades, 
             </a>
           )}
         </div>
+        {/* Tried pill — visible only during an active session */}
+        {inActiveSession && (
+          <button
+            onClick={() => onMarkAttempted && onMarkAttempted(!attempted)}
+            title="Mark this route as attempted in this session"
+            aria-label="Mark this route as attempted in this session"
+            style={{
+              padding: '4px 9px', borderRadius: '8px', flexShrink: 0, fontSize: '11px', fontWeight: 700,
+              lineHeight: 1, cursor: 'pointer', whiteSpace: 'nowrap',
+              border: attempted ? '1.5px solid #f59e0b' : '1.5px solid rgba(26,10,0,0.15)',
+              background: attempted ? 'rgba(245,158,11,0.15)' : 'rgba(255,255,255,0.6)',
+              color: attempted ? '#b45309' : 'var(--text-secondary)',
+              transition: 'all 0.15s',
+            }}
+          >
+            {attempted ? 'Tried ✓' : 'Tried'}
+          </button>
+        )}
         {/* Sent checkbox */}
         <button
           onClick={onToggleSent}
