@@ -1,11 +1,13 @@
 import { useState, useMemo } from 'react';
 import PeriodPicker from './PeriodPicker';
 import ClimberCard from './ClimberCard';
+import HoldHeatMap from './HoldHeatMap';
 import {
   makePeriod,
   computeStats,
   computeDelta,
   previousPeriod,
+  computeHoldHeat,
 } from '../utils/sessionStats';
 
 export default function SessionsView({
@@ -19,6 +21,9 @@ export default function SessionsView({
   displayName,
   userRouteData,
   routes,
+  boardImageSrc,
+  boardRegion,
+  allHolds,
 }) {
   const safeSessions = sessions || [];
   const safeRoutes = routes || [];
@@ -55,6 +60,12 @@ export default function SessionsView({
   const delta = useMemo(
     () => computeDelta(stats, previousStats),
     [stats, previousStats]
+  );
+
+  // ── Hold heat map data (memoised) ─────────────────────────────────────────
+  const heat = useMemo(
+    () => computeHoldHeat(safeSessions, safeRoutes, safeURD, period),
+    [safeSessions, safeRoutes, safeURD, period]
   );
 
   // ── Styles ────────────────────────────────────────────────────────────────
@@ -237,6 +248,17 @@ export default function SessionsView({
         gradeSystem={gradeSystem}
         displayName={displayName}
       />
+
+      {/* Hold Heat Map */}
+      {boardImageSrc && boardRegion && allHolds && (
+        <HoldHeatMap
+          boardImageSrc={boardImageSrc}
+          boardRegion={boardRegion}
+          allHolds={allHolds}
+          heat={heat}
+          periodLabel={period.label}
+        />
+      )}
     </div>
   );
 }

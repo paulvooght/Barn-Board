@@ -467,6 +467,58 @@ export function computeStats(sessions, routes, userRouteData, period, gradeSyste
   };
 }
 
+// ─── Hold heat map ────────────────────────────────────────────────────────────
+
+/**
+ * Aggregate hold usage across sends in a period.
+ *
+ * For period type 'all': iterates userRouteData keys where sent=true, looks up the route,
+ * counts each hold once per route (total sent count, not per-session).
+ * For other period types: uses filterSends() so the same route sent twice = counted twice.
+ *
+ * @param {Array}  sessions      — all sessions
+ * @param {Array}  routes        — all routes (shared route data, each has .holds obj)
+ * @param {Object} userRouteData — { [routeId]: { sent, flashed, ... } }
+ * @param {Object} period        — period descriptor from makePeriod()
+ * @returns {{ counts: { [holdId]: number }, maxCount: number, totalSends: number }}
+ */
+export function computeHoldHeat(sessions, routes, userRouteData, period) {
+  const safeRoutes = routes || [];
+  const safeURD = userRouteData || {};
+  const counts = {};
+  let totalSends = 0;
+
+  if (period.type === 'all') {
+    // One count per route the user has marked sent
+    for (const [routeId, urd] of Object.entries(safeURD)) {
+      if (!urd?.sent) continue;
+      const route = safeRoutes.find(r => r.id === routeId);
+      if (!route?.holds) continue;
+      totalSends++;
+      for (const holdId of Object.keys(route.holds)) {
+        counts[holdId] = (counts[holdId] || 0) + 1;
+      }
+    }
+  } else {
+    // One count per send event in the period (same route sent twice = counted twice)
+    const periodSends = filterSends(sessions || [], period);
+    totalSends = periodSends.length;
+    for (const send of periodSends) {
+      const route = safeRoutes.find(r => r.id === send.routeId);
+      if (!route?.holds) continue;
+      for (const holdId of Object.keys(route.holds)) {
+        counts[holdId] = (counts[holdId] || 0) + 1;
+      }
+    }
+  }
+
+  const maxCount = counts && Object.keys(counts).length > 0
+    ? Math.max(...Object.values(counts))
+    : 0;
+
+  return { counts, maxCount, totalSends };
+}
+
 // ─── Delta computation ────────────────────────────────────────────────────────
 
 /**

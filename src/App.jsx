@@ -1812,6 +1812,9 @@ export default function App() {
             displayName={displayName}
             userRouteData={userRouteData}
             routes={routes}
+            boardImageSrc={imgSrc}
+            boardRegion={holdsData.boardRegion}
+            allHolds={allHolds}
           />
         </Suspense>
       )}
