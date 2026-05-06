@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { BOARD_SPECS, GRADE_CHART_ROWS } from '../utils/constants';
 import holdsData from '../data/holds.json';
+import { supabase } from '../lib/supabase';
 
 /**
  * Props:
@@ -22,6 +23,58 @@ export default function Settings({ settings, updateSettings, allHolds, onSetupBo
   const [nameInput, setNameInput] = useState(displayName);
   const [nameSaving, setNameSaving] = useState(false);
   const [nameError, setNameError] = useState('');
+
+  // ── Change Password state ──
+  const [pwOpen, setPwOpen] = useState(false);
+  const [pwCurrent, setPwCurrent] = useState('');
+  const [pwNew, setPwNew] = useState('');
+  const [pwConfirm, setPwConfirm] = useState('');
+  const [pwSaving, setPwSaving] = useState(false);
+  const [pwError, setPwError] = useState('');
+  const [pwSuccess, setPwSuccess] = useState('');
+
+  const pwValid = pwNew.length >= 6 && pwNew === pwConfirm && pwCurrent.length > 0;
+
+  const resetPwForm = () => {
+    setPwCurrent(''); setPwNew(''); setPwConfirm('');
+    setPwError(''); setPwSuccess('');
+  };
+
+  const closePwForm = () => {
+    setPwOpen(false);
+    resetPwForm();
+  };
+
+  const handleChangePassword = async () => {
+    if (!pwValid || pwSaving) return;
+    setPwSaving(true);
+    setPwError('');
+    setPwSuccess('');
+    try {
+      // Re-authenticate to verify the current password.
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: userEmail,
+        password: pwCurrent,
+      });
+      if (signInError) {
+        setPwError('Current password is incorrect.');
+        setPwSaving(false);
+        return;
+      }
+      const { error: updateError } = await supabase.auth.updateUser({ password: pwNew });
+      if (updateError) {
+        setPwError(updateError.message || 'Could not update password.');
+        setPwSaving(false);
+        return;
+      }
+      setPwSuccess('Password updated.');
+      setPwCurrent(''); setPwNew(''); setPwConfirm('');
+    } catch (err) {
+      setPwError(err?.message || 'Could not update password.');
+    } finally {
+      setPwSaving(false);
+    }
+  };
 
   const trimmed = nameInput.trim();
   const nameValid = trimmed.length >= 2 && trimmed.length <= 20;
@@ -574,22 +627,115 @@ export default function Settings({ settings, updateSettings, allHolds, onSetupBo
 
       {/* ── Account ── */}
       {(userEmail || onSignOut) && (
-        <div style={{ ...cardStyle, marginBottom: '16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div>
-            <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--accent)', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: 3 }}>Account</div>
-            <div style={{ fontSize: '12px', color: 'var(--text-secondary)', fontFamily: 'var(--font-heading)' }}>{userEmail}</div>
+        <div style={{ ...cardStyle, marginBottom: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div>
+              <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--accent)', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: 3 }}>Account</div>
+              <div style={{ fontSize: '12px', color: 'var(--text-secondary)', fontFamily: 'var(--font-heading)' }}>{userEmail}</div>
+            </div>
+            {onSignOut && (
+              <button
+                onClick={onSignOut}
+                style={{
+                  padding: '6px 14px', borderRadius: '8px', fontSize: '12px', fontWeight: 700,
+                  border: '1.5px solid rgba(26,10,0,0.15)', background: 'transparent',
+                  color: 'var(--text-secondary)', cursor: 'pointer',
+                }}
+              >
+                Sign Out
+              </button>
+            )}
           </div>
-          {onSignOut && (
-            <button
-              onClick={onSignOut}
-              style={{
-                padding: '6px 14px', borderRadius: '8px', fontSize: '12px', fontWeight: 700,
-                border: '1.5px solid rgba(26,10,0,0.15)', background: 'transparent',
-                color: 'var(--text-secondary)', cursor: 'pointer',
-              }}
-            >
-              Sign Out
-            </button>
+
+          {userEmail && (
+            <div style={{ marginTop: '12px', borderTop: '1px solid rgba(26,10,0,0.08)', paddingTop: '12px' }}>
+              {!pwOpen ? (
+                <button
+                  onClick={() => { resetPwForm(); setPwOpen(true); }}
+                  style={{
+                    padding: '6px 14px', borderRadius: '8px', fontSize: '12px', fontWeight: 700,
+                    border: '1.5px solid rgba(26,10,0,0.15)', background: 'transparent',
+                    color: 'var(--text-secondary)', cursor: 'pointer',
+                  }}
+                >
+                  Change Password
+                </button>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)', letterSpacing: '0.5px', textTransform: 'uppercase' }}>
+                    Change Password
+                  </div>
+                  <input
+                    type="password"
+                    autoComplete="current-password"
+                    placeholder="Current password"
+                    value={pwCurrent}
+                    onChange={(e) => { setPwCurrent(e.target.value); setPwError(''); setPwSuccess(''); }}
+                    style={pwInputStyle}
+                  />
+                  <input
+                    type="password"
+                    autoComplete="new-password"
+                    placeholder="New password (min 6 chars)"
+                    value={pwNew}
+                    onChange={(e) => { setPwNew(e.target.value); setPwError(''); setPwSuccess(''); }}
+                    style={pwInputStyle}
+                  />
+                  <input
+                    type="password"
+                    autoComplete="new-password"
+                    placeholder="Confirm new password"
+                    value={pwConfirm}
+                    onChange={(e) => { setPwConfirm(e.target.value); setPwError(''); setPwSuccess(''); }}
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleChangePassword(); }}
+                    style={pwInputStyle}
+                  />
+                  {pwNew.length > 0 && pwNew.length < 6 && (
+                    <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                      New password must be at least 6 characters.
+                    </div>
+                  )}
+                  {pwNew.length >= 6 && pwConfirm.length > 0 && pwNew !== pwConfirm && (
+                    <div style={{ fontSize: '11px', color: '#e55' }}>
+                      Passwords don't match.
+                    </div>
+                  )}
+                  {pwError && (
+                    <div style={{ fontSize: '11px', color: '#e55' }}>{pwError}</div>
+                  )}
+                  {pwSuccess && (
+                    <div style={{ fontSize: '11px', color: '#22a870' }}>{pwSuccess}</div>
+                  )}
+                  <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+                    <button
+                      onClick={handleChangePassword}
+                      disabled={!pwValid || pwSaving}
+                      style={{
+                        padding: '8px 16px', borderRadius: '8px', fontSize: '13px', fontWeight: 700,
+                        cursor: (!pwValid || pwSaving) ? 'not-allowed' : 'pointer',
+                        border: 'none',
+                        background: (!pwValid || pwSaving) ? 'rgba(26,10,0,0.1)' : 'var(--accent)',
+                        color: (!pwValid || pwSaving) ? 'var(--text-muted)' : '#fff',
+                      }}
+                    >
+                      {pwSaving ? 'Saving…' : 'Update'}
+                    </button>
+                    <button
+                      onClick={closePwForm}
+                      disabled={pwSaving}
+                      style={{
+                        padding: '8px 12px', borderRadius: '8px', fontSize: '12px', fontWeight: 600,
+                        cursor: pwSaving ? 'not-allowed' : 'pointer',
+                        border: '1.5px solid rgba(26,10,0,0.15)',
+                        background: 'transparent', color: 'var(--text-secondary)',
+                      }}
+                    >
+                      {pwSuccess ? 'Done' : 'Cancel'}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           )}
         </div>
       )}
@@ -679,4 +825,12 @@ const cardStyle = {
 
 const specGridStyle = {
   display: 'grid', gridTemplateColumns: '1fr auto', gap: '6px 16px',
+};
+
+const pwInputStyle = {
+  width: '100%', padding: '9px 12px', borderRadius: '8px',
+  border: '1.5px solid rgba(26,10,0,0.15)',
+  background: 'rgba(255,255,255,0.7)', fontSize: '14px',
+  color: 'var(--text-primary)', fontFamily: 'inherit', outline: 'none',
+  boxSizing: 'border-box',
 };
