@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react';
 import PeriodPicker from './PeriodPicker';
 import ClimberCard from './ClimberCard';
 import HoldHeatMap from './HoldHeatMap';
+import SessionRollup from './SessionRollup';
 import {
   makePeriod,
   computeStats,
@@ -24,6 +25,8 @@ export default function SessionsView({
   boardImageSrc,
   boardRegion,
   allHolds,
+  profilesById,
+  onViewRoute,
 }) {
   const safeSessions = sessions || [];
   const safeRoutes = routes || [];
@@ -259,6 +262,17 @@ export default function SessionsView({
           periodLabel={period.label}
         />
       )}
+
+      {/* Session Rollup — sparkline, streaks, PRs, unfinished business */}
+      <SessionRollup
+        sessions={safeSessions}
+        routes={safeRoutes}
+        userRouteData={safeURD}
+        period={period}
+        gradeSystem={gradeSystem}
+        profilesById={profilesById}
+        onViewRoute={onViewRoute}
+      />
     </div>
   );
 }

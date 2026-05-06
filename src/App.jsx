@@ -1815,6 +1815,11 @@ export default function App() {
             boardImageSrc={imgSrc}
             boardRegion={holdsData.boardRegion}
             allHolds={allHolds}
+            profilesById={profilesById}
+            onViewRoute={(routeId) => {
+              const route = routes.find(r => r.id === routeId);
+              if (route) viewRoute(route);
+            }}
           />
         </Suspense>
       )}
