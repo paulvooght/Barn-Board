@@ -9,6 +9,7 @@ const RouteList = lazy(() => import('./components/RouteList'));
 const Settings = lazy(() => import('./components/Settings'));
 const HoldEditorView = lazy(() => import('./components/HoldEditorView'));
 const SessionSummary = lazy(() => import('./components/SessionSummary'));
+const SessionsView = lazy(() => import('./components/SessionsView'));
 const AuthView = lazy(() => import('./components/AuthView'));
 const BoardImageUpdateView = lazy(() => import('./components/BoardImageUpdateView'));
 const CommentsSection = lazy(() => import('./components/CommentsSection'));
@@ -482,7 +483,7 @@ export default function App() {
   }, []);
 
   // UI state
-  // view: board | create | routes | settings | viewRoute | addHold | editHold | setupBoard | sessionSummary
+  // view: board | create | routes | sessions | settings | viewRoute | addHold | editHold | setupBoard | sessionSummary
   const [view, setView]                 = useState('board');
   const [selectionMode, setSelectionMode] = useState(SELECTION_MODES.HAND);
   const [holdSelection, setHoldSelection] = useState({});
@@ -1425,6 +1426,13 @@ export default function App() {
             onClick={() => { setHoldSelection({}); setViewingRoute(null); setShowRouteTags(false); setView('routes'); }}
             label="☰"
           />
+          {settings.betaSessionLogger && (
+            <NavButton
+              active={view === 'sessions'}
+              onClick={() => { setHoldSelection({}); setViewingRoute(null); setShowRouteTags(false); setView('sessions'); }}
+              label={<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><rect x="6" y="4" width="12" height="16" rx="2"/><path d="M9 4v-1a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v1"/><path d="M9 10h6M9 14h6M9 18h3"/></svg>}
+            />
+          )}
           <NavButton
             active={view === 'settings' || isHoldEditor}
             onClick={() => { setEditingHold(null); setView('settings'); }}
@@ -1730,77 +1738,6 @@ export default function App() {
         </Suspense>
       )}
 
-      {/* Board view CTA — below the board image */}
-      {view === 'board' && (
-        <div style={{ textAlign: 'center', padding: '16px 12px 24px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' }}>
-          {!activeSession && settings.betaSessionLogger && (
-            <button
-              onClick={startSession}
-              style={{
-                padding: '12px 24px', borderRadius: '24px',
-                border: '2px solid rgba(125,211,232,0.5)',
-                background: 'var(--bg-card)', color: '#3BA8C4',
-                fontSize: '13px', fontWeight: 800, cursor: 'pointer',
-                letterSpacing: '0.5px',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
-              }}
-            >
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg> Start Session
-            </button>
-          )}
-          {/* Stop session button */}
-          {activeSession && (
-            <button
-              onClick={endSession}
-              style={{
-                padding: '12px 24px', borderRadius: '24px',
-                border: '2px solid rgba(255,82,82,0.4)',
-                background: 'rgba(255,82,82,0.1)', color: '#FF5252',
-                fontSize: '13px', fontWeight: 800, cursor: 'pointer',
-                letterSpacing: '0.5px',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
-              }}
-            >
-              <span style={{ fontSize: '10px' }}>■</span> Stop Session
-            </button>
-          )}
-          {/* Board angle slider — beta feature, controlled by settings.betaAngleLogger */}
-          {activeSession && settings.betaAngleLogger && (
-            <div style={{
-              width: '100%', maxWidth: '340px', padding: '12px 16px',
-              borderRadius: '12px', background: 'var(--bg-card)',
-              border: '1px solid var(--border)',
-              boxShadow: '0 2px 8px rgba(26,10,0,0.06)',
-            }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                <span style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '1px', textTransform: 'uppercase' }}>Board Angle</span>
-                <span style={{ fontSize: '16px', fontWeight: 800, fontFamily: 'var(--font-heading)', color: '#7DD3E8' }}>{activeSession.boardAngle}°</span>
-              </div>
-              <input type="range" min="18" max="55" value={activeSession.boardAngle || 30}
-                onChange={(e) => setSessionAngle(parseInt(e.target.value))}
-                style={{ width: '100%', accentColor: '#7DD3E8', cursor: 'pointer' }}
-              />
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', color: 'var(--text-dim)', fontWeight: 600, marginTop: '2px' }}>
-                <span>18° slab</span><span>55° steep</span>
-              </div>
-              <button onClick={() => logAngleClimbed(activeSession.boardAngle || 30)} style={{
-                marginTop: '8px', width: '100%', padding: '8px', borderRadius: '8px',
-                border: '1.5px solid rgba(125,211,232,0.4)',
-                background: (activeSession.anglesClimbed || []).includes(activeSession.boardAngle || 30) ? 'rgba(125,211,232,0.15)' : 'transparent',
-                color: '#3BA8C4', fontSize: '11px', fontWeight: 700, cursor: 'pointer',
-              }}>
-                {(activeSession.anglesClimbed || []).includes(activeSession.boardAngle || 30)
-                  ? `✓ ${activeSession.boardAngle}° logged` : `Log ${activeSession.boardAngle}° as climbed`}
-              </button>
-              {(activeSession.anglesClimbed || []).length > 0 && (
-                <div style={{ marginTop: '6px', fontSize: '10px', color: 'var(--text-muted)', fontWeight: 600, textAlign: 'center' }}>
-                  Angles this session: {(activeSession.anglesClimbed || []).map(a => `${a}°`).join(', ')}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      )}
 
       <Suspense fallback={<div style={{ padding: '40px 16px', textAlign: 'center', color: '#1A0A00', opacity: 0.4, fontSize: 13 }}>Loading...</div>}>
       {/* ── Route form (below board in create mode) ── */}
@@ -1859,6 +1796,22 @@ export default function App() {
           allSessions={sessions}
           onClose={() => { setCompletedSession(null); setView('board'); }}
         />
+      )}
+
+      {/* ── Sessions tab ── */}
+      {view === 'sessions' && (
+        <Suspense fallback={<div style={{ padding: '40px 16px', textAlign: 'center', color: '#1A0A00', opacity: 0.4, fontSize: 13 }}>Loading...</div>}>
+          <SessionsView
+            activeSession={activeSession}
+            onStartSession={startSession}
+            onEndSession={endSession}
+            setSessionAngle={setSessionAngle}
+            logAngleClimbed={logAngleClimbed}
+            sessions={sessions}
+            settings={settings}
+            displayName={displayName}
+          />
+        </Suspense>
       )}
 
       {/* ── Settings ── */}

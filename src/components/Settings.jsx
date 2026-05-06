@@ -505,17 +505,17 @@ export default function Settings({ settings, updateSettings, allHolds, onSetupBo
             ...cardStyle, marginTop: '6px',
             borderTopLeftRadius: '8px', borderTopRightRadius: '8px',
           }}>
-            {/* Session Logger toggle */}
+            {/* Session Record toggle */}
             <div style={{
               display: 'flex', justifyContent: 'space-between', alignItems: 'center',
               padding: '8px 0', borderBottom: '1px solid rgba(26,10,0,0.06)',
             }}>
               <div>
                 <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>
-                  Session Tracking
+                  Session Record
                 </div>
                 <div style={{ fontSize: '10px', color: 'var(--text-dim)', marginTop: '2px' }}>
-                  Show the Start Session button on the home screen and track routes climbed during a session.
+                  Show the Sessions tab with stats, history, and session controls.
                 </div>
               </div>
               <button
@@ -531,38 +531,6 @@ export default function Settings({ settings, updateSettings, allHolds, onSetupBo
                   width: '18px', height: '18px', borderRadius: '50%',
                   background: '#fff', position: 'absolute', top: '3px',
                   left: settings.betaSessionLogger ? '23px' : '3px',
-                  transition: 'left 0.2s',
-                  boxShadow: '0 1px 3px rgba(26,10,0,0.2)',
-                }} />
-              </button>
-            </div>
-
-            {/* Angle Logger toggle */}
-            <div style={{
-              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-              padding: '8px 0', borderBottom: '1px solid rgba(26,10,0,0.06)',
-            }}>
-              <div>
-                <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>
-                  Session Angle Logger
-                </div>
-                <div style={{ fontSize: '10px', color: 'var(--text-dim)', marginTop: '2px' }}>
-                  Log board angles during sessions. Shows angle slider on home screen and angles in session summary.
-                </div>
-              </div>
-              <button
-                onClick={() => updateSettings('betaAngleLogger', !settings.betaAngleLogger)}
-                style={{
-                  width: '44px', height: '24px', borderRadius: '12px',
-                  border: 'none', cursor: 'pointer', flexShrink: 0, marginLeft: '12px',
-                  background: settings.betaAngleLogger ? '#FF2D78' : 'rgba(26,10,0,0.15)',
-                  position: 'relative', transition: 'background 0.2s',
-                }}
-              >
-                <div style={{
-                  width: '18px', height: '18px', borderRadius: '50%',
-                  background: '#fff', position: 'absolute', top: '3px',
-                  left: settings.betaAngleLogger ? '23px' : '3px',
                   transition: 'left 0.2s',
                   boxShadow: '0 1px 3px rgba(26,10,0,0.2)',
                 }} />
