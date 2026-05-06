@@ -45,7 +45,7 @@ export default function App() {
   const [routes, setRoutes]       = useState([]);
   const [sessions, setSessions]   = useState([]);
   const [playlists, setPlaylists] = useState([]);
-  const [userRouteData, setUserRouteData] = useState({}); // { [routeId]: { sent, rating, angleSends, attempted } }
+  const [userRouteData, setUserRouteData] = useState({}); // { [routeId]: { sent, flashed, rating, angleSends, gradeSuggestions, attempted } }
   const [communityRatings, setCommunityRatings] = useState({}); // { [routeId]: { avg, count } }
   const [communityGrades, setCommunityGrades]   = useState({}); // { [routeId]: { headline: {consensus, votes, count}, angles: {...} } }
   const [boardImageConfig, setBoardImageConfig] = useLocalStorage('barnboard_board_image_config', null);
@@ -106,7 +106,7 @@ export default function App() {
     // Fire all queries in parallel — biggest startup speedup
     const [routeResult, urdResult, ratingResult, gradeResult, sessionResult, plResult, imgConfigResult, profilesResult] = await Promise.all([
       supabase.from('routes').select('id, user_id, data').order('created_at', { ascending: false }),
-      supabase.from('user_route_data').select('route_id, sent, rating, angle_sends, grade_suggestions, attempted').eq('user_id', userId),
+      supabase.from('user_route_data').select('route_id, sent, flashed, rating, angle_sends, grade_suggestions, attempted').eq('user_id', userId),
       supabase.from('user_route_data').select('route_id, rating').gt('rating', 0),
       supabase.from('user_route_data').select('route_id, grade_suggestions').not('grade_suggestions', 'eq', '{}'),
       supabase.from('sessions').select('data').eq('user_id', userId).order('created_at', { ascending: false }),
@@ -134,7 +134,7 @@ export default function App() {
             const angleSends = (r.angleGrades || []).filter(ag => ag.sent).map(ag => ag.angle);
             await supabase.from('user_route_data').upsert({
               user_id: userId, route_id: r.id,
-              sent: !!r.sent, rating: r.rating || 0, angle_sends: angleSends, attempted: r.attempted || false,
+              sent: !!r.sent, flashed: r.flashed || false, rating: r.rating || 0, angle_sends: angleSends, attempted: r.attempted || false,
             }, { onConflict: 'user_id,route_id' })
               .then(({ error }) => { if (error) console.error('[Supabase] user_route_data sync error:', error); });
           }
@@ -146,7 +146,7 @@ export default function App() {
     const urdMap = {};
     if (urdResult.data) {
       for (const row of urdResult.data) {
-        urdMap[row.route_id] = { sent: row.sent, rating: row.rating, angleSends: row.angle_sends || [], gradeSuggestions: row.grade_suggestions || {}, attempted: row.attempted || false };
+        urdMap[row.route_id] = { sent: row.sent, flashed: row.flashed || false, rating: row.rating, angleSends: row.angle_sends || [], gradeSuggestions: row.grade_suggestions || {}, attempted: row.attempted || false };
       }
     }
     setUserRouteData(urdMap);
@@ -638,11 +638,11 @@ export default function App() {
   const markAttempted = useCallback((routeId) => {
     if (!user) return;
     setUserRouteData(prev => {
-      const current = prev[routeId] || { sent: false, rating: 0, angleSends: [], gradeSuggestions: {}, attempted: false };
+      const current = prev[routeId] || { sent: false, flashed: false, rating: 0, angleSends: [], gradeSuggestions: {}, attempted: false };
       if (current.attempted) return prev; // already set — idempotent
       supabase.from('user_route_data').upsert({
         user_id: user.id, route_id: routeId,
-        sent: current.sent, rating: current.rating, angle_sends: current.angleSends,
+        sent: current.sent, flashed: current.flashed || false, rating: current.rating, angle_sends: current.angleSends,
         grade_suggestions: current.gradeSuggestions || {}, attempted: true,
         updated_at: new Date().toISOString(),
       }, { onConflict: 'user_id,route_id' })
@@ -827,11 +827,12 @@ export default function App() {
   const rateRoute = useCallback((routeId, newRating) => {
     if (!user) return;
     setUserRouteData(prev => {
-      const current = prev[routeId] || { sent: false, rating: 0, angleSends: [] };
+      const current = prev[routeId] || { sent: false, flashed: false, rating: 0, angleSends: [], gradeSuggestions: {}, attempted: false };
       const finalRating = current.rating === newRating ? 0 : newRating;
       supabase.from('user_route_data').upsert({
         user_id: user.id, route_id: routeId,
-        sent: current.sent, rating: finalRating, angle_sends: current.angleSends,
+        sent: current.sent, flashed: current.flashed || false, rating: finalRating, angle_sends: current.angleSends,
+        grade_suggestions: current.gradeSuggestions || {}, attempted: current.attempted || false,
         updated_at: new Date().toISOString(),
       }, { onConflict: 'user_id,route_id' })
         .then(({ error }) => { if (error) console.error('[Supabase] user_route_data sync error:', error); });
@@ -852,28 +853,44 @@ export default function App() {
     });
   }, [user]);
 
-  const toggleSent = useCallback((routeId) => {
+  // cycleSentState — 3-state cycle: untouched → sent → flash → untouched
+  // untouched: sent=false, flashed=false
+  // sent:      sent=true,  flashed=false
+  // flash:     sent=true,  flashed=true  (also sets attempted=true)
+  const cycleSentState = useCallback((routeId) => {
     if (!user) return;
     setUserRouteData(prev => {
-      const current = prev[routeId] || { sent: false, rating: 0, angleSends: [], attempted: false };
-      const newSent = !current.sent;
+      const current = prev[routeId] || { sent: false, flashed: false, rating: 0, angleSends: [], gradeSuggestions: {}, attempted: false };
+      // Determine next state in cycle
+      let newSent, newFlashed, newAttempted;
+      if (!current.sent && !current.flashed) {
+        // untouched → sent
+        newSent = true; newFlashed = false; newAttempted = true;
+      } else if (current.sent && !current.flashed) {
+        // sent → flash
+        newSent = true; newFlashed = true; newAttempted = true;
+      } else {
+        // flash → untouched
+        newSent = false; newFlashed = false; newAttempted = current.attempted; // don't clear attempted
+      }
       supabase.from('user_route_data').upsert({
         user_id: user.id, route_id: routeId,
-        sent: newSent, rating: current.rating, angle_sends: current.angleSends,
-        attempted: true, // toggling sent always counts as an attempt
+        sent: newSent, flashed: newFlashed, rating: current.rating, angle_sends: current.angleSends,
+        grade_suggestions: current.gradeSuggestions || {}, attempted: newAttempted,
         updated_at: new Date().toISOString(),
       }, { onConflict: 'user_id,route_id' })
         .then(({ error }) => { if (error) console.error('[Supabase] user_route_data sync error:', error); });
-      if (newSent) {
+      if (newSent && !current.sent) {
+        // Newly marked as sent — log to session
         const route = routesRef.current.find(r => r.id === routeId);
         if (route) {
           logRouteSent(routeId, route.angle, route.grade);
           if (route.angle) logAngleClimbed(route.angle);
         }
       }
-      // Also log to active session (idempotent)
-      logRouteAttempted(routeId);
-      return { ...prev, [routeId]: { ...current, sent: newSent, attempted: true } };
+      // Log attempt when moving away from untouched (idempotent)
+      if (newAttempted && !current.attempted) logRouteAttempted(routeId);
+      return { ...prev, [routeId]: { ...current, sent: newSent, flashed: newFlashed, attempted: newAttempted } };
     });
   }, [user, logRouteSent, logAngleClimbed, logRouteAttempted]);
 
@@ -983,15 +1000,15 @@ export default function App() {
   const toggleAngleSent = useCallback((routeId, angle) => {
     if (!user) return;
     setUserRouteData(prev => {
-      const current = prev[routeId] || { sent: false, rating: 0, angleSends: [], attempted: false };
+      const current = prev[routeId] || { sent: false, flashed: false, rating: 0, angleSends: [], gradeSuggestions: {}, attempted: false };
       const wasSent = current.angleSends.includes(angle);
       const angleSends = wasSent
         ? current.angleSends.filter(a => a !== angle)
         : [...current.angleSends, angle];
       supabase.from('user_route_data').upsert({
         user_id: user.id, route_id: routeId,
-        sent: current.sent, rating: current.rating, angle_sends: angleSends,
-        attempted: true, // toggling angle sent always counts as an attempt
+        sent: current.sent, flashed: current.flashed || false, rating: current.rating, angle_sends: angleSends,
+        grade_suggestions: current.gradeSuggestions || {}, attempted: true, // toggling angle sent always counts as an attempt
         updated_at: new Date().toISOString(),
       }, { onConflict: 'user_id,route_id' })
         .then(({ error }) => { if (error) console.error('[Supabase] user_route_data sync error:', error); });
@@ -1075,7 +1092,7 @@ export default function App() {
       }
       supabase.from('user_route_data').upsert({
         user_id: user.id, route_id: routeId,
-        sent: current.sent, rating: current.rating, angle_sends: current.angleSends,
+        sent: current.sent, flashed: current.flashed || false, rating: current.rating, angle_sends: current.angleSends,
         grade_suggestions: gradeSuggestions, attempted: true,
         updated_at: new Date().toISOString(),
       }, { onConflict: 'user_id,route_id' })
@@ -1523,6 +1540,7 @@ export default function App() {
             <ViewRouteHeader
               route={viewingRoute}
               sent={userRouteData[viewingRoute.id]?.sent || false}
+              flashed={userRouteData[viewingRoute.id]?.flashed || false}
               attempted={userRouteData[viewingRoute.id]?.attempted || false}
               angleSends={userRouteData[viewingRoute.id]?.angleSends || []}
               isCreator={viewingRoute.creatorId === user?.id}
@@ -1539,7 +1557,7 @@ export default function App() {
               onEdit={() => startEditRoute(viewingRoute)}
               onClose={() => { setHoldSelection({}); setViewingRoute(null); setShowRouteTags(false); setHoldDataMode(false); setInspectedRouteHoldId(null); setView('routes'); }}
               onDelete={() => deleteRoute(viewingRoute.id)}
-              onToggleSent={() => toggleSent(viewingRoute.id)}
+              onToggleSent={() => cycleSentState(viewingRoute.id)}
               onMarkAttempted={(on) => {
                 if (on) {
                   markAttempted(viewingRoute.id);
@@ -1549,7 +1567,7 @@ export default function App() {
                     const current = prev[viewingRoute.id] || {};
                     supabase.from('user_route_data').upsert({
                       user_id: user?.id, route_id: viewingRoute.id,
-                      sent: current.sent || false, rating: current.rating || 0,
+                      sent: current.sent || false, flashed: current.flashed || false, rating: current.rating || 0,
                       angle_sends: current.angleSends || [],
                       grade_suggestions: current.gradeSuggestions || {},
                       attempted: false,
@@ -1820,7 +1838,7 @@ export default function App() {
           onViewRoute={viewRoute}
           onCreateNew={() => { resetCreate(); setView('create'); }}
           onRateRoute={rateRoute}
-          onToggleSent={toggleSent}
+          onToggleSent={cycleSentState}
           onCreatePlaylist={createPlaylist}
           onDeletePlaylist={deletePlaylist}
           onRenamePlaylist={renamePlaylist}
@@ -2037,7 +2055,7 @@ function NewAngleSuggestionRow({ grades, existingAngles, onSuggest }) {
 }
 
 // ─── View Route Header with Angle-Grade Management ──────────────────
-function ViewRouteHeader({ route, sent, attempted, angleSends, isCreator, canEdit, grades, gradeSystem, playlists, settings, allHolds, communityGrades, myGradeSuggestions, onSuggestGrade, onAcceptGrade, onEdit, onClose, onDelete, onToggleSent, onMarkAttempted, inActiveSession, onAddAngleGrade, onRemoveAngleGrade, onSetHeadline, onToggleAngleSent, onAddToPlaylist, onCreatePlaylist }) {
+function ViewRouteHeader({ route, sent, flashed, attempted, angleSends, isCreator, canEdit, grades, gradeSystem, playlists, settings, allHolds, communityGrades, myGradeSuggestions, onSuggestGrade, onAcceptGrade, onEdit, onClose, onDelete, onToggleSent, onMarkAttempted, inActiveSession, onAddAngleGrade, onRemoveAngleGrade, onSetHeadline, onToggleAngleSent, onAddToPlaylist, onCreatePlaylist }) {
   const [nameExpanded, setNameExpanded] = useState(false);
   const [showAnglePanel, setShowAnglePanel] = useState(false);
   const [showPlaylistPanel, setShowPlaylistPanel] = useState(false);
@@ -2150,20 +2168,24 @@ function ViewRouteHeader({ route, sent, attempted, angleSends, isCreator, canEdi
             {attempted ? 'Tried ✓' : 'Tried'}
           </button>
         )}
-        {/* Sent checkbox */}
+        {/* Sent/Flash cycle button — untouched → sent (cyan ✓) → flash (yellow ★) → untouched */}
         <button
           onClick={onToggleSent}
-          title={sent ? 'Mark as not sent' : 'Mark as sent'}
+          title={flashed ? 'Flashed! Tap to reset' : sent ? 'Sent! Tap to mark as flash' : 'Tap to mark as sent'}
           style={{
             width: '24px', height: '24px', borderRadius: '6px', flexShrink: 0,
-            border: sent ? '2px solid #7DD3E8' : '2px solid rgba(26,10,0,0.2)',
-            background: sent ? '#7DD3E8' : 'transparent',
-            color: '#fff', fontSize: '13px', fontWeight: 900, lineHeight: 1,
+            border: flashed ? '2px solid #FFCB47' : sent ? '2px solid #7DD3E8' : '2px solid rgba(26,10,0,0.2)',
+            background: flashed ? 'rgba(255,203,71,0.25)' : sent ? '#7DD3E8' : 'transparent',
+            color: flashed ? '#FFCB47' : '#fff', fontSize: flashed ? '14px' : '13px', fontWeight: 900, lineHeight: 1,
             cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
             transition: 'all 0.15s',
           }}
         >
-          {sent ? '✓' : ''}
+          {flashed ? (
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="#FFCB47" stroke="none">
+              <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+            </svg>
+          ) : sent ? '✓' : ''}
         </button>
         <button onClick={onClose} style={{
           padding: '5px 10px', borderRadius: '8px', flexShrink: 0,

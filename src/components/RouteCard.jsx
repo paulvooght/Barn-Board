@@ -2,16 +2,16 @@ import { useState } from 'react';
 import { getYouTubeId } from '../utils/constants';
 import Icon from './Icon';
 
-export default function RouteCard({ route, sent, communityRating, ratingCount, communityGrade, onView, onRate, onToggleSent, missingHoldCount, onRemoveFromPlaylist }) {
+export default function RouteCard({ route, sent, flashed, communityRating, ratingCount, communityGrade, onView, onRate, onToggleSent, missingHoldCount, onRemoveFromPlaylist }) {
   const [nameExpanded, setNameExpanded] = useState(false);
   const displayRating = Math.round(communityRating || 0);
   const hasVideo  = !!getYouTubeId(route.youtubeUrl);
   const hasAngleGrades = (route.angleGrades || []).length > 0;
   const hasMissing = (missingHoldCount || 0) > 0;
 
-  // Border color priority: missing (hot pink) > sent (cyan) > default
-  const borderColor = hasMissing ? '#FF1493' : sent ? '#22d3ee' : 'var(--border)';
-  const borderWidth = hasMissing || sent ? '2px' : '1px';
+  // Border color priority: missing (hot pink) > flash (yellow) > sent (cyan) > default
+  const borderColor = hasMissing ? '#FF1493' : flashed ? '#FFCB47' : sent ? '#22d3ee' : 'var(--border)';
+  const borderWidth = hasMissing || flashed || sent ? '2px' : '1px';
 
   return (
     <div
@@ -24,13 +24,13 @@ export default function RouteCard({ route, sent, communityRating, ratingCount, c
         cursor: 'pointer',
         transition: 'border-color 0.15s, box-shadow 0.15s',
         marginBottom: '8px',
-        boxShadow: hasMissing ? '0 2px 8px rgba(255,20,147,0.12)' : sent ? '0 2px 8px rgba(34,211,238,0.15)' : '0 2px 6px rgba(26,10,0,0.06)',
+        boxShadow: hasMissing ? '0 2px 8px rgba(255,20,147,0.12)' : flashed ? '0 2px 8px rgba(255,203,71,0.2)' : sent ? '0 2px 8px rgba(34,211,238,0.15)' : '0 2px 6px rgba(26,10,0,0.06)',
         display: 'flex',
         gap: '12px',
         position: 'relative',
       }}
       onMouseEnter={e => { if (!hasMissing) { e.currentTarget.style.borderColor = 'rgba(0,71,255,0.4)'; e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,71,255,0.12)'; } }}
-      onMouseLeave={e => { e.currentTarget.style.borderColor = borderColor; e.currentTarget.style.boxShadow = hasMissing ? '0 2px 8px rgba(255,20,147,0.12)' : sent ? '0 2px 8px rgba(34,211,238,0.15)' : '0 2px 6px rgba(26,10,0,0.06)'; }}
+      onMouseLeave={e => { e.currentTarget.style.borderColor = borderColor; e.currentTarget.style.boxShadow = hasMissing ? '0 2px 8px rgba(255,20,147,0.12)' : flashed ? '0 2px 8px rgba(255,203,71,0.2)' : sent ? '0 2px 8px rgba(34,211,238,0.15)' : '0 2px 6px rgba(26,10,0,0.06)'; }}
     >
       {/* ── LEFT: Grade pill + angle + Name ── */}
       <div style={{ flex: 1, minWidth: 0 }}>
@@ -129,17 +129,21 @@ export default function RouteCard({ route, sent, communityRating, ratingCount, c
           )}
           <button
             onClick={(e) => { e.stopPropagation(); onToggleSent(); }}
-            title={sent ? 'Mark as not sent' : 'Mark as sent'}
+            title={flashed ? 'Flashed! Tap to cycle' : sent ? 'Sent! Tap to cycle' : 'Tap to mark as sent'}
             style={{
               width: '24px', height: '24px', borderRadius: '6px', flexShrink: 0,
-              border: sent ? '2px solid #7DD3E8' : '2px solid rgba(26,10,0,0.2)',
-              background: sent ? '#7DD3E8' : 'transparent',
-              color: '#fff', fontSize: '13px', fontWeight: 900, lineHeight: 1,
+              border: flashed ? '2px solid #FFCB47' : sent ? '2px solid #7DD3E8' : '2px solid rgba(26,10,0,0.2)',
+              background: flashed ? 'rgba(255,203,71,0.25)' : sent ? '#7DD3E8' : 'transparent',
+              color: flashed ? '#FFCB47' : '#fff', fontSize: flashed ? '14px' : '13px', fontWeight: 900, lineHeight: 1,
               cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
               transition: 'all 0.15s',
             }}
           >
-            {sent ? '✓' : ''}
+            {flashed ? (
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="#FFCB47" stroke="none">
+                <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+              </svg>
+            ) : sent ? '✓' : ''}
           </button>
         </div>
 

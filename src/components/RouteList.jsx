@@ -852,6 +852,7 @@ export default function RouteList({
               key={route.id}
               route={route}
               sent={urd[route.id]?.sent || false}
+              flashed={urd[route.id]?.flashed || false}
               communityRating={cr[route.id]?.avg || 0}
               ratingCount={cr[route.id]?.count || 0}
               communityGrade={cg[route.id]?.headline?.consensus || null}
