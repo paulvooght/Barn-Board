@@ -18,6 +18,7 @@ import { useCustomHolds } from './hooks/useCustomHolds';
 import holdsData from './data/holds.json';
 import { supabase, ADMIN_EMAIL } from './lib/supabase';
 import { V_GRADES, FONT_GRADES, V_GRADE_INDEX, FONT_GRADE_INDEX, SELECTION_MODES, MODE_COLORS, MODE_LABELS, BOARD_SPECS, HOLD_COLOR_DOT, HOLD_TYPE_SINGULAR_TO_PLURAL, convertGrade, getYouTubeId, getYouTubeThumbnail, DEFAULT_BOARD_IMAGE, DEFAULT_BOARD_SRCSET, DEFAULT_BOARD_SIZES } from './utils/constants';
+import { enqueueRoute, dequeueRoute, recordFailure, getPendingRoutes, getPendingRouteIds } from './utils/pendingRouteSync';
 
 // Strip per-user fields before writing to the shared routes table
 function stripPerUserFields(route) {
@@ -44,6 +45,9 @@ export default function App() {
 
   // ─── Persistent state ─────────────────────────────────────────────
   const [routes, setRoutes]       = useState([]);
+  // IDs of routes whose creation/edit hasn't been confirmed by Supabase yet.
+  // Backed by localStorage (see pendingRouteSync.js) so it survives reloads.
+  const [pendingRouteIds, setPendingRouteIds] = useState(() => new Set(getPendingRouteIds()));
   const [sessions, setSessions]   = useState([]);
   const [playlists, setPlaylists] = useState([]);
   const [userRouteData, setUserRouteData] = useState({}); // { [routeId]: { sent, flashed, rating, angleSends, gradeSuggestions, attempted } }
@@ -119,10 +123,33 @@ export default function App() {
     // a) Routes
     const routeRows = routeResult.data;
     if (routeRows && routeRows.length > 0) {
-      setRoutes(routeRows.map(r => ({
+      const cloudRoutes = routeRows.map(r => ({
         ...r.data,
         creatorId: r.data.creatorId || r.user_id,
-      })));
+      }));
+      // Merge in any locally-pending routes the cloud doesn't know about yet.
+      // Without this, a refetch (e.g. tab-visibility on flaky cellular) would wipe
+      // a freshly-created route whose upsert hadn't landed — the bug we're fixing.
+      const cloudIds = new Set(cloudRoutes.map(r => r.id));
+      const pending = getPendingRoutes();
+      const orphaned = Object.values(pending)
+        .map(entry => entry.route)
+        .filter(r => r && !cloudIds.has(r.id));
+      if (orphaned.length > 0) {
+        console.log('[pendingSync] preserving', orphaned.length, 'unsynced route(s) across refetch');
+      }
+      setRoutes([...orphaned, ...cloudRoutes]);
+      // Drop any pending entries the cloud now confirms (a successful flush
+      // from another device, or our own retry that we never saw the response for).
+      const confirmedIds = Object.keys(pending).filter(id => cloudIds.has(id));
+      if (confirmedIds.length > 0) {
+        for (const id of confirmedIds) dequeueRoute(id);
+        setPendingRouteIds(prev => {
+          const next = new Set(prev);
+          for (const id of confirmedIds) next.delete(id);
+          return next;
+        });
+      }
     } else if (isFirstLoad) {
       // First login — migrate any localStorage routes (sequential, runs once ever)
       const local = JSON.parse(localStorage.getItem('barnboard_routes') || '[]');
@@ -329,8 +356,10 @@ export default function App() {
   const userRouteDataRef = useRef(userRouteData);
   userRouteDataRef.current = userRouteData;
 
-  // Immediate flush — only syncs routes this user created, stripped of per-user fields
-  const flushRoutesToSupabase = useCallback(async (routesToSync) => {
+  // Immediate flush — only syncs routes this user created, stripped of per-user fields.
+  // `pendingIds` is the set of route IDs that were enqueued for this flush; on success
+  // they're dequeued, on failure their attempt count is bumped and they remain queued.
+  const flushRoutesToSupabase = useCallback(async (routesToSync, pendingIds = null) => {
     const r = routesToSync || routesRef.current;
     if (!user) return;
     const myRoutes = r.filter(rt => rt.creatorId === user.id || !rt.creatorId);
@@ -340,8 +369,60 @@ export default function App() {
       myRoutes.map(rt => ({ id: rt.id, user_id: user.id, data: stripPerUserFields(rt), updated_at: new Date().toISOString() })),
       { onConflict: 'id' }
     );
-    if (error) console.error('[Supabase] routes flush error:', error);
+    if (error) {
+      console.error('[Supabase] routes flush error:', error);
+      if (pendingIds) {
+        for (const id of pendingIds) recordFailure(id, error);
+      }
+    } else if (pendingIds) {
+      for (const id of pendingIds) dequeueRoute(id);
+      setPendingRouteIds(prev => {
+        const next = new Set(prev);
+        for (const id of pendingIds) next.delete(id);
+        return next;
+      });
+    }
   }, [user]);
+
+  // Re-attempt every entry sitting in the localStorage pending queue. Called on:
+  // initial load, tab visibility change, network 'online' event. Routes that have
+  // since been edited locally are flushed using the latest in-memory copy; routes
+  // that exist only in the queue (e.g. saved while offline, then app killed) are
+  // re-added to local state so they're visible while we retry.
+  const flushPendingRoutes = useCallback(async () => {
+    if (!user) return;
+    const queue = getPendingRoutes();
+    const ids = Object.keys(queue);
+    if (ids.length === 0) return;
+    // Prefer the live in-memory route (may include later edits) over the queued snapshot.
+    const liveById = new Map(routesRef.current.map(r => [r.id, r]));
+    const toFlush = ids
+      .map(id => liveById.get(id) || queue[id].route)
+      .filter(Boolean);
+    if (toFlush.length === 0) return;
+    console.log('[pendingSync] retrying', toFlush.length, 'pending route(s)');
+    await flushRoutesToSupabase(toFlush, ids);
+  }, [user, flushRoutesToSupabase]);
+
+  // ─── Pending-route retry triggers ─────────────────────────────────
+  // After every successful load, retry anything still stuck in the queue.
+  useEffect(() => {
+    if (!user || !dataReady) return;
+    flushPendingRoutes();
+  }, [user?.id, dataReady, flushPendingRoutes]);
+
+  // When the device regains network, immediately retry. This catches the
+  // common case: route saved on cellular while signal dropped, then wifi
+  // reconnects — we don't have to wait for the next visibility event.
+  useEffect(() => {
+    if (!user) return;
+    const handleOnline = () => {
+      console.log('[pendingSync] online — retrying pending routes');
+      flushPendingRoutes();
+    };
+    window.addEventListener('online', handleOnline);
+    return () => window.removeEventListener('online', handleOnline);
+  }, [user?.id, flushPendingRoutes]);
 
   useEffect(() => {
     if (!user || !dataReady) return;
@@ -698,24 +779,32 @@ export default function App() {
       }
     }
     let savedRoutes;
+    let savedRouteId;
+    let savedRouteSnapshot;
     localRouteChange.current = true;
     if (editingRouteId) {
+      const updated = (rt) => ({
+        ...rt,
+        name: routeName.trim(),
+        grade: routeGrade,
+        angle: routeAngle,
+        setter: setter.trim(),
+        description: description.trim() || undefined,
+        youtubeUrl: youtubeUrl.trim() || undefined,
+        holds: currentHolds,
+        holdSnapshots,
+        holdTypes, techniques, styles,
+        updatedAt: new Date().toISOString(),
+      });
       setRoutes(prev => {
-        savedRoutes = prev.map(r => r.id === editingRouteId ? {
-          ...r,
-          name: routeName.trim(),
-          grade: routeGrade,
-          angle: routeAngle,
-          setter: setter.trim(),
-          description: description.trim() || undefined,
-          youtubeUrl: youtubeUrl.trim() || undefined,
-          holds: currentHolds,
-          holdSnapshots,
-          holdTypes, techniques, styles,
-          updatedAt: new Date().toISOString(),
-        } : r);
+        savedRoutes = prev.map(r => {
+          if (r.id !== editingRouteId) return r;
+          savedRouteSnapshot = updated(r);
+          return savedRouteSnapshot;
+        });
         return savedRoutes;
       });
+      savedRouteId = editingRouteId;
     } else {
       const newRoute = {
         id: Date.now().toString(),
@@ -735,10 +824,24 @@ export default function App() {
         savedRoutes = [newRoute, ...prev];
         return savedRoutes;
       });
+      savedRouteId = newRoute.id;
+      savedRouteSnapshot = newRoute;
       logRouteCreated(newRoute.id);
     }
+    // Persist to localStorage queue BEFORE the network call. If the network fails
+    // (or a tab-visibility refetch happens before the upsert lands), the queue
+    // keeps the route alive so the next retry can save it.
+    if (savedRouteSnapshot) {
+      enqueueRoute(savedRouteSnapshot);
+      setPendingRouteIds(prev => {
+        if (prev.has(savedRouteId)) return prev;
+        const next = new Set(prev);
+        next.add(savedRouteId);
+        return next;
+      });
+    }
     // Flush to Supabase immediately — don't wait for debounce
-    if (savedRoutes) flushRoutesToSupabase(savedRoutes);
+    if (savedRoutes) flushRoutesToSupabase(savedRoutes, savedRouteId ? [savedRouteId] : null);
     resetCreate();
     setView('routes');
   }, [routeName, routeGrade, routeAngle, setter, description, youtubeUrl, holdTypes, techniques, styles, setRoutes, resetCreate, editingRouteId, logRouteCreated, allHolds, flushRoutesToSupabase]);
@@ -901,6 +1004,14 @@ export default function App() {
     setPlaylists(prev => prev.map(pl => ({
       ...pl, routeIds: pl.routeIds.filter(id => id !== routeId),
     })));
+    // Drop from pending queue — otherwise a retry would re-create the deleted route.
+    dequeueRoute(routeId);
+    setPendingRouteIds(prev => {
+      if (!prev.has(routeId)) return prev;
+      const next = new Set(prev);
+      next.delete(routeId);
+      return next;
+    });
     setHoldSelection({});
     setViewingRoute(null);
     setView('routes');
@@ -1784,6 +1895,7 @@ export default function App() {
           onTogglePlaylistShared={togglePlaylistShared}
           onAddSharedPlaylist={addSharedPlaylist}
           userId={user?.id}
+          pendingRouteIds={pendingRouteIds}
         />
       )}
 

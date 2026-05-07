@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { getYouTubeId } from '../utils/constants';
 import Icon from './Icon';
 
-export default function RouteCard({ route, sent, flashed, communityRating, ratingCount, communityGrade, onView, onRate, onToggleSent, missingHoldCount, onRemoveFromPlaylist }) {
+export default function RouteCard({ route, sent, flashed, communityRating, ratingCount, communityGrade, onView, onRate, onToggleSent, missingHoldCount, onRemoveFromPlaylist, isPendingSync }) {
   const [nameExpanded, setNameExpanded] = useState(false);
   const displayRating = Math.round(communityRating || 0);
   const hasVideo  = !!getYouTubeId(route.youtubeUrl);
@@ -86,6 +86,21 @@ export default function RouteCard({ route, sent, flashed, communityRating, ratin
       }}>
         {/* Top-right: indicators + sent */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          {isPendingSync && (
+            <span
+              title="Not yet saved to the cloud — will retry automatically when network returns"
+              style={{
+                fontSize: '10px', fontWeight: 800,
+                background: 'rgba(255,170,0,0.15)', color: '#B86E00',
+                padding: '2px 6px', borderRadius: '6px',
+                fontFamily: 'var(--font-heading)',
+                border: '1px solid rgba(255,170,0,0.4)',
+                display: 'inline-flex', alignItems: 'center', gap: '3px',
+              }}
+            >
+              ⟳ unsaved
+            </span>
+          )}
           {hasMissing && (
             <span
               title={`${missingHoldCount} hold${missingHoldCount > 1 ? 's' : ''} no longer on the board`}
