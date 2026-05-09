@@ -1,11 +1,11 @@
 // 4-state click-through: empty → tried → sent → flash → empty.
 // State colours:
-//   tried — amber border + small amber dot
+//   tried — pink border + small pink dot
 //   sent  — cyan filled with white tick
 //   flash — yellow border + yellow star
 const STATE_CONFIG = {
   empty: { label: '',      borderColor: 'rgba(26,10,0,0.2)', bg: 'transparent',           labelColor: 'transparent' },
-  tried: { label: 'Tried', borderColor: '#f59e0b',           bg: 'rgba(245,158,11,0.15)', labelColor: '#b45309'      },
+  tried: { label: 'Tried', borderColor: '#FF1493',           bg: 'rgba(255,20,147,0.12)', labelColor: '#FF1493'      },
   sent:  { label: 'Sent',  borderColor: '#7DD3E8',           bg: '#7DD3E8',               labelColor: '#0e7490'      },
   flash: { label: 'Flash', borderColor: '#FFCB47',           bg: 'rgba(255,203,71,0.25)', labelColor: '#b45309'      },
 };
@@ -47,7 +47,7 @@ export default function SentCycleButton({
       {state === 'tried' && (
         <span style={{
           width: `${dotPx}px`, height: `${dotPx}px`, borderRadius: '50%',
-          background: '#f59e0b', display: 'block',
+          background: '#FF1493', display: 'block',
         }} />
       )}
       {state === 'sent' && '✓'}
