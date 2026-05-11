@@ -22,6 +22,10 @@ function resizeToBlob(sourceCanvas, targetWidth, quality) {
 
 const MAX_IMAGE_WIDTH = 2000;
 const JPEG_QUALITY = 0.85;
+// Brand yellow (matches the BoardView frame). Used to fill any gaps left after
+// cropping/warping so they don't render as black in the final JPEG.
+const GAP_FILL_COLOR = '#FFE227';
+const GAP_FILL_RGB = [255, 226, 39];
 
 // ─── Auto-increment name helper ───────────────────────────────────────────────
 
@@ -161,6 +165,9 @@ function CropStep({ imageDataUrl, imageWidth, imageHeight, onNext, onBack }) {
     canvas.width = Math.round(crop.w);
     canvas.height = Math.round(crop.h);
     const ctx = canvas.getContext('2d');
+    // Fill with brand yellow so any out-of-bounds crop area renders yellow (not black) in JPEG.
+    ctx.fillStyle = GAP_FILL_COLOR;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
     const img = new Image();
     img.onload = () => {
       ctx.drawImage(img, crop.x, crop.y, crop.w, crop.h, 0, 0, canvas.width, canvas.height);
@@ -407,6 +414,16 @@ function perspectiveWarp(sourceCanvas, srcQuad, dstQuad, outW, outH) {
   const outCtx = out.getContext('2d');
   const outImgData = outCtx.createImageData(W, H);
   const dst = outImgData.data;
+
+  // Pre-fill with brand yellow so any output pixel that doesn't get a source
+  // sample (gaps from the warp) renders yellow instead of transparent → black-in-JPEG.
+  const [fr, fg, fb] = GAP_FILL_RGB;
+  for (let i = 0; i < dst.length; i += 4) {
+    dst[i] = fr;
+    dst[i + 1] = fg;
+    dst[i + 2] = fb;
+    dst[i + 3] = 255;
+  }
 
   // Compute inverse homography: maps output coords → source coords
   const Hi = computeHomography(dstQuad, srcQuad);
