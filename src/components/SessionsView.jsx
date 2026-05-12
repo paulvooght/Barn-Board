@@ -250,6 +250,7 @@ export default function SessionsView({
         delta={delta}
         gradeSystem={gradeSystem}
         displayName={displayName}
+        period={period}
       />
 
       {/* Hold Heat Map */}

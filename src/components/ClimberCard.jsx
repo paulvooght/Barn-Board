@@ -1,9 +1,3 @@
-/**
- * ClimberCard.jsx — Headline analytics card for the Sessions tab.
- * Shows climber type, top grade, send counts, strengths/weaknesses,
- * common patterns, per-angle grades, and session frequency.
- */
-
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function DeltaBadge({ value, unit = '', invertColor = false }) {
@@ -39,9 +33,17 @@ function GradeDeltaBadge({ value }) {
   );
 }
 
+function formatMinutes(mins) {
+  if (mins == null) return null;
+  if (mins < 60) return `${mins} min`;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return m > 0 ? `${h}h ${m}m` : `${h}h`;
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export default function ClimberCard({ stats, previousStats, delta, gradeSystem, displayName }) {
+export default function ClimberCard({ stats, delta, gradeSystem, displayName, period }) {
   if (!stats) return null;
 
   const cardStyle = {
@@ -71,6 +73,15 @@ export default function ClimberCard({ stats, previousStats, delta, gradeSystem, 
     lineHeight: 1.1,
   };
 
+  const sectionLabelStyle = {
+    fontSize: '9px',
+    fontWeight: 800,
+    color: 'var(--text-muted)',
+    letterSpacing: '1px',
+    textTransform: 'uppercase',
+    marginBottom: '8px',
+  };
+
   // ── Empty state ──────────────────────────────────────────────────────────
   if (stats.sendCount === 0 && stats.sessionCount === 0) {
     return (
@@ -91,309 +102,217 @@ export default function ClimberCard({ stats, previousStats, delta, gradeSystem, 
   }
 
   // ── 1. Header row ────────────────────────────────────────────────────────
-  const headerRow = (
+  const headerRow = displayName ? (
     <div style={{
       display: 'flex',
       alignItems: 'flex-start',
-      justifyContent: 'space-between',
+      justifyContent: 'flex-end',
       marginBottom: '14px',
-      gap: '8px',
     }}>
       <span style={{
-        fontFamily: 'var(--font-heading)',
-        fontSize: '16px',
-        fontWeight: 800,
-        color: 'var(--accent)',
-        textTransform: 'uppercase',
-        letterSpacing: '1px',
-        lineHeight: 1.2,
-        flex: 1,
-      }}>
-        {stats.climberType || 'Versatile Climber'}
-      </span>
-      {displayName && (
-        <span style={{
-          fontSize: '11px',
-          fontWeight: 700,
-          color: 'var(--text-dim)',
-          textAlign: 'right',
-          flexShrink: 0,
-          paddingTop: '2px',
-        }}>
-          {displayName}
-        </span>
-      )}
-    </div>
-  );
-
-  // ── 2. Headline stats grid ───────────────────────────────────────────────
-  const headlineGrid = (
-    <div style={{
-      display: 'grid',
-      gridTemplateColumns: '1fr 1fr 1fr',
-      gap: '8px',
-      marginBottom: '14px',
-    }}>
-      {/* Top Grade */}
-      <div style={{ textAlign: 'center' }}>
-        <span style={labelStyle}>Top Grade</span>
-        <div style={valueStyle}>
-          {stats.topGrade || '—'}
-        </div>
-        {delta && <GradeDeltaBadge value={delta.topGradeIndex} />}
-      </div>
-
-      {/* Sends */}
-      <div style={{ textAlign: 'center' }}>
-        <span style={labelStyle}>Sends</span>
-        <div style={valueStyle}>
-          {stats.sendCount}
-        </div>
-        {delta && <DeltaBadge value={delta.sendCount} />}
-      </div>
-
-      {/* Sessions */}
-      <div style={{ textAlign: 'center' }}>
-        <span style={labelStyle}>Sessions</span>
-        <div style={valueStyle}>
-          {stats.sessionCount}
-        </div>
-        {delta && <DeltaBadge value={delta.sessionCount} />}
-      </div>
-    </div>
-  );
-
-  // ── 3. Strengths & Weaknesses ─────────────────────────────────────────────
-  const hasStrengths = stats.strengths && stats.strengths.length > 0;
-  const hasWeaknesses = stats.weaknesses && stats.weaknesses.length > 0;
-  const noData = !hasStrengths && !hasWeaknesses;
-
-  const swCard = (
-    <div style={{
-      display: 'grid',
-      gridTemplateColumns: '1fr 1fr',
-      gap: '8px',
-      marginBottom: '14px',
-    }}>
-      {/* Strengths */}
-      <div style={{
-        background: 'rgba(34,168,112,0.07)',
-        borderRadius: '10px',
-        padding: '10px',
-        border: '1px solid rgba(34,168,112,0.2)',
-      }}>
-        <div style={{
-          fontSize: '9px',
-          fontWeight: 800,
-          color: '#22a870',
-          letterSpacing: '1px',
-          textTransform: 'uppercase',
-          marginBottom: '6px',
-        }}>
-          Strengths
-        </div>
-        {noData ? (
-          <div style={{ fontSize: '10px', color: 'var(--text-dim)', lineHeight: 1.5 }}>
-            Not enough data yet — keep climbing!
-          </div>
-        ) : hasStrengths ? (
-          stats.strengths.map(({ holdType, avgGrade, count }) => (
-            <div key={holdType} style={{
-              fontSize: '11px',
-              fontWeight: 700,
-              color: 'var(--text-primary)',
-              marginBottom: '3px',
-              lineHeight: 1.4,
-            }}>
-              {holdType}
-              {avgGrade && (
-                <span style={{ color: 'var(--text-dim)', fontWeight: 600 }}>
-                  {' · '}{avgGrade} avg
-                </span>
-              )}
-            </div>
-          ))
-        ) : (
-          <div style={{ fontSize: '10px', color: 'var(--text-dim)' }}>—</div>
-        )}
-      </div>
-
-      {/* Weaknesses */}
-      <div style={{
-        background: 'rgba(255,82,82,0.06)',
-        borderRadius: '10px',
-        padding: '10px',
-        border: '1px solid rgba(255,82,82,0.2)',
-      }}>
-        <div style={{
-          fontSize: '9px',
-          fontWeight: 800,
-          color: '#FF5252',
-          letterSpacing: '1px',
-          textTransform: 'uppercase',
-          marginBottom: '6px',
-        }}>
-          Weaknesses
-        </div>
-        {noData ? (
-          <div style={{ fontSize: '10px', color: 'var(--text-dim)', lineHeight: 1.5 }}>
-            Not enough data yet — keep climbing!
-          </div>
-        ) : hasWeaknesses ? (
-          stats.weaknesses.map(({ holdType, avgGrade, count }) => (
-            <div key={holdType} style={{
-              fontSize: '11px',
-              fontWeight: 700,
-              color: 'var(--text-primary)',
-              marginBottom: '3px',
-              lineHeight: 1.4,
-            }}>
-              {holdType}
-              {avgGrade && (
-                <span style={{ color: 'var(--text-dim)', fontWeight: 600 }}>
-                  {' · '}{avgGrade} avg
-                </span>
-              )}
-            </div>
-          ))
-        ) : (
-          <div style={{ fontSize: '10px', color: 'var(--text-dim)' }}>—</div>
-        )}
-      </div>
-    </div>
-  );
-
-  // ── 4. Common patterns 2×2 grid ───────────────────────────────────────────
-  const patterns = [
-    { label: 'Top grade', value: stats.commonGrade },
-    { label: 'Hold type', value: stats.commonHoldTypes },
-    { label: 'Technique', value: stats.commonTechniques },
-    { label: 'Angle', value: stats.commonAngles ? `${stats.commonAngles}°` : null },
-  ].filter(p => p.value);
-
-  const patternsGrid = patterns.length > 0 ? (
-    <div style={{
-      display: 'grid',
-      gridTemplateColumns: '1fr 1fr',
-      gap: '8px',
-      marginBottom: '14px',
-    }}>
-      {patterns.map(({ label, value }) => (
-        <div key={label} style={{
-          background: 'rgba(26,10,0,0.04)',
-          borderRadius: '8px',
-          padding: '8px 10px',
-        }}>
-          <span style={{
-            fontSize: '9px',
-            fontWeight: 800,
-            color: 'var(--text-dim)',
-            letterSpacing: '1px',
-            textTransform: 'uppercase',
-            display: 'block',
-            marginBottom: '2px',
-          }}>
-            {label}
-          </span>
-          <span style={{
-            fontSize: '14px',
-            fontWeight: 800,
-            color: 'var(--text-primary)',
-            fontFamily: 'var(--font-heading)',
-          }}>
-            {value}
-          </span>
-        </div>
-      ))}
-    </div>
-  ) : null;
-
-  // ── 5. Per-angle top grades ───────────────────────────────────────────────
-  const angleEntries = Object.entries(stats.topGradeByAngle || {})
-    .sort((a, b) => Number(a[0]) - Number(b[0]));
-
-  const perAngleRow = angleEntries.length > 0 ? (
-    <div style={{
-      display: 'flex',
-      flexWrap: 'wrap',
-      gap: '6px',
-      marginBottom: '14px',
-    }}>
-      {angleEntries.map(([angle, grade]) => (
-        <div key={angle} style={{
-          fontSize: '11px',
-          fontWeight: 700,
-          color: 'var(--text-primary)',
-          background: 'rgba(26,10,0,0.05)',
-          borderRadius: '6px',
-          padding: '3px 8px',
-          fontFamily: 'var(--font-heading)',
-        }}>
-          {angle}°{' '}
-          <span style={{ color: 'var(--accent)' }}>{grade}</span>
-        </div>
-      ))}
-    </div>
-  ) : null;
-
-  // ── 6. Footer row ─────────────────────────────────────────────────────────
-  const showSessionsPerWeek = !stats.isAllTime && stats.avgSessionsPerWeek != null;
-  const TARGET_SESSIONS_PER_WEEK = 2;
-  const spwGood = showSessionsPerWeek && stats.avgSessionsPerWeek >= TARGET_SESSIONS_PER_WEEK * 0.85;
-
-  const footerItems = [];
-  if (stats.createdCount > 0) {
-    footerItems.push(
-      <span key="created" style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-dim)' }}>
-        {stats.createdCount} route{stats.createdCount !== 1 ? 's' : ''} created
-      </span>
-    );
-  }
-  if (stats.avgSessionLengthMin != null) {
-    footerItems.push(
-      <span key="avglen" style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-dim)' }}>
-        {stats.avgSessionLengthMin} min avg
-      </span>
-    );
-  }
-  if (showSessionsPerWeek) {
-    footerItems.push(
-      <span key="spw" style={{
         fontSize: '11px',
         fontWeight: 700,
-        color: spwGood ? '#22a870' : 'var(--text-dim)',
+        color: 'var(--text-dim)',
+        textAlign: 'right',
       }}>
-        {stats.avgSessionsPerWeek}/wk
-        {!spwGood && (
-          <span style={{ color: 'var(--text-dim)', fontWeight: 600 }}>
-            {' '}(target {TARGET_SESSIONS_PER_WEEK}/wk)
-          </span>
-        )}
+        {displayName}
       </span>
-    );
-  }
-
-  const footer = footerItems.length > 0 ? (
-    <div style={{
-      display: 'flex',
-      flexWrap: 'wrap',
-      gap: '12px',
-      borderTop: '1px solid var(--border)',
-      paddingTop: '10px',
-    }}>
-      {footerItems}
     </div>
   ) : null;
+
+  // ── 2. Time & frequency block ────────────────────────────────────────────
+  const isSessionPeriod = period?.type === 'session';
+
+  let timeItems = [];
+  if (isSessionPeriod) {
+    const formatted = formatMinutes(stats.exactSessionLengthMin);
+    if (formatted) {
+      timeItems.push({ label: 'Session length', value: formatted });
+    }
+  } else {
+    const avgFormatted = formatMinutes(stats.avgSessionLengthMin);
+    if (avgFormatted) {
+      timeItems.push({ label: 'Avg session', value: avgFormatted });
+    }
+    if (stats.avgSessionsPerWeek != null) {
+      timeItems.push({ label: 'Sessions/wk', value: String(stats.avgSessionsPerWeek) });
+    }
+  }
+
+  const timeBlock = timeItems.length > 0 ? (
+    <div style={{
+      display: 'flex',
+      gap: '16px',
+      marginBottom: '14px',
+    }}>
+      {timeItems.map(({ label, value }, i) => (
+        <div key={label} style={{ display: 'flex', alignItems: 'baseline', gap: '6px' }}>
+          {i > 0 && (
+            <span style={{ fontSize: '11px', color: 'var(--text-dim)', marginRight: '-4px' }}>·</span>
+          )}
+          <div>
+            <span style={labelStyle}>{label}</span>
+            <span style={{
+              fontSize: '14px',
+              fontWeight: 800,
+              fontFamily: 'var(--font-heading)',
+              color: 'var(--text-primary)',
+            }}>
+              {value}
+            </span>
+          </div>
+        </div>
+      ))}
+    </div>
+  ) : null;
+
+  // ── 3. Grade row (2-column) ──────────────────────────────────────────────
+  const gradeRow = (
+    <div style={{
+      display: 'grid',
+      gridTemplateColumns: '1fr 1fr',
+      gap: '8px',
+      marginBottom: '14px',
+    }}>
+      <div style={{ textAlign: 'center' }}>
+        <span style={labelStyle}>Top Grade</span>
+        <div style={valueStyle}>{stats.topGrade || '—'}</div>
+        {delta && <GradeDeltaBadge value={delta.topGradeIndex} />}
+      </div>
+      <div style={{ textAlign: 'center' }}>
+        <span style={labelStyle}>Avg Grade</span>
+        <div style={valueStyle}>{stats.avgGrade || '—'}</div>
+        {stats.avgGrade && stats.avgGradeSampleSize > 0 && (
+          <div style={{ fontSize: '9px', color: 'var(--text-dim)', marginTop: '2px' }}>
+            across {stats.avgGradeSampleSize} send{stats.avgGradeSampleSize !== 1 ? 's' : ''}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  // ── 4. Activity row (2-column) ───────────────────────────────────────────
+  const activityRow = (
+    <div style={{
+      display: 'grid',
+      gridTemplateColumns: '1fr 1fr',
+      gap: '8px',
+      marginBottom: '14px',
+    }}>
+      <div style={{ textAlign: 'center' }}>
+        <span style={labelStyle}>Sends</span>
+        <div style={valueStyle}>{stats.sendCount}</div>
+        {delta && <DeltaBadge value={delta.sendCount} />}
+      </div>
+      <div style={{ textAlign: 'center' }}>
+        <span style={labelStyle}>Created</span>
+        <div style={valueStyle}>{stats.createdCount}</div>
+      </div>
+    </div>
+  );
+
+  // ── 5 & 6. Composition sections (warm-up guarded) ────────────────────────
+  const enoughData = stats.nonWarmupSendCount >= 3;
+
+  const topGradeSection = enoughData && stats.topGradePerHoldType.length > 0 ? (
+    <div style={{ marginBottom: '14px' }}>
+      <div style={sectionLabelStyle}>Top Grade Per Hold Type</div>
+      {stats.topGradePerHoldType.map(({ holdType, grade }) => (
+        <div key={holdType} style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          paddingBottom: '4px',
+        }}>
+          <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)' }}>
+            {holdType}
+          </span>
+          <span style={{
+            fontSize: '12px',
+            fontWeight: 800,
+            color: 'var(--accent)',
+            fontFamily: 'var(--font-heading)',
+          }}>
+            {grade}
+          </span>
+        </div>
+      ))}
+    </div>
+  ) : null;
+
+  let compositionSection = null;
+  if (!enoughData) {
+    compositionSection = (
+      <div style={{
+        fontSize: '11px',
+        color: 'var(--text-dim)',
+        fontStyle: 'italic',
+        marginBottom: '4px',
+      }}>
+        Not enough non-warm-up climbing this period to show composition.
+      </div>
+    );
+  } else {
+    const subBlocks = [];
+
+    if (stats.holdTypeComposition.length > 0) {
+      subBlocks.push({
+        heading: 'Hold types',
+        text: stats.holdTypeComposition
+          .map(({ value, percent }) => `${value} ${percent}%`)
+          .join(' · '),
+      });
+    }
+    if (stats.styleComposition.length > 0) {
+      subBlocks.push({
+        heading: 'Styles',
+        text: stats.styleComposition
+          .map(({ value, percent }) => `${value} ${percent}%`)
+          .join(' · '),
+      });
+    }
+    if (stats.angleComposition.length > 0) {
+      subBlocks.push({
+        heading: 'Angles',
+        text: stats.angleComposition
+          .map(({ value, percent }) => `${value}° ${percent}%`)
+          .join(' · '),
+      });
+    }
+
+    if (subBlocks.length > 0) {
+      compositionSection = (
+        <div style={{ marginBottom: '4px' }}>
+          <div style={sectionLabelStyle}>Composition</div>
+          {subBlocks.map(({ heading, text }) => (
+            <div key={heading} style={{ marginBottom: '8px' }}>
+              <div style={{
+                fontSize: '10px',
+                fontWeight: 700,
+                color: 'var(--text-primary)',
+                marginBottom: '2px',
+              }}>
+                {heading}
+              </div>
+              <div style={{ fontSize: '11px', color: 'var(--text-dim)', lineHeight: 1.5 }}>
+                {text}
+              </div>
+            </div>
+          ))}
+        </div>
+      );
+    }
+  }
 
   // ── Assemble ─────────────────────────────────────────────────────────────
   return (
     <div style={cardStyle}>
       {headerRow}
-      {headlineGrid}
-      {swCard}
-      {patternsGrid}
-      {perAngleRow}
-      {footer}
+      {timeBlock}
+      {gradeRow}
+      {activityRow}
+      {topGradeSection}
+      {compositionSection}
     </div>
   );
 }
