@@ -138,6 +138,22 @@ export function convertGrade(grade, fromSystem, toSystem) {
   return FONT_TO_V[grade] || grade;
 }
 
+/** Detect which system a grade string belongs to ('V', 'font', or null if unknown) */
+export function gradeSystemOf(grade) {
+  if (grade == null) return null;
+  if (grade in V_GRADE_INDEX) return 'V';
+  if (grade in FONT_GRADE_INDEX) return 'font';
+  return null;
+}
+
+/** Convert a grade to the target system, auto-detecting source. Returns input unchanged if unknown. */
+export function displayGrade(grade, targetSystem) {
+  if (grade == null || grade === '') return grade;
+  const from = gradeSystemOf(grade);
+  if (!from || from === targetSystem) return grade;
+  return convertGrade(grade, from, targetSystem);
+}
+
 /**
  * Extract YouTube video ID from various URL formats:
  * https://www.youtube.com/watch?v=abc123

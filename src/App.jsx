@@ -18,7 +18,7 @@ import { useLocalStorage } from './hooks/useLocalStorage';
 import { useCustomHolds } from './hooks/useCustomHolds';
 import holdsData from './data/holds.json';
 import { supabase, ADMIN_EMAIL } from './lib/supabase';
-import { V_GRADES, FONT_GRADES, V_GRADE_INDEX, FONT_GRADE_INDEX, SELECTION_MODES, MODE_COLORS, MODE_LABELS, BOARD_SPECS, HOLD_COLOR_DOT, HOLD_TYPE_SINGULAR_TO_PLURAL, convertGrade, getYouTubeId, getYouTubeThumbnail, DEFAULT_BOARD_IMAGE, DEFAULT_BOARD_SRCSET, DEFAULT_BOARD_SIZES } from './utils/constants';
+import { V_GRADES, FONT_GRADES, V_GRADE_INDEX, FONT_GRADE_INDEX, SELECTION_MODES, MODE_COLORS, MODE_LABELS, BOARD_SPECS, HOLD_COLOR_DOT, HOLD_TYPE_SINGULAR_TO_PLURAL, convertGrade, displayGrade, getYouTubeId, getYouTubeThumbnail, DEFAULT_BOARD_IMAGE, DEFAULT_BOARD_SRCSET, DEFAULT_BOARD_SIZES } from './utils/constants';
 
 // Strip per-user fields before writing to the shared routes table
 function stripPerUserFields(route) {
@@ -49,7 +49,9 @@ export default function App() {
   const [playlists, setPlaylists] = useState([]);
   const [userRouteData, setUserRouteData] = useState({}); // { [routeId]: { sent, flashed, rating, angleSends, gradeSuggestions, attempted } }
   const [communityRatings, setCommunityRatings] = useState({}); // { [routeId]: { avg, count } }
-  const [communityGrades, setCommunityGrades]   = useState({}); // { [routeId]: { headline: {consensus, votes, count}, angles: {...} } }
+  // Raw grade-suggestion rows keyed by routeId then userId — community consensus is derived
+  // from this via useMemo so it re-normalises whenever the user changes their grade system.
+  const [gradeRowsByRoute, setGradeRowsByRoute] = useState({}); // { [routeId]: { [userId]: { headline?, angles? } } }
   const [boardImageConfig, setBoardImageConfig] = useLocalStorage('barnboard_board_image_config', null);
   const [settings, setSettings] = useLocalStorage('barnboard_settings', { gradeSystem: 'V', adminMode: 'climber' });
 
@@ -110,7 +112,7 @@ export default function App() {
       supabase.from('routes').select('id, user_id, data').order('created_at', { ascending: false }),
       supabase.from('user_route_data').select('route_id, sent, flashed, rating, angle_sends, angle_flashes, angle_attempts, grade_suggestions, attempted').eq('user_id', userId),
       supabase.from('user_route_data').select('route_id, rating').gt('rating', 0),
-      supabase.from('user_route_data').select('route_id, grade_suggestions').not('grade_suggestions', 'eq', '{}'),
+      supabase.from('user_route_data').select('user_id, route_id, grade_suggestions').not('grade_suggestions', 'eq', '{}'),
       supabase.from('sessions').select('data').eq('user_id', userId).order('created_at', { ascending: false }),
       supabase.from('board_settings').select('data').eq('key', `playlists_${userId}`).maybeSingle(),
       supabase.from('board_settings').select('data').eq('key', 'board_image_config').maybeSingle(),
@@ -168,48 +170,17 @@ export default function App() {
     }
     setCommunityRatings(avgMap);
 
-    // d) Community grade consensus
-    const gradeMap = {};
+    // d) Community grade suggestion rows — store raw, derive consensus reactively
+    const rowsByRoute = {};
     if (gradeResult.data) {
       for (const row of gradeResult.data) {
         const gs = row.grade_suggestions || {};
-        if (!gradeMap[row.route_id]) gradeMap[row.route_id] = { headline: {}, angles: {} };
-        if (gs.headline) {
-          const h = gradeMap[row.route_id].headline;
-          h[gs.headline] = (h[gs.headline] || 0) + 1;
-        }
-        if (gs.angles) {
-          for (const [angle, grade] of Object.entries(gs.angles)) {
-            if (!gradeMap[row.route_id].angles[angle]) gradeMap[row.route_id].angles[angle] = {};
-            const a = gradeMap[row.route_id].angles[angle];
-            a[grade] = (a[grade] || 0) + 1;
-          }
-        }
+        if (!gs.headline && !(gs.angles && Object.keys(gs.angles).length)) continue;
+        if (!rowsByRoute[row.route_id]) rowsByRoute[row.route_id] = {};
+        rowsByRoute[row.route_id][row.user_id] = gs;
       }
     }
-    const communityGradeResult = {};
-    for (const [routeId, data] of Object.entries(gradeMap)) {
-      const result = { headline: null, angles: {} };
-      const hVotes = data.headline;
-      const hTotal = Object.values(hVotes).reduce((s, n) => s + n, 0);
-      if (hTotal > 0) {
-        const sorted = Object.entries(hVotes).sort((a, b) =>
-          b[1] !== a[1] ? b[1] - a[1] : (gradeIndex[b[0]] ?? -1) - (gradeIndex[a[0]] ?? -1)
-        );
-        result.headline = { consensus: sorted[0][0], votes: hVotes, count: hTotal };
-      }
-      for (const [angle, aVotes] of Object.entries(data.angles)) {
-        const aTotal = Object.values(aVotes).reduce((s, n) => s + n, 0);
-        if (aTotal > 0) {
-          const sorted = Object.entries(aVotes).sort((a, b) =>
-            b[1] !== a[1] ? b[1] - a[1] : (gradeIndex[b[0]] ?? -1) - (gradeIndex[a[0]] ?? -1)
-          );
-          result.angles[angle] = { consensus: sorted[0][0], votes: aVotes, count: aTotal };
-        }
-      }
-      communityGradeResult[routeId] = result;
-    }
-    setCommunityGrades(communityGradeResult);
+    setGradeRowsByRoute(rowsByRoute);
 
     // e) Sessions
     const sessionRows = sessionResult.data;
@@ -511,6 +482,50 @@ export default function App() {
 
   const grades = settings.gradeSystem === 'V' ? V_GRADES : FONT_GRADES;
   const gradeIndex = settings.gradeSystem === 'font' ? FONT_GRADE_INDEX : V_GRADE_INDEX;
+
+  // Derive community grade consensus from raw rows. Recomputes whenever the user
+  // changes their grade system so every vote is normalised into the active system
+  // (e.g. V3 + 6A votes merge into one bucket) before consensus is picked.
+  const communityGrades = useMemo(() => {
+    const result = {};
+    for (const [routeId, byUser] of Object.entries(gradeRowsByRoute)) {
+      const headlineVotes = {};
+      const anglesVotes = {};
+      for (const gs of Object.values(byUser)) {
+        if (gs?.headline) {
+          const g = displayGrade(gs.headline, settings.gradeSystem);
+          headlineVotes[g] = (headlineVotes[g] || 0) + 1;
+        }
+        if (gs?.angles) {
+          for (const [angle, grade] of Object.entries(gs.angles)) {
+            if (!grade) continue;
+            if (!anglesVotes[angle]) anglesVotes[angle] = {};
+            const g = displayGrade(grade, settings.gradeSystem);
+            anglesVotes[angle][g] = (anglesVotes[angle][g] || 0) + 1;
+          }
+        }
+      }
+      const consensusFrom = (votes) => {
+        const entries = Object.entries(votes);
+        if (entries.length === 0) return null;
+        const total = entries.reduce((s, [, n]) => s + n, 0);
+        const sorted = entries.sort((a, b) =>
+          b[1] !== a[1] ? b[1] - a[1] : (gradeIndex[b[0]] ?? -1) - (gradeIndex[a[0]] ?? -1)
+        );
+        return { consensus: sorted[0][0], votes, count: total };
+      };
+      const headline = consensusFrom(headlineVotes);
+      const angles = {};
+      for (const [angle, votes] of Object.entries(anglesVotes)) {
+        const c = consensusFrom(votes);
+        if (c) angles[angle] = c;
+      }
+      if (headline || Object.keys(angles).length) {
+        result[routeId] = { headline, angles };
+      }
+    }
+    return result;
+  }, [gradeRowsByRoute, settings.gradeSystem, gradeIndex]);
 
   // Board image — derive URLs from config (loaded in loadDataFromSupabase), fall back to static defaults
   // Append ?v=<cacheVersion> when present so browsers re-fetch after an image replace
@@ -1129,18 +1144,6 @@ export default function App() {
   const suggestGrade = useCallback((routeId, headline, angles) => {
     if (!user) return;
 
-    // Compute consensus from a votes object — preserves tiebreaker (higher grade wins)
-    const computeConsensus = (votes) => {
-      const entries = Object.entries(votes).filter(([, n]) => n > 0);
-      if (entries.length === 0) return null;
-      const total = entries.reduce((s, [, n]) => s + n, 0);
-      const sorted = entries.sort((a, b) =>
-        b[1] !== a[1] ? b[1] - a[1] : (gradeIndex[b[0]] ?? -1) - (gradeIndex[a[0]] ?? -1)
-      );
-      const cleanVotes = Object.fromEntries(entries);
-      return { consensus: sorted[0][0], votes: cleanVotes, count: total };
-    };
-
     setUserRouteData(prev => {
       const current = prev[routeId] || { sent: false, rating: 0, angleSends: [], angleFlashes: [], angleAttempts: [], attempted: false };
       const oldSuggestions = current.gradeSuggestions || {};
@@ -1163,44 +1166,25 @@ export default function App() {
       }, { onConflict: 'user_id,route_id' })
         .then(({ error }) => { if (error) console.error('[Supabase] grade suggestion error:', error); });
 
-      // Optimistically update communityGrades to include this user's own vote delta
-      setCommunityGrades(cgPrev => {
-        const cur = cgPrev[routeId] || { headline: null, angles: {} };
-        const next = { headline: cur.headline, angles: { ...cur.angles } };
-
-        if (headline !== undefined) {
-          const oldH = oldSuggestions.headline;
-          const newH = headline;
-          if (oldH !== newH) {
-            const votes = { ...(cur.headline?.votes || {}) };
-            if (oldH) votes[oldH] = Math.max(0, (votes[oldH] || 0) - 1);
-            if (newH) votes[newH] = (votes[newH] || 0) + 1;
-            next.headline = computeConsensus(votes);
-          }
-        }
-
-        if (angles !== undefined) {
-          for (const [angle, newG] of Object.entries(angles)) {
-            const oldG = oldSuggestions.angles?.[angle];
-            const finalG = (newG === null || newG === '') ? undefined : newG;
-            if (oldG === finalG) continue;
-            const votes = { ...(cur.angles[angle]?.votes || {}) };
-            if (oldG) votes[oldG] = Math.max(0, (votes[oldG] || 0) - 1);
-            if (finalG) votes[finalG] = (votes[finalG] || 0) + 1;
-            const consensus = computeConsensus(votes);
-            if (consensus) next.angles[angle] = consensus;
-            else delete next.angles[angle];
-          }
-        }
-
-        return { ...cgPrev, [routeId]: next };
+      // Optimistically update raw grade-suggestion rows. The communityGrades useMemo
+      // re-derives consensus from this, so the UI updates immediately and respects
+      // the user's current grade system.
+      setGradeRowsByRoute(prevRows => {
+        const next = { ...prevRows };
+        const routeRows = { ...(next[routeId] || {}) };
+        const hasContent = !!gradeSuggestions.headline || (gradeSuggestions.angles && Object.keys(gradeSuggestions.angles).length > 0);
+        if (hasContent) routeRows[user.id] = gradeSuggestions;
+        else delete routeRows[user.id];
+        if (Object.keys(routeRows).length) next[routeId] = routeRows;
+        else delete next[routeId];
+        return next;
       });
 
       // Suggesting a grade counts as engagement — mark attempted
       logRouteAttempted(routeId);
       return { ...prev, [routeId]: { ...current, gradeSuggestions, attempted: true } };
     });
-  }, [user, gradeIndex, logRouteAttempted]);
+  }, [user, logRouteAttempted]);
 
   const acceptGradeSuggestion = useCallback((routeId, grade, angle) => {
     localRouteChange.current = true;
@@ -2214,7 +2198,7 @@ function ViewRouteHeader({ route, sent, flashed, attempted, angleSends, angleFla
                   {myGradeSuggestions?.headline ? 'Your suggestion:' : 'Suggest a grade:'}
                 </span>
                 <select
-                  value={myGradeSuggestions?.headline || ''}
+                  value={displayGrade(myGradeSuggestions?.headline, gradeSystem) || ''}
                   onChange={(e) => onSuggestGrade(e.target.value || null, undefined)}
                   style={{
                     padding: '4px 8px', borderRadius: '6px',
@@ -2499,7 +2483,7 @@ function ViewRouteHeader({ route, sent, flashed, attempted, angleSends, angleFla
                     const isCommunity = row.type === 'community';
                     const angleKey = String(row.angle);
                     const angleCommunity = communityGrades?.angles?.[angleKey] || null;
-                    const myAngleSuggestion = myGradeSuggestions?.angles?.[angleKey] || '';
+                    const myAngleSuggestion = displayGrade(myGradeSuggestions?.angles?.[angleKey], gradeSystem) || '';
                     const baseBg = i % 2 === 0 ? 'rgba(26,10,0,0.02)' : 'transparent';
                     const communityBg = i % 2 === 0 ? 'rgba(0,71,255,0.05)' : 'rgba(0,71,255,0.03)';
                     const bg = isCommunity ? communityBg : baseBg;
