@@ -92,7 +92,22 @@ export default function App() {
 
   // ─── Auth effect — listen for login/logout ─────────────────────────
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      // Dev-only autologin: lets Claude run UI tests against a real Supabase session
+      // without manually typing credentials. Only active when VITE_DEV_AUTOLOGIN=true
+      // in .env.local; production builds short-circuit on import.meta.env.DEV.
+      if (!session && import.meta.env.DEV && import.meta.env.VITE_DEV_AUTOLOGIN === 'true') {
+        const email = import.meta.env.VITE_DEV_AUTOLOGIN_EMAIL;
+        const password = import.meta.env.VITE_DEV_AUTOLOGIN_PASSWORD;
+        if (email && password) {
+          const { error } = await supabase.auth.signInWithPassword({ email, password });
+          if (error) console.warn('[dev autologin] failed:', error.message);
+          // onAuthStateChange below will pick up the new session and setUser.
+          setAuthLoading(false);
+          return;
+        }
+        console.warn('[dev autologin] VITE_DEV_AUTOLOGIN=true but email/password env vars missing');
+      }
       setUser(session?.user ?? null);
       setAuthLoading(false);
     });
