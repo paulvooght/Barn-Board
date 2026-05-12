@@ -226,57 +226,62 @@ function gradeFromIndex(index, gradeSystem) {
   return V_GRADES[index] || null;
 }
 
-// ─── Frequency helpers ────────────────────────────────────────────────────────
+// ─── Warm-up filter helpers ───────────────────────────────────────────────────
 
 /**
- * Given an array of values, return the most frequent value (alphabetical tie-break).
+ * Returns the grade index used as the "warm-up reference":
+ * hardest send within the last 90 days, falling back to all-time top
+ * if there are no sends in the last 90 days.
+ * Returns -1 if no sends ever.
  */
-function mostFrequent(arr) {
-  if (!arr || arr.length === 0) return null;
-  const counts = {};
-  for (const v of arr) {
-    if (v == null) continue;
-    counts[v] = (counts[v] || 0) + 1;
-  }
-  const keys = Object.keys(counts);
-  if (keys.length === 0) return null;
-  let best = keys[0];
-  for (const k of keys) {
-    if (counts[k] > counts[best] || (counts[k] === counts[best] && k < best)) {
-      best = k;
+export function getWarmupReferenceIndex(sessions, gradeSystem) {
+  const safeSessions = sessions || [];
+  const cutoff = Date.now() - 90 * 24 * 60 * 60 * 1000;
+
+  let recentTop = -1;
+  let allTimeTop = -1;
+
+  for (const session of safeSessions) {
+    for (const send of (session.sends || [])) {
+      const idx = getGradeIndex(send.grade, gradeSystem);
+      if (idx < 0) continue;
+      if (idx > allTimeTop) allTimeTop = idx;
+      const t = send.time
+        ? new Date(send.time).getTime()
+        : new Date(session.startTime).getTime();
+      if (t >= cutoff && idx > recentTop) recentTop = idx;
     }
   }
-  return best;
+
+  if (allTimeTop < 0) return -1;
+  return recentTop >= 0 ? recentTop : allTimeTop;
 }
 
-// ─── Climber type ─────────────────────────────────────────────────────────────
+/**
+ * Given a top-grade index, return the warm-up ceiling index.
+ * Sends with grade index <= ceiling are warm-ups.
+ * Returns -1 to disable the filter when the climber's top grade is below V4.
+ *
+ * Bucket table (V-grade-anchored, applied to grade indices):
+ *   topIndex < 4         → -1 (disabled)
+ *   topIndex in [4,7]    → topIndex - 3
+ *   topIndex in [8,10]   → topIndex - 4
+ *   topIndex >= 11       → 4  (anything ≤ V4 is warm-up)
+ */
+export function getWarmupCeilingIndex(topIndex) {
+  if (topIndex < 4) return -1;
+  if (topIndex <= 7) return topIndex - 3;
+  if (topIndex <= 10) return topIndex - 4;
+  return 4;
+}
 
 /**
- * Choose a fun climber-type label from top hold type + top technique.
+ * Convenience: returns the ceiling index in one call.
  */
-export function getClimberType(commonHoldType, commonTechnique) {
-  if (!commonHoldType) return 'Versatile Climber';
-
-  const h = commonHoldType;
-  const t = commonTechnique;
-
-  if (h === 'Crimps' && t === 'Heel hooks') return 'Technical Crimper';
-  if (h === 'Crimps') return 'Crimp Master';
-  if (h === 'Slopers' && t === 'Dynos') return 'Power Sloper';
-  if (h === 'Slopers') return 'Sloper Specialist';
-  if (h === 'Pinches' && t === 'Dynos') return 'Power Pincher';
-  if (h === 'Pinches') return 'Pinch Specialist';
-  if (h === 'Jugs') return 'Jug Hauler';
-  if (h === 'Pockets') return 'Pocket Surgeon';
-  if (h === 'Edges' && t === 'Heel hooks') return 'Heel-Hook Hunter';
-  if (h === 'Edges') return 'Edge Worker';
-  if (h === 'Undercuts') return 'Undercut Beast';
-  if (h === 'Volumes' && t === 'Toe hooks') return 'Volume Dancer';
-  if (h === 'Volumes') return 'Volume Rider';
-  if (h === 'Macro') return 'Macro Magician';
-  if (h === 'Mini jug') return 'Mini-Jug Cruiser';
-  if (h === 'Jibs') return 'Jib Master';
-  return 'Versatile Climber';
+export function getWarmupCeiling(sessions, gradeSystem) {
+  const top = getWarmupReferenceIndex(sessions, gradeSystem);
+  if (top < 0) return -1;
+  return getWarmupCeilingIndex(top);
 }
 
 // ─── Core stats computation ───────────────────────────────────────────────────
@@ -294,7 +299,6 @@ export function getClimberType(commonHoldType, commonTechnique) {
 export function computeStats(sessions, routes, userRouteData, period, gradeSystem = 'V') {
   const safeSessions = sessions || [];
   const safeRoutes = routes || [];
-  const safeURD = userRouteData || {};
 
   const periodSessions = filterSessions(safeSessions, period);
   const periodSends = filterSends(safeSessions, period);
@@ -302,38 +306,25 @@ export function computeStats(sessions, routes, userRouteData, period, gradeSyste
   const sessionCount = periodSessions.length;
   const sendCount = periodSends.length;
 
-  // Flash count — check userRouteData.flashed for each sent route in this period
-  let flashCount = 0;
-  const seenFlashRoutes = new Set();
-  for (const send of periodSends) {
-    if (!seenFlashRoutes.has(send.routeId)) {
-      seenFlashRoutes.add(send.routeId);
-      if (safeURD[send.routeId]?.flashed) flashCount++;
-    }
-  }
-
-  // Avg sends per session
-  const avgSendsPerSession = sessionCount > 0 ? sendCount / sessionCount : 0;
-
   // Avg session length in minutes
   let totalDurationMin = 0;
   let durCount = 0;
   for (const s of periodSessions) {
     if (s.startTime && s.endTime) {
       const mins = (new Date(s.endTime) - new Date(s.startTime)) / 60000;
-      if (mins > 0 && mins < 1440) { // sanity check: ignore >24h
+      if (mins > 0 && mins < 1440) {
         totalDurationMin += mins;
         durCount++;
       }
     }
   }
   const avgSessionLengthMin = durCount > 0 ? Math.round(totalDurationMin / durCount) : null;
+  const exactSessionLengthMin = period.type === 'session' ? avgSessionLengthMin : undefined;
 
   // Avg sessions per week
   let avgSessionsPerWeek = null;
   if (sessionCount > 0 && period.type !== 'session') {
     if (period.type === 'all') {
-      // Calculate weeks span from first to last session
       const times = safeSessions.map(s => new Date(s.startTime).getTime());
       const spanMs = Math.max(...times) - Math.min(...times);
       const spanWeeks = spanMs / (7 * 24 * 60 * 60 * 1000);
@@ -347,7 +338,7 @@ export function computeStats(sessions, routes, userRouteData, period, gradeSyste
     }
   }
 
-  // Top grade in period
+  // Top grade in period (no warm-up filter — raw max)
   let topGradeIndex = -1;
   for (const send of periodSends) {
     const idx = getGradeIndex(send.grade, gradeSystem);
@@ -355,114 +346,128 @@ export function computeStats(sessions, routes, userRouteData, period, gradeSyste
   }
   const topGrade = topGradeIndex >= 0 ? gradeFromIndex(topGradeIndex, gradeSystem) : null;
 
-  // Top grade by angle — only angles with sends
-  const gradeByAngle = {};
-  for (const send of periodSends) {
-    const angle = send.angle;
-    if (angle == null) continue;
-    const idx = getGradeIndex(send.grade, gradeSystem);
-    if (idx < 0) continue;
-    if (gradeByAngle[angle] === undefined || idx > gradeByAngle[angle]) {
-      gradeByAngle[angle] = idx;
-    }
-  }
-  const topGradeByAngle = {};
-  for (const [angle, idx] of Object.entries(gradeByAngle)) {
-    const g = gradeFromIndex(idx, gradeSystem);
-    if (g) topGradeByAngle[angle] = g;
-  }
-
-  // Collect grades, hold types, techniques, styles, angles from sends in period
-  const gradeValues = [];
-  const holdTypeValues = [];
-  const techniqueValues = [];
-  const styleValues = [];
-  const angleValues = [];
-
-  for (const send of periodSends) {
-    if (send.grade) gradeValues.push(send.grade);
-    if (send.angle != null) angleValues.push(send.angle);
-
-    const route = safeRoutes.find(r => r.id === send.routeId);
-    if (route) {
-      if (Array.isArray(route.holdTypes)) holdTypeValues.push(...route.holdTypes);
-      if (Array.isArray(route.techniques)) techniqueValues.push(...route.techniques);
-      if (Array.isArray(route.styles)) styleValues.push(...route.styles);
-    }
-  }
-
-  const commonGrade = mostFrequent(gradeValues);
-  const commonHoldTypes = mostFrequent(holdTypeValues);
-  const commonTechniques = mostFrequent(techniqueValues);
-  const commonStyles = mostFrequent(styleValues);
-  const commonAngles = mostFrequent(angleValues.map(String));
-
-  // Strengths and weaknesses by hold type
-  // For each hold type, find routes the user has sent that include it, compute avg grade index
-  // Then filter to routes also sent within this period for period-scoped analysis
-  const sentRouteIds = new Set(periodSends.map(s => s.routeId));
-
-  const holdTypeGrades = {}; // { holdType: [gradeIndex, ...] }
-  for (const routeId of sentRouteIds) {
-    const route = safeRoutes.find(r => r.id === routeId);
-    if (!route || !Array.isArray(route.holdTypes)) continue;
-    const idx = getGradeIndex(route.grade, gradeSystem);
-    if (idx < 0) continue;
-    for (const ht of route.holdTypes) {
-      if (!holdTypeGrades[ht]) holdTypeGrades[ht] = [];
-      holdTypeGrades[ht].push(idx);
-    }
-  }
-
-  const holdTypeStats = Object.entries(holdTypeGrades)
-    .filter(([, grades]) => grades.length >= 2)
-    .map(([holdType, grades]) => {
-      const avg = grades.reduce((a, b) => a + b, 0) / grades.length;
-      return { holdType, avgGradeIndex: avg, count: grades.length };
-    })
-    .sort((a, b) => b.avgGradeIndex - a.avgGradeIndex || a.holdType.localeCompare(b.holdType));
-
-  const strengths = holdTypeStats.slice(0, 3).map(({ holdType, avgGradeIndex, count }) => ({
-    holdType,
-    avgGrade: gradeFromIndex(Math.round(avgGradeIndex), gradeSystem),
-    count,
-  }));
-  const weaknesses = holdTypeStats.slice(-3).reverse().map(({ holdType, avgGradeIndex, count }) => ({
-    holdType,
-    avgGrade: gradeFromIndex(Math.round(avgGradeIndex), gradeSystem),
-    count,
-  }));
-  // Avoid overlap when there are <= 6 total types
-  const strengthSet = new Set(strengths.map(s => s.holdType));
-  const filteredWeaknesses = weaknesses.filter(w => !strengthSet.has(w.holdType));
-
   // Routes created in period
   let createdCount = 0;
   for (const s of periodSessions) {
     createdCount += (s.routesCreated || []).length;
   }
 
-  const climberType = getClimberType(commonHoldTypes, commonTechniques);
+  // ── Warm-up filter ────────────────────────────────────────────────────────
+  // ceiling is derived from all-time (or recent) top, not limited to period
+  const warmupCeiling = getWarmupCeiling(safeSessions, gradeSystem);
+
+  const nonWarmupSends = periodSends.filter(send => {
+    if (warmupCeiling < 0) return true;
+    const idx = getGradeIndex(send.grade, gradeSystem);
+    return idx < 0 || idx > warmupCeiling;
+  });
+  const nonWarmupSendCount = nonWarmupSends.length;
+
+  // avgGrade — mean grade index of non-warm-up sends, rounded back to nearest grade
+  let avgGrade = null;
+  let avgGradeSampleSize = 0;
+  if (nonWarmupSends.length > 0) {
+    const indices = nonWarmupSends
+      .map(s => getGradeIndex(s.grade, gradeSystem))
+      .filter(i => i >= 0);
+    if (indices.length > 0) {
+      const mean = indices.reduce((a, b) => a + b, 0) / indices.length;
+      avgGrade = gradeFromIndex(Math.round(mean), gradeSystem);
+      avgGradeSampleSize = indices.length;
+    }
+  }
+
+  // topGradePerHoldType — max grade per hold type across non-warm-up sends
+  const holdTypeTopIdx = {};
+  for (const send of nonWarmupSends) {
+    const idx = getGradeIndex(send.grade, gradeSystem);
+    if (idx < 0) continue;
+    const route = safeRoutes.find(r => r.id === send.routeId);
+    if (!route || !Array.isArray(route.holdTypes)) continue;
+    for (const ht of route.holdTypes) {
+      if (holdTypeTopIdx[ht] === undefined || idx > holdTypeTopIdx[ht]) {
+        holdTypeTopIdx[ht] = idx;
+      }
+    }
+  }
+  const topGradePerHoldType = Object.entries(holdTypeTopIdx)
+    .sort((a, b) => b[1] - a[1])
+    .map(([holdType, idx]) => ({ holdType, grade: gradeFromIndex(idx, gradeSystem) }));
+
+  // Unique non-warm-up sent route IDs in period (deduplicated)
+  const nonWarmupRouteIds = new Set(nonWarmupSends.map(s => s.routeId));
+  const nonWarmupRouteCount = nonWarmupRouteIds.size;
+
+  // holdTypeComposition — % of unique non-warm-up routes containing each hold type
+  const holdTypeCounts = {};
+  for (const routeId of nonWarmupRouteIds) {
+    const route = safeRoutes.find(r => r.id === routeId);
+    if (!route || !Array.isArray(route.holdTypes)) continue;
+    for (const ht of route.holdTypes) {
+      holdTypeCounts[ht] = (holdTypeCounts[ht] || 0) + 1;
+    }
+  }
+  const holdTypeComposition = nonWarmupRouteCount > 0
+    ? Object.entries(holdTypeCounts)
+        .map(([value, count]) => ({ value, percent: Math.round(count / nonWarmupRouteCount * 100) }))
+        .sort((a, b) => b.percent - a.percent)
+        .slice(0, 5)
+    : [];
+
+  // styleComposition — % of unique non-warm-up routes containing each style
+  const styleCounts = {};
+  for (const routeId of nonWarmupRouteIds) {
+    const route = safeRoutes.find(r => r.id === routeId);
+    if (!route || !Array.isArray(route.styles)) continue;
+    for (const st of route.styles) {
+      styleCounts[st] = (styleCounts[st] || 0) + 1;
+    }
+  }
+  const styleComposition = nonWarmupRouteCount > 0
+    ? Object.entries(styleCounts)
+        .map(([value, count]) => ({ value, percent: Math.round(count / nonWarmupRouteCount * 100) }))
+        .sort((a, b) => b.percent - a.percent)
+        .slice(0, 3)
+    : [];
+
+  // angleComposition — % of non-warm-up sends (not deduped) per angle
+  const angleCounts = {};
+  for (const send of nonWarmupSends) {
+    if (send.angle == null) continue;
+    angleCounts[send.angle] = (angleCounts[send.angle] || 0) + 1;
+  }
+  const angleComposition = nonWarmupSendCount > 0
+    ? Object.entries(angleCounts)
+        .map(([value, count]) => ({ value: Number(value), percent: Math.round(count / nonWarmupSendCount * 100) }))
+        .sort((a, b) => b.percent - a.percent)
+        .slice(0, 5)
+    : [];
 
   return {
+    // Activity (no warm-up filter)
     sendCount,
-    flashCount,
     sessionCount,
-    avgSendsPerSession: Math.round(avgSendsPerSession * 10) / 10,
+    createdCount,
     avgSessionLengthMin,
     avgSessionsPerWeek: avgSessionsPerWeek != null ? Math.round(avgSessionsPerWeek * 10) / 10 : null,
+    exactSessionLengthMin,
+
+    // Grade
     topGrade,
     topGradeIndex,
-    topGradeByAngle,
-    commonGrade,
-    commonHoldTypes,
-    commonTechniques,
-    commonStyles,
-    commonAngles,
-    strengths,
-    weaknesses: filteredWeaknesses,
-    createdCount,
-    climberType,
+    avgGrade,
+    avgGradeSampleSize,
+
+    // Composition (warm-up filtered)
+    topGradePerHoldType,
+    holdTypeComposition,
+    styleComposition,
+    angleComposition,
+
+    // Sample-size guard
+    nonWarmupSendCount,
+
+    // Misc
     isAllTime: period.type === 'all',
   };
 }
@@ -841,7 +846,7 @@ export function computeDelta(currentStats, previousStats) {
 
   const delta = {};
 
-  const numFields = ['sendCount', 'flashCount', 'sessionCount', 'avgSendsPerSession'];
+  const numFields = ['sendCount', 'sessionCount'];
   for (const f of numFields) {
     const curr = currentStats?.[f];
     const prev = previousStats?.[f];
