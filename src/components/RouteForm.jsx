@@ -1,6 +1,7 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import TagPicker from './TagPicker';
 import { HOLD_TYPES, TECHNIQUES, STYLES, BOARD_SPECS, getYouTubeId, getYouTubeThumbnail } from '../utils/constants';
+import { generateRouteName } from '../utils/nameGenerator';
 
 export default function RouteForm({
   name, setName,
@@ -40,6 +41,9 @@ export default function RouteForm({
 
   const canSave = name.trim() && selectedCount > 0;
 
+  // Fresh suggestion each time the form mounts
+  const suggestedName = useMemo(() => generateRouteName(), []);
+
   return (
     <div style={{ padding: '0 12px', marginTop: '16px' }}>
       {/* Route Name */}
@@ -49,7 +53,7 @@ export default function RouteForm({
           type="text"
           value={name}
           onChange={e => setName(e.target.value)}
-          placeholder="e.g. Barn Burner"
+          placeholder={`e.g. ${suggestedName}`}
           style={inputStyle}
         />
       </div>
