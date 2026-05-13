@@ -13,19 +13,19 @@ export default function RouteCard({ route, sent, flashed, attempted, communityRa
   // Derive 4-state status for the cycle button + card emphasis
   const cardState = flashed ? 'flash' : sent ? 'sent' : attempted ? 'tried' : 'empty';
 
-  // Border / shadow priority: missing (hot pink) > flash (yellow) > sent (cyan) > tried (pink) > default
+  // Border / shadow priority: missing (hot pink) > flash (yellow) > sent (cyan) > default.
+  // Tried is intentionally NOT highlighted on the card — the box alone signals it.
+  const isEmphasised = cardState === 'flash' || cardState === 'sent';
   const borderColor =
     hasMissing            ? '#FF1493'
     : cardState === 'flash' ? '#FFCB47'
     : cardState === 'sent'  ? '#22d3ee'
-    : cardState === 'tried' ? '#FF1493'
     : 'var(--border)';
-  const borderWidth = hasMissing || cardState !== 'empty' ? '2px' : '1px';
+  const borderWidth = hasMissing || isEmphasised ? '2px' : '1px';
   const restingShadow =
     hasMissing             ? '0 2px 8px rgba(255,20,147,0.12)'
     : cardState === 'flash' ? '0 2px 8px rgba(255,203,71,0.2)'
     : cardState === 'sent'  ? '0 2px 8px rgba(34,211,238,0.15)'
-    : cardState === 'tried' ? '0 2px 8px rgba(255,20,147,0.15)'
     : '0 2px 6px rgba(26,10,0,0.06)';
 
   return (
