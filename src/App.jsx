@@ -3,6 +3,7 @@ import BoardView from './components/BoardView';
 import ModeSelector from './components/ModeSelector';
 import Icon from './components/Icon';
 import SentCycleButton from './components/SentCycleButton';
+import RouteViewCard from './components/RouteViewCard';
 
 const BoardSetupView = lazy(() => import('./components/BoardSetupView'));
 const RouteForm = lazy(() => import('./components/RouteForm'));
@@ -13,7 +14,6 @@ const SessionSummary = lazy(() => import('./components/SessionSummary'));
 const SessionsView = lazy(() => import('./components/SessionsView'));
 const AuthView = lazy(() => import('./components/AuthView'));
 const BoardImageUpdateView = lazy(() => import('./components/BoardImageUpdateView'));
-const CommentsSection = lazy(() => import('./components/CommentsSection'));
 import { useLocalStorage } from './hooks/useLocalStorage';
 import { useCustomHolds } from './hooks/useCustomHolds';
 import holdsData from './data/holds.json';
@@ -553,7 +553,8 @@ export default function App() {
   const [isBoardZoomed, setIsBoardZoomed]   = useState(false);
   const swipeRef = useRef({ startX: 0, startY: 0, dx: 0, engaged: false, active: false });
   const [swipeDx, setSwipeDx] = useState(0);
-  const [swipeTransition, setSwipeTransition] = useState('snap'); // 'none' | 'snap' | 'slide'
+  const [transitionMode, setTransitionMode] = useState('snap'); // 'none' | 'snap' | 'slide'
+  const [carouselActive, setCarouselActive] = useState(false); // true when neighbour cards should be mounted
 
   // Route form state
   const [routeName, setRouteName]   = useState('');
@@ -902,38 +903,39 @@ export default function App() {
     setView('viewRoute');
   }, [setRoutes, allHolds]);
 
-  const navigateRoute = useCallback((direction) => {
+  const commitNavigation = useCallback((direction) => {
     if (!viewingRoute || viewRouteOrder.length === 0) return;
-    const currentIdx = viewRouteOrder.indexOf(viewingRoute.id);
-    if (currentIdx === -1) return;
-    const nextIdx = currentIdx + (direction === 'next' ? 1 : -1);
-    if (nextIdx < 0 || nextIdx >= viewRouteOrder.length) return;
-    const nextId = viewRouteOrder[nextIdx];
-    const nextRoute = routes.find(r => r.id === nextId);
-    if (!nextRoute) return;
+    const idx = viewRouteOrder.indexOf(viewingRoute.id);
+    if (idx === -1) return;
+    const targetIdx = idx + (direction === 'next' ? 1 : -1);
+    if (targetIdx < 0 || targetIdx >= viewRouteOrder.length) return;
+    const target = routes.find(r => r.id === viewRouteOrder[targetIdx]);
+    if (!target) return;
 
     const screenW = window.innerWidth;
-    const outX    = direction === 'next' ? -screenW : screenW;   // slide current OFF this way
-    const inFromX = direction === 'next' ?  screenW : -screenW;  // new card starts here
+    const gap = 40;
+    const fullShift = (direction === 'next' ? -1 : 1) * (screenW + gap);
 
-    // Phase A: slide current content off-screen
-    setSwipeTransition('slide');
-    setSwipeDx(outX);
+    // Mount neighbours and animate the track
+    setCarouselActive(true);
+    setTransitionMode('slide');
+    setSwipeDx(fullShift);
 
-    // After slide-out completes, swap route and snap to opposite edge
+    // After the 0.28s animation completes, swap the active route and instantly reset
     setTimeout(() => {
-      setSwipeTransition('none');
-      setSwipeDx(inFromX);
-      viewRoute(nextRoute, viewRouteOrder);
-
-      // Phase B: next frame, animate from opposite edge back to 0
+      // Switch to no-transition so the reset is invisible
+      setTransitionMode('none');
+      viewRoute(target, viewRouteOrder);
+      setSwipeDx(0);
+      // Double-rAF: ensure the browser commits translateX(0) with transition:none
+      // BEFORE re-enabling the snap transition and unmounting neighbours.
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
-          setSwipeTransition('slide');
-          setSwipeDx(0);
+          setTransitionMode('snap');
+          setCarouselActive(false);
         });
       });
-    }, 220);
+    }, 280);
   }, [viewingRoute, viewRouteOrder, routes, viewRoute]);
 
   const startEditRoute = useCallback((route) => {
@@ -1502,7 +1504,6 @@ export default function App() {
     return [...types];
   }, [holdSelection, allHolds]);
 
-  const isBoard      = view === 'board' || view === 'create' || view === 'viewRoute';
   const isHoldEditor = view === 'addHold' || view === 'editHold' || view === 'holdSelect';
   const isHome       = view === 'board';
 
@@ -1510,7 +1511,8 @@ export default function App() {
   const handleSwipeStart = (e) => {
     if (view !== 'viewRoute' || isBoardZoomed || viewRouteOrder.length === 0) return;
     if (e.touches.length !== 1) return;
-    if (swipeTransition === 'slide') return; // ignore during mid-flight navigation animation
+    // transitionMode === 'slide' means a commit animation is in progress — ignore
+    if (transitionMode === 'slide') return;
     swipeRef.current = {
       startX: e.touches[0].clientX,
       startY: e.touches[0].clientY,
@@ -1518,7 +1520,7 @@ export default function App() {
       engaged: false,
       active: true,
     };
-    setSwipeTransition('none'); // follow finger 1:1 once engaged
+    setTransitionMode('none'); // follow finger 1:1 before engagement confirmed
   };
 
   const handleSwipeMove = (e) => {
@@ -1534,6 +1536,7 @@ export default function App() {
         return;
       }
       swipeRef.current.engaged = true;
+      setCarouselActive(true); // mount neighbours now that we know it's a horizontal swipe
     }
     // Rubber-band at edges
     const idx = viewRouteOrder.indexOf(viewingRoute?.id);
@@ -1558,14 +1561,15 @@ export default function App() {
         (direction === 'next' && idx >= 0 && idx < viewRouteOrder.length - 1) ||
         (direction === 'prev' && idx > 0);
       if (hasNeighbour) {
-        // navigateRoute handles the full slide-out/swap/slide-in from here
-        navigateRoute(direction);
+        commitNavigation(direction);
         return;
       }
     }
-    // Not committed, or at end of list — snap back to 0 with easing
-    setSwipeTransition('snap');
+    // Not committed, or at edge — snap back to 0 with easing
+    setTransitionMode('snap');
     setSwipeDx(0);
+    // Unmount neighbours after the snap-back animation completes
+    setTimeout(() => setCarouselActive(false), 220);
   };
 
   // Show auth screen until session resolves
@@ -1587,13 +1591,7 @@ export default function App() {
       onTouchEnd={handleSwipeEnd}
       onTouchCancel={handleSwipeEnd}
     >
-      <div style={{
-        transform: view === 'viewRoute' ? `translateX(${swipeDx}px)` : 'none',
-        transition:
-          swipeTransition === 'none'  ? 'none'
-          : swipeTransition === 'slide' ? 'transform 0.22s ease-out'
-                                        : 'transform 0.2s ease-out',
-      }}>
+      <div>
       {/* ── Header ── */}
       <header style={{
         padding: isHome ? '20px 16px 24px' : '10px 16px 8px',
@@ -1702,23 +1700,19 @@ export default function App() {
         </nav>
       </header>
 
-      {/* ── Board views ── */}
-      {isBoard && (
+      {/* ── Board views (board + create modes only) ── */}
+      {(view === 'board' || view === 'create') && (
         <BoardView
           holds={allHolds}
           selection={holdSelection}
-          onHoldTap={view === 'create' ? handleHoldTap : (holdDataMode && view === 'viewRoute') ? (id) => {
-            // Only allow tapping holds that are in the route
-            if (viewingRoute?.holds?.[id]) setInspectedRouteHoldId(prev => prev === id ? null : id);
-          } : undefined}
+          onHoldTap={view === 'create' ? handleHoldTap : undefined}
           onBoardClick={view === 'board' ? () => { resetCreate(); setView('create'); } : undefined}
-          interactive={view === 'create' || (view === 'viewRoute' && holdDataMode)}
-          dimBoard={view === 'viewRoute'}
+          interactive={view === 'create'}
+          dimBoard={false}
           imgSrc={imgSrc}
           imgSrcSet={imgSrcSet}
           imgSizes={imgSizes}
-          holdSnapshots={view === 'viewRoute' && viewingRoute ? viewingRoute.holdSnapshots : null}
-          boardRegion={holdsData.boardRegion}
+          holdSnapshots={null}
           onZoomChange={setIsBoardZoomed}
         >
           {/* Create mode: mode selector + hold counts */}
@@ -1804,181 +1798,132 @@ export default function App() {
               </div>
             </div>
           )}
-
-          {/* View route header */}
-          {view === 'viewRoute' && viewingRoute && (
-            <ViewRouteHeader
-              route={viewingRoute}
-              sent={userRouteData[viewingRoute.id]?.sent || false}
-              flashed={userRouteData[viewingRoute.id]?.flashed || false}
-              attempted={userRouteData[viewingRoute.id]?.attempted || false}
-              angleSends={userRouteData[viewingRoute.id]?.angleSends || []}
-              angleFlashes={userRouteData[viewingRoute.id]?.angleFlashes || []}
-              angleAttempts={userRouteData[viewingRoute.id]?.angleAttempts || []}
-              isCreator={viewingRoute.creatorId === user?.id}
-              canEdit={viewingRoute.creatorId === user?.id || (isAdmin && (settings.adminMode ?? 'climber') === 'admin')}
-              grades={grades}
-              gradeSystem={settings.gradeSystem}
-              playlists={playlists}
-              settings={settings}
-              allHolds={allHolds}
-              communityGrades={communityGrades[viewingRoute.id] || null}
-              myGradeSuggestions={userRouteData[viewingRoute.id]?.gradeSuggestions || {}}
-              onSuggestGrade={(headline, angles) => suggestGrade(viewingRoute.id, headline, angles)}
-              onAcceptGrade={(grade, angle) => acceptGradeSuggestion(viewingRoute.id, grade, angle)}
-              onEdit={() => startEditRoute(viewingRoute)}
-              onClose={() => { setHoldSelection({}); setViewingRoute(null); setShowRouteTags(false); setHoldDataMode(false); setInspectedRouteHoldId(null); setIsBoardZoomed(false); setSwipeDx(0); setSwipeTransition('snap'); setView('routes'); }}
-              onDelete={() => deleteRoute(viewingRoute.id)}
-              onToggleSent={() => cycleSentState(viewingRoute.id)}
-              onAddAngleGrade={(angle, grade) => addAngleGrade(viewingRoute.id, angle, grade)}
-              onRemoveAngleGrade={(angle) => removeAngleGrade(viewingRoute.id, angle)}
-              onSetHeadline={(angle, grade) => setHeadlineAngleGrade(viewingRoute.id, angle, grade)}
-              onToggleAngleSent={(angle) => cycleAngleSentState(viewingRoute.id, angle)}
-              onAddToPlaylist={(plId) => addRouteToPlaylist(viewingRoute.id, plId)}
-              onCreatePlaylist={createPlaylist}
-              showTagsBelow={false}
-            />
-          )}
-
         </BoardView>
       )}
 
-      {/* Hold Info toggle + Show more row + info card — below board when viewing a route */}
+      {/* ── Carousel — viewRoute ── */}
       {view === 'viewRoute' && viewingRoute && (() => {
-        const routeHoldIds = Object.keys(viewingRoute.holds || {});
-        const inspectedHold = inspectedRouteHoldId ? allHolds.find(h => h.id === inspectedRouteHoldId) : null;
-        const hasTagData = viewingRoute.holdTypes?.length > 0 || viewingRoute.techniques?.length > 0 || viewingRoute.styles?.length > 0;
-        const toggleBtnStyle = (active) => ({
-          padding: '5px 10px', borderRadius: '8px', fontSize: '11px', fontWeight: 700,
-          cursor: 'pointer', lineHeight: 1, whiteSpace: 'nowrap',
-          border: active ? '1.5px solid var(--accent)' : '1.5px solid rgba(26,10,0,0.12)',
-          background: active ? 'var(--accent-dim)' : 'rgba(255,255,255,0.6)',
-          color: active ? 'var(--accent)' : 'var(--text-secondary)',
-        });
+        const gap = 40;
+        // Prev/next neighbours from the ordered list
+        const currentIdx = viewRouteOrder.indexOf(viewingRoute.id);
+        const prevRoute = currentIdx > 0
+          ? routes.find(r => r.id === viewRouteOrder[currentIdx - 1])
+          : null;
+        const nextRoute = currentIdx >= 0 && currentIdx < viewRouteOrder.length - 1
+          ? routes.find(r => r.id === viewRouteOrder[currentIdx + 1])
+          : null;
+
+        // Shared close handler — resets all viewRoute state
+        const handleClose = () => {
+          setHoldSelection({});
+          setViewingRoute(null);
+          setShowRouteTags(false);
+          setHoldDataMode(false);
+          setInspectedRouteHoldId(null);
+          setIsBoardZoomed(false);
+          setSwipeDx(0);
+          setTransitionMode('snap');
+          setCarouselActive(false);
+          setView('routes');
+        };
+
+        // Shared props passed to all RouteViewCard instances
+        const sharedCardProps = {
+          user, isAdmin, settings, grades, allHolds, playlists,
+          imgSrc, imgSrcSet, imgSizes,
+          userRouteData, communityRatings, communityGrades,
+          profilesById, displayName,
+          onClose: handleClose,
+          onEdit: startEditRoute,
+          onDelete: deleteRoute,
+          onToggleSent: cycleSentState,
+          onSuggestGrade: suggestGrade,
+          onAcceptGrade: acceptGradeSuggestion,
+          onAddAngleGrade: addAngleGrade,
+          onRemoveAngleGrade: removeAngleGrade,
+          onSetHeadline: setHeadlineAngleGrade,
+          onToggleAngleSent: cycleAngleSentState,
+          onAddToPlaylist: addRouteToPlaylist,
+          onCreatePlaylist: createPlaylist,
+          onMarkAttempted: markAttempted,
+          onHoldTap: handleHoldTap,
+          handleEditHold,
+          setHoldEditorSource,
+          hasChevronBar: viewRouteOrder.length > 0,
+          ViewRouteHeader,
+        };
+
         return (
-          <div style={{ padding: '0 12px 4px' }}>
-            {/* Toggle row — Show more (left) + Hold Info (right) */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: inspectedHold ? '8px' : '0' }}>
-              {hasTagData ? (
-                <button onClick={() => setShowRouteTags(prev => !prev)} style={toggleBtnStyle(showRouteTags)}>
-                  {showRouteTags ? '▾ Show less' : '▸ Show more'}
-                </button>
-              ) : <div />}
-              <button
-                onClick={() => { setHoldDataMode(prev => !prev); setInspectedRouteHoldId(null); }}
-                style={toggleBtnStyle(holdDataMode)}
-              >
-                Hold Info
-              </button>
-            </div>
-            {/* Info card when a hold is tapped */}
-            {holdDataMode && inspectedHold && (() => {
-              const holdColor = HOLD_COLOR_DOT[inspectedHold.color] || '#888';
-              const types = inspectedHold.holdTypes?.length > 0 ? inspectedHold.holdTypes.join(' · ') : 'No types set';
-              const pos = inspectedHold.positivity || 0;
-              const posLabel = pos === 0 ? 'Neutral' : pos > 0 ? `+${pos} Positive` : `${pos} Slopey`;
-              return (
+          <div style={{ position: 'relative', overflow: 'hidden', width: '100%' }}>
+            <div style={{
+              position: 'relative',
+              transform: `translateX(${swipeDx}px)`,
+              transition:
+                transitionMode === 'none'  ? 'none'
+                : transitionMode === 'slide' ? 'transform 0.28s ease-out'
+                                             : 'transform 0.2s ease-out',
+              willChange: 'transform',
+            }}>
+              {/* Current card — always rendered, in document flow (drives wrapper height) */}
+              <RouteViewCard
+                route={viewingRoute}
+                isInteractive={true}
+                holdSelection={holdSelection}
+                holdDataMode={holdDataMode}
+                setHoldDataMode={setHoldDataMode}
+                inspectedRouteHoldId={inspectedRouteHoldId}
+                setInspectedRouteHoldId={setInspectedRouteHoldId}
+                showRouteTags={showRouteTags}
+                setShowRouteTags={setShowRouteTags}
+                onZoomChange={setIsBoardZoomed}
+                {...sharedCardProps}
+              />
+
+              {/* Prev card — absolutely positioned to the left */}
+              {carouselActive && prevRoute && (
                 <div style={{
-                  padding: '10px 12px', borderRadius: '10px', marginBottom: '4px',
-                  background: 'var(--bg-card)', border: '1px solid var(--border)',
-                  boxShadow: '0 2px 8px rgba(26,10,0,0.06)',
+                  position: 'absolute', top: 0, left: `calc(-100% - ${gap}px)`,
+                  width: '100%',
                 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                    <span style={{
-                      width: '12px', height: '12px', borderRadius: '50%', flexShrink: 0,
-                      background: holdColor, border: '1.5px solid rgba(26,10,0,0.15)',
-                    }} />
-                    <span style={{ fontWeight: 700, fontSize: '13px', flex: 1 }}>
-                      {inspectedHold.name || `Hold ${inspectedHold.id}`}
-                    </span>
-                    <button onClick={() => setInspectedRouteHoldId(null)} style={{
-                      background: 'none', border: 'none', cursor: 'pointer',
-                      color: 'var(--text-muted)', fontSize: '16px', padding: '0 2px', lineHeight: 1,
-                    }}>✕</button>
-                  </div>
-                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '8px' }}>
-                    <span>{types}</span>
-                    <span style={{ color: 'var(--accent)', fontWeight: 600 }}>{posLabel}</span>
-                    {inspectedHold.color && <span style={{ textTransform: 'capitalize' }}>{inspectedHold.color}</span>}
-                    {inspectedHold.material && <span>{inspectedHold.material}</span>}
-                  </div>
-                  <button
-                    onClick={() => {
-                      setHoldEditorSource('viewRoute');
-                      handleEditHold(inspectedHold, 'viewRoute');
-                    }}
-                    style={{
-                      padding: '5px 14px', borderRadius: '6px', fontSize: '11px', fontWeight: 700,
-                      cursor: 'pointer', border: 'none',
-                      background: 'var(--accent)', color: '#fff',
-                    }}
-                  >
-                    Edit Hold
-                  </button>
+                  <RouteViewCard
+                    route={prevRoute}
+                    isInteractive={false}
+                    holdSelection={prevRoute.holds || {}}
+                    holdDataMode={false}
+                    setHoldDataMode={() => {}}
+                    inspectedRouteHoldId={null}
+                    setInspectedRouteHoldId={() => {}}
+                    showRouteTags={false}
+                    setShowRouteTags={() => {}}
+                    {...sharedCardProps}
+                  />
                 </div>
-              );
-            })()}
-            {holdDataMode && !inspectedHold && (
-              <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontStyle: 'italic', padding: '2px 0 4px' }}>
-                Tap a hold to view its data
-              </div>
-            )}
-            {/* Expandable tag data — shown when Show more is active */}
-            {hasTagData && showRouteTags && (
-              <div style={{ paddingTop: '6px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {viewingRoute.holdTypes?.length > 0 && (
-                  <div>
-                    <div style={{ fontSize: '9px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px' }}>Hold Types</div>
-                    <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
-                      {viewingRoute.holdTypes.map(tag => (
-                        <span key={tag} style={{ padding: '3px 10px', borderRadius: '8px', background: 'rgba(26,10,0,0.06)', border: '1px solid rgba(26,10,0,0.08)', fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 500 }}>{tag}</span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {viewingRoute.techniques?.length > 0 && (
-                  <div>
-                    <div style={{ fontSize: '9px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px' }}>Techniques</div>
-                    <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
-                      {viewingRoute.techniques.map(tag => (
-                        <span key={tag} style={{ padding: '3px 10px', borderRadius: '8px', background: 'rgba(26,10,0,0.06)', border: '1px solid rgba(26,10,0,0.08)', fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 500 }}>{tag}</span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {viewingRoute.styles?.length > 0 && (
-                  <div>
-                    <div style={{ fontSize: '9px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px' }}>Style</div>
-                    <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
-                      {viewingRoute.styles.map(tag => (
-                        <span key={tag} style={{ padding: '3px 10px', borderRadius: '8px', background: 'rgba(26,10,0,0.06)', border: '1px solid rgba(26,10,0,0.08)', fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 500 }}>{tag}</span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
+              )}
+
+              {/* Next card — absolutely positioned to the right */}
+              {carouselActive && nextRoute && (
+                <div style={{
+                  position: 'absolute', top: 0, left: `calc(100% + ${gap}px)`,
+                  width: '100%',
+                }}>
+                  <RouteViewCard
+                    route={nextRoute}
+                    isInteractive={false}
+                    holdSelection={nextRoute.holds || {}}
+                    holdDataMode={false}
+                    setHoldDataMode={() => {}}
+                    inspectedRouteHoldId={null}
+                    setInspectedRouteHoldId={() => {}}
+                    showRouteTags={false}
+                    setShowRouteTags={() => {}}
+                    {...sharedCardProps}
+                  />
+                </div>
+              )}
+            </div>
           </div>
         );
       })()}
-
-      {/* Comments section — below route info when viewing a route */}
-      {view === 'viewRoute' && viewingRoute && (
-        <Suspense fallback={<div style={{ padding: '12px', fontSize: 12, color: 'rgba(26,10,0,0.4)' }}>Loading comments…</div>}>
-          <div style={{ paddingBottom: viewRouteOrder.length > 0 ? '80px' : '0px' }}>
-          <CommentsSection
-            routeId={viewingRoute.id}
-            routeCreatorId={viewingRoute.creatorId}
-            currentUserId={user?.id}
-            currentUserDisplayName={displayName}
-            profilesById={profilesById}
-            isAdmin={isAdmin}
-            onMarkAttempted={() => markAttempted(viewingRoute.id)}
-          />
-          </div>
-        </Suspense>
-      )}
-
 
       <Suspense fallback={<div style={{ padding: '40px 16px', textAlign: 'center', color: '#1A0A00', opacity: 0.4, fontSize: 13 }}>Loading...</div>}>
       {/* ── Route form (below board in create mode) ── */}
@@ -2185,7 +2130,7 @@ export default function App() {
             pointerEvents: 'none', zIndex: 100,
           }}>
             <button
-              onClick={() => navigateRoute('prev')}
+              onClick={() => commitNavigation('prev')}
               disabled={!canPrev}
               style={{
                 pointerEvents: 'auto',
@@ -2207,7 +2152,7 @@ export default function App() {
               {idx + 1} / {viewRouteOrder.length}
             </div>
             <button
-              onClick={() => navigateRoute('next')}
+              onClick={() => commitNavigation('next')}
               disabled={!canNext}
               style={{
                 pointerEvents: 'auto',
