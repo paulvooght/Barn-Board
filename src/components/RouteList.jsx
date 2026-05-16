@@ -857,7 +857,7 @@ export default function RouteList({
               communityRating={cr[route.id]?.avg || 0}
               ratingCount={cr[route.id]?.count || 0}
               communityGrade={cg[route.id]?.headline?.consensus || null}
-              onView={() => onViewRoute(route)}
+              onView={() => onViewRoute(route, sorted.map(r => r.id))}
               onRate={(rating) => onRateRoute(route.id, rating)}
               onToggleSent={() => onToggleSent(route.id)}
               missingHoldCount={getMissingHoldCount(route, holdIdSet)}

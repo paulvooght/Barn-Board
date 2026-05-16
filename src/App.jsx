@@ -549,6 +549,10 @@ export default function App() {
   const [showRouteTags, setShowRouteTags]   = useState(false);
   const [holdDataMode, setHoldDataMode]     = useState(false);  // route view: tap holds to see metadata
   const [inspectedRouteHoldId, setInspectedRouteHoldId] = useState(null);
+  const [viewRouteOrder, setViewRouteOrder] = useState([]); // ordered route IDs matching active filter/sort when route was opened
+  const [isBoardZoomed, setIsBoardZoomed]   = useState(false);
+  const swipeRef = useRef({ startX: 0, startY: 0, dx: 0, engaged: false, active: false });
+  const [swipeDx, setSwipeDx] = useState(0);
 
   // Route form state
   const [routeName, setRouteName]   = useState('');
@@ -857,7 +861,8 @@ export default function App() {
     setView('routes');
   }, [routeName, routeGrade, routeAngle, setter, description, youtubeUrl, holdTypes, techniques, styles, setRoutes, resetCreate, editingRouteId, logRouteCreated, allHolds, flushRoutesToSupabase]);
 
-  const viewRoute = useCallback((route) => {
+  const viewRoute = useCallback((route, orderedIds) => {
+    if (orderedIds !== undefined) setViewRouteOrder(orderedIds);
     // Defensive: always read the latest version of this route from localStorage
     // to guard against stale route objects passed from list
     setRoutes(prev => {
@@ -895,6 +900,17 @@ export default function App() {
     });
     setView('viewRoute');
   }, [setRoutes, allHolds]);
+
+  const navigateRoute = useCallback((direction) => {
+    if (!viewingRoute || viewRouteOrder.length === 0) return;
+    const currentIdx = viewRouteOrder.indexOf(viewingRoute.id);
+    if (currentIdx === -1) return;
+    const nextIdx = currentIdx + (direction === 'next' ? 1 : -1);
+    if (nextIdx < 0 || nextIdx >= viewRouteOrder.length) return;
+    const nextId = viewRouteOrder[nextIdx];
+    const nextRoute = routes.find(r => r.id === nextId);
+    if (nextRoute) viewRoute(nextRoute, viewRouteOrder); // preserve order
+  }, [viewingRoute, viewRouteOrder, routes, viewRoute]);
 
   const startEditRoute = useCallback((route) => {
     // Read fresh route from state to ensure holds are current
@@ -1466,6 +1482,54 @@ export default function App() {
   const isHoldEditor = view === 'addHold' || view === 'editHold' || view === 'holdSelect';
   const isHome       = view === 'board';
 
+  // ─── Swipe navigation handlers (viewRoute) ────────────────────────
+  const handleSwipeStart = (e) => {
+    if (view !== 'viewRoute' || isBoardZoomed || viewRouteOrder.length === 0) return;
+    if (e.touches.length !== 1) return;
+    swipeRef.current = {
+      startX: e.touches[0].clientX,
+      startY: e.touches[0].clientY,
+      dx: 0,
+      engaged: false,
+      active: true,
+    };
+  };
+
+  const handleSwipeMove = (e) => {
+    if (!swipeRef.current.active) return;
+    const t = e.touches[0];
+    const dx = t.clientX - swipeRef.current.startX;
+    const dy = t.clientY - swipeRef.current.startY;
+    if (!swipeRef.current.engaged) {
+      if (Math.abs(dx) < 12) return;
+      if (Math.abs(dx) < Math.abs(dy) * 1.3) {
+        // Vertical scroll intent — abandon swipe
+        swipeRef.current.active = false;
+        return;
+      }
+      swipeRef.current.engaged = true;
+    }
+    // Rubber-band at edges
+    const idx = viewRouteOrder.indexOf(viewingRoute?.id);
+    const atStart = idx <= 0 && dx > 0;
+    const atEnd = idx >= viewRouteOrder.length - 1 && dx < 0;
+    const adjusted = (atStart || atEnd) ? dx * 0.3 : dx;
+    swipeRef.current.dx = adjusted;
+    setSwipeDx(adjusted);
+    e.preventDefault();
+  };
+
+  const handleSwipeEnd = () => {
+    if (!swipeRef.current.active) return;
+    const dx = swipeRef.current.dx;
+    swipeRef.current.active = false;
+    swipeRef.current.engaged = false;
+    if (Math.abs(dx) > window.innerWidth * 0.25) {
+      navigateRoute(dx < 0 ? 'next' : 'prev');
+    }
+    setSwipeDx(0);
+  };
+
   // Show auth screen until session resolves
   if (authLoading) return (
     <div style={{ minHeight: '100vh', background: '#FFAB94', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -1479,7 +1543,16 @@ export default function App() {
   );
 
   return (
-    <>
+    <div
+      onTouchStart={handleSwipeStart}
+      onTouchMove={handleSwipeMove}
+      onTouchEnd={handleSwipeEnd}
+      onTouchCancel={handleSwipeEnd}
+    >
+      <div style={{
+        transform: view === 'viewRoute' ? `translateX(${swipeDx}px)` : 'none',
+        transition: swipeDx === 0 ? 'transform 0.2s ease-out' : 'none',
+      }}>
       {/* ── Header ── */}
       <header style={{
         padding: isHome ? '20px 16px 24px' : '10px 16px 8px',
@@ -1605,6 +1678,7 @@ export default function App() {
           imgSizes={imgSizes}
           holdSnapshots={view === 'viewRoute' && viewingRoute ? viewingRoute.holdSnapshots : null}
           boardRegion={holdsData.boardRegion}
+          onZoomChange={setIsBoardZoomed}
         >
           {/* Create mode: mode selector + hold counts */}
           {view === 'create' && (
@@ -1712,7 +1786,7 @@ export default function App() {
               onSuggestGrade={(headline, angles) => suggestGrade(viewingRoute.id, headline, angles)}
               onAcceptGrade={(grade, angle) => acceptGradeSuggestion(viewingRoute.id, grade, angle)}
               onEdit={() => startEditRoute(viewingRoute)}
-              onClose={() => { setHoldSelection({}); setViewingRoute(null); setShowRouteTags(false); setHoldDataMode(false); setInspectedRouteHoldId(null); setView('routes'); }}
+              onClose={() => { setHoldSelection({}); setViewingRoute(null); setShowRouteTags(false); setHoldDataMode(false); setInspectedRouteHoldId(null); setIsBoardZoomed(false); setSwipeDx(0); setView('routes'); }}
               onDelete={() => deleteRoute(viewingRoute.id)}
               onToggleSent={() => cycleSentState(viewingRoute.id)}
               onAddAngleGrade={(angle, grade) => addAngleGrade(viewingRoute.id, angle, grade)}
@@ -1850,6 +1924,7 @@ export default function App() {
       {/* Comments section — below route info when viewing a route */}
       {view === 'viewRoute' && viewingRoute && (
         <Suspense fallback={<div style={{ padding: '12px', fontSize: 12, color: 'rgba(26,10,0,0.4)' }}>Loading comments…</div>}>
+          <div style={{ paddingBottom: viewRouteOrder.length > 0 ? '80px' : '0px' }}>
           <CommentsSection
             routeId={viewingRoute.id}
             routeCreatorId={viewingRoute.creatorId}
@@ -1859,6 +1934,7 @@ export default function App() {
             isAdmin={isAdmin}
             onMarkAttempted={() => markAttempted(viewingRoute.id)}
           />
+          </div>
         </Suspense>
       )}
 
@@ -2052,7 +2128,62 @@ export default function App() {
         />
       )}
       </Suspense>
-    </>
+      </div>
+
+      {/* ── Route navigation chevron bar (fixed bottom) ── */}
+      {view === 'viewRoute' && viewingRoute && viewRouteOrder.length > 0 && (() => {
+        const idx = viewRouteOrder.indexOf(viewingRoute.id);
+        const canPrev = idx > 0;
+        const canNext = idx >= 0 && idx < viewRouteOrder.length - 1;
+        return (
+          <div style={{
+            position: 'fixed', left: 0, right: 0, bottom: 0,
+            display: 'flex', justifyContent: 'center', alignItems: 'center',
+            gap: '16px', padding: '10px 16px calc(10px + env(safe-area-inset-bottom))',
+            background: 'linear-gradient(to bottom, rgba(255,171,148,0) 0%, rgba(255,171,148,0.95) 30%, rgba(255,171,148,1) 100%)',
+            pointerEvents: 'none', zIndex: 100,
+          }}>
+            <button
+              onClick={() => navigateRoute('prev')}
+              disabled={!canPrev}
+              style={{
+                pointerEvents: 'auto',
+                width: '44px', height: '44px', borderRadius: '50%',
+                border: 'none', cursor: canPrev ? 'pointer' : 'not-allowed',
+                background: canPrev ? 'var(--bg-card)' : 'rgba(255,255,255,0.4)',
+                color: canPrev ? 'var(--text-primary)' : 'rgba(26,10,0,0.3)',
+                fontSize: '22px', fontWeight: 700, lineHeight: 1,
+                boxShadow: canPrev ? '0 2px 8px rgba(26,10,0,0.15)' : 'none',
+                fontFamily: 'var(--font-heading)',
+              }}
+              aria-label="Previous route"
+            >‹</button>
+            <div style={{
+              pointerEvents: 'auto',
+              fontSize: '12px', fontWeight: 700, fontFamily: 'var(--font-heading)',
+              color: 'var(--text-secondary)', minWidth: '50px', textAlign: 'center',
+            }}>
+              {idx + 1} / {viewRouteOrder.length}
+            </div>
+            <button
+              onClick={() => navigateRoute('next')}
+              disabled={!canNext}
+              style={{
+                pointerEvents: 'auto',
+                width: '44px', height: '44px', borderRadius: '50%',
+                border: 'none', cursor: canNext ? 'pointer' : 'not-allowed',
+                background: canNext ? 'var(--bg-card)' : 'rgba(255,255,255,0.4)',
+                color: canNext ? 'var(--text-primary)' : 'rgba(26,10,0,0.3)',
+                fontSize: '22px', fontWeight: 700, lineHeight: 1,
+                boxShadow: canNext ? '0 2px 8px rgba(26,10,0,0.15)' : 'none',
+                fontFamily: 'var(--font-heading)',
+              }}
+              aria-label="Next route"
+            >›</button>
+          </div>
+        );
+      })()}
+    </div>
   );
 }
 

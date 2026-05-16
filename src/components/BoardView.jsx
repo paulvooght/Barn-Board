@@ -11,7 +11,7 @@ function clamp(val, min, max) {
 
 const { boardRegion } = holdsData;
 
-export default function BoardView({ holds, selection, onHoldTap, onBoardClick, interactive, dimBoard, imgSrc, imgSrcSet, imgSizes, holdSnapshots, children }) {
+export default function BoardView({ holds, selection, onHoldTap, onBoardClick, interactive, dimBoard, imgSrc, imgSrcSet, imgSizes, holdSnapshots, onZoomChange, children }) {
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imgSize, setImgSize]         = useState({ w: 1200, h: 900 });
   const [scale, setScale]             = useState(1);
@@ -32,6 +32,7 @@ export default function BoardView({ holds, selection, onHoldTap, onBoardClick, i
 
   useEffect(() => { scaleRef.current = scale; }, [scale]);
   useEffect(() => { panRef.current = pan; }, [pan]);
+  useEffect(() => { onZoomChange?.(scale > 1); }, [scale, onZoomChange]);
 
   useEffect(() => {
     const img = imgRef.current;
