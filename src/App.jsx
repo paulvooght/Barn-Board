@@ -553,6 +553,7 @@ export default function App() {
   const [isBoardZoomed, setIsBoardZoomed]   = useState(false);
   const swipeRef = useRef({ startX: 0, startY: 0, dx: 0, engaged: false, active: false });
   const [swipeDx, setSwipeDx] = useState(0);
+  const [swipeTransition, setSwipeTransition] = useState('snap'); // 'none' | 'snap' | 'slide'
 
   // Route form state
   const [routeName, setRouteName]   = useState('');
@@ -909,7 +910,30 @@ export default function App() {
     if (nextIdx < 0 || nextIdx >= viewRouteOrder.length) return;
     const nextId = viewRouteOrder[nextIdx];
     const nextRoute = routes.find(r => r.id === nextId);
-    if (nextRoute) viewRoute(nextRoute, viewRouteOrder); // preserve order
+    if (!nextRoute) return;
+
+    const screenW = window.innerWidth;
+    const outX    = direction === 'next' ? -screenW : screenW;   // slide current OFF this way
+    const inFromX = direction === 'next' ?  screenW : -screenW;  // new card starts here
+
+    // Phase A: slide current content off-screen
+    setSwipeTransition('slide');
+    setSwipeDx(outX);
+
+    // After slide-out completes, swap route and snap to opposite edge
+    setTimeout(() => {
+      setSwipeTransition('none');
+      setSwipeDx(inFromX);
+      viewRoute(nextRoute, viewRouteOrder);
+
+      // Phase B: next frame, animate from opposite edge back to 0
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          setSwipeTransition('slide');
+          setSwipeDx(0);
+        });
+      });
+    }, 220);
   }, [viewingRoute, viewRouteOrder, routes, viewRoute]);
 
   const startEditRoute = useCallback((route) => {
@@ -1486,6 +1510,7 @@ export default function App() {
   const handleSwipeStart = (e) => {
     if (view !== 'viewRoute' || isBoardZoomed || viewRouteOrder.length === 0) return;
     if (e.touches.length !== 1) return;
+    if (swipeTransition === 'slide') return; // ignore during mid-flight navigation animation
     swipeRef.current = {
       startX: e.touches[0].clientX,
       startY: e.touches[0].clientY,
@@ -1493,6 +1518,7 @@ export default function App() {
       engaged: false,
       active: true,
     };
+    setSwipeTransition('none'); // follow finger 1:1 once engaged
   };
 
   const handleSwipeMove = (e) => {
@@ -1524,9 +1550,21 @@ export default function App() {
     const dx = swipeRef.current.dx;
     swipeRef.current.active = false;
     swipeRef.current.engaged = false;
+
     if (Math.abs(dx) > window.innerWidth * 0.25) {
-      navigateRoute(dx < 0 ? 'next' : 'prev');
+      const direction = dx < 0 ? 'next' : 'prev';
+      const idx = viewRouteOrder.indexOf(viewingRoute?.id);
+      const hasNeighbour =
+        (direction === 'next' && idx >= 0 && idx < viewRouteOrder.length - 1) ||
+        (direction === 'prev' && idx > 0);
+      if (hasNeighbour) {
+        // navigateRoute handles the full slide-out/swap/slide-in from here
+        navigateRoute(direction);
+        return;
+      }
     }
+    // Not committed, or at end of list — snap back to 0 with easing
+    setSwipeTransition('snap');
     setSwipeDx(0);
   };
 
@@ -1551,7 +1589,10 @@ export default function App() {
     >
       <div style={{
         transform: view === 'viewRoute' ? `translateX(${swipeDx}px)` : 'none',
-        transition: swipeDx === 0 ? 'transform 0.2s ease-out' : 'none',
+        transition:
+          swipeTransition === 'none'  ? 'none'
+          : swipeTransition === 'slide' ? 'transform 0.22s ease-out'
+                                        : 'transform 0.2s ease-out',
       }}>
       {/* ── Header ── */}
       <header style={{
@@ -1786,7 +1827,7 @@ export default function App() {
               onSuggestGrade={(headline, angles) => suggestGrade(viewingRoute.id, headline, angles)}
               onAcceptGrade={(grade, angle) => acceptGradeSuggestion(viewingRoute.id, grade, angle)}
               onEdit={() => startEditRoute(viewingRoute)}
-              onClose={() => { setHoldSelection({}); setViewingRoute(null); setShowRouteTags(false); setHoldDataMode(false); setInspectedRouteHoldId(null); setIsBoardZoomed(false); setSwipeDx(0); setView('routes'); }}
+              onClose={() => { setHoldSelection({}); setViewingRoute(null); setShowRouteTags(false); setHoldDataMode(false); setInspectedRouteHoldId(null); setIsBoardZoomed(false); setSwipeDx(0); setSwipeTransition('snap'); setView('routes'); }}
               onDelete={() => deleteRoute(viewingRoute.id)}
               onToggleSent={() => cycleSentState(viewingRoute.id)}
               onAddAngleGrade={(angle, grade) => addAngleGrade(viewingRoute.id, angle, grade)}
