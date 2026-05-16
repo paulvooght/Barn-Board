@@ -19,7 +19,7 @@ import { useCustomHolds } from './hooks/useCustomHolds';
 import holdsData from './data/holds.json';
 import { supabase, ADMIN_EMAIL } from './lib/supabase';
 import { V_GRADES, FONT_GRADES, V_GRADE_INDEX, FONT_GRADE_INDEX, SELECTION_MODES, MODE_COLORS, MODE_LABELS, BOARD_SPECS, HOLD_COLOR_DOT, HOLD_TYPE_SINGULAR_TO_PLURAL, convertGrade, displayGrade, getYouTubeId, getYouTubeThumbnail, DEFAULT_BOARD_IMAGE, DEFAULT_BOARD_SRCSET, DEFAULT_BOARD_SIZES } from './utils/constants';
-import { enqueueRoute, dequeueRoute, recordFailure, getPendingRoutes, getPendingRouteIds } from './utils/pendingRouteSync';
+import { enqueueRoute, dequeueRoute, recordFailure, getPendingRoutes } from './utils/pendingRouteSync';
 
 // Strip per-user fields before writing to the shared routes table
 function stripPerUserFields(route) {
@@ -46,9 +46,6 @@ export default function App() {
 
   // ─── Persistent state ─────────────────────────────────────────────
   const [routes, setRoutes]       = useState([]);
-  // IDs of routes whose creation/edit hasn't been confirmed by Supabase yet.
-  // Backed by localStorage (see pendingRouteSync.js) so it survives reloads.
-  const [pendingRouteIds, setPendingRouteIds] = useState(() => new Set(getPendingRouteIds()));
   const [sessions, setSessions]   = useState([]);
   const [playlists, setPlaylists] = useState([]);
   const [userRouteData, setUserRouteData] = useState({}); // { [routeId]: { sent, flashed, rating, angleSends, gradeSuggestions, attempted } }
@@ -160,14 +157,7 @@ export default function App() {
       // Drop any pending entries the cloud now confirms (a successful flush
       // from another device, or our own retry that we never saw the response for).
       const confirmedIds = Object.keys(pending).filter(id => cloudIds.has(id));
-      if (confirmedIds.length > 0) {
-        for (const id of confirmedIds) dequeueRoute(id);
-        setPendingRouteIds(prev => {
-          const next = new Set(prev);
-          for (const id of confirmedIds) next.delete(id);
-          return next;
-        });
-      }
+      for (const id of confirmedIds) dequeueRoute(id);
     } else if (isFirstLoad) {
       // First login — migrate any localStorage routes (sequential, runs once ever)
       const local = JSON.parse(localStorage.getItem('barnboard_routes') || '[]');
@@ -363,11 +353,6 @@ export default function App() {
       }
     } else if (pendingIds) {
       for (const id of pendingIds) dequeueRoute(id);
-      setPendingRouteIds(prev => {
-        const next = new Set(prev);
-        for (const id of pendingIds) next.delete(id);
-        return next;
-      });
     }
   }, [user]);
 
@@ -865,12 +850,6 @@ export default function App() {
     // keeps the route alive so the next retry can save it.
     if (savedRouteSnapshot) {
       enqueueRoute(savedRouteSnapshot);
-      setPendingRouteIds(prev => {
-        if (prev.has(savedRouteId)) return prev;
-        const next = new Set(prev);
-        next.add(savedRouteId);
-        return next;
-      });
     }
     // Flush to Supabase immediately — don't wait for debounce
     if (savedRoutes) flushRoutesToSupabase(savedRoutes, savedRouteId ? [savedRouteId] : null);
@@ -1045,12 +1024,6 @@ export default function App() {
     })));
     // Drop from pending queue — otherwise a retry would re-create the deleted route.
     dequeueRoute(routeId);
-    setPendingRouteIds(prev => {
-      if (!prev.has(routeId)) return prev;
-      const next = new Set(prev);
-      next.delete(routeId);
-      return next;
-    });
     setHoldSelection({});
     setViewingRoute(null);
     setView('routes');
@@ -1935,7 +1908,6 @@ export default function App() {
           onTogglePlaylistShared={togglePlaylistShared}
           onAddSharedPlaylist={addSharedPlaylist}
           userId={user?.id}
-          pendingRouteIds={pendingRouteIds}
         />
       )}
 

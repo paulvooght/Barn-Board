@@ -19,7 +19,6 @@ export default function RouteList({
   onViewRoute, onCreateNew, onRateRoute, onToggleSent,
   onCreatePlaylist, onDeletePlaylist, onRenamePlaylist, onRemoveRouteFromPlaylist,
   onFetchSharedPlaylists, onTogglePlaylistShared, onAddSharedPlaylist, userId,
-  pendingRouteIds,
 }) {
   const urd = userRouteData || {};
   const cr = communityRatings || {};
@@ -862,7 +861,6 @@ export default function RouteList({
               onRate={(rating) => onRateRoute(route.id, rating)}
               onToggleSent={() => onToggleSent(route.id)}
               missingHoldCount={getMissingHoldCount(route, holdIdSet)}
-              isPendingSync={pendingRouteIds ? pendingRouteIds.has(route.id) : false}
               onRemoveFromPlaylist={activePlaylist ? () => onRemoveRouteFromPlaylist(route.id, activePlaylist) : null}
             />
           ))
