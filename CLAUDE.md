@@ -210,6 +210,17 @@ VITE_ADMIN_EMAIL=user@email.com
 ```
 Set in **Vercel project settings** for production AND `.env.local` for local dev.
 
+### Optional: dev autologin for UI verification
+The app supports a dev-only autologin so Claude (or any developer) can run preview-based UI tests without manually signing in past the Supabase auth screen. Add these to `.env.local` (NEVER to Vercel — they're hard-disabled in production by `import.meta.env.DEV`):
+```
+VITE_DEV_AUTOLOGIN=true
+VITE_DEV_AUTOLOGIN_EMAIL=claude-test@…   # a dedicated test user
+VITE_DEV_AUTOLOGIN_PASSWORD=…
+```
+Implementation lives in `src/App.jsx` (auth `useEffect`). One-time setup: create a dedicated test user in Supabase (Auth → Users → Add user → tick "Auto Confirm User"), then add the three vars above.
+
+**For Claude doing UI verification in a worktree:** `.env.local` is gitignored, so a fresh worktree won't have it. Copy from the main repo: `cp /path/to/main/repo/.env.local /path/to/worktree/.env.local`. Vite reads env vars at startup, so restart `npm run dev` after copying.
+
 ## Running & Deploying
 ```bash
 npm install
