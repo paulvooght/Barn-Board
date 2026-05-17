@@ -408,6 +408,15 @@ function perspectiveWarp(sourceCanvas, srcQuad, dstQuad, outW, outH) {
   const outImgData = outCtx.createImageData(W, H);
   const dst = outImgData.data;
 
+  // Pre-fill with brand yellow (#FFE800) so uncovered pixels don't render as
+  // black in the JPEG export (JPEG has no alpha → transparent becomes black).
+  for (let i = 0; i < dst.length; i += 4) {
+    dst[i] = 0xFF;
+    dst[i + 1] = 0xE8;
+    dst[i + 2] = 0x00;
+    dst[i + 3] = 0xFF;
+  }
+
   // Compute inverse homography: maps output coords → source coords
   const Hi = computeHomography(dstQuad, srcQuad);
 
