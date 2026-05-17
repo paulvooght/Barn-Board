@@ -84,7 +84,13 @@
       "Bash(git add *)",
       "Bash(git commit -m ' *)",
       "Bash(git push *)",
-      "Bash(gh pr *)"
+      "Bash(gh pr *)",
+      "Bash(cp \"/Users/paul/Documents/Claude Code/Barn Board App/barn-board/public/Barn_Set_01_V7.jpg\" public/ && ls -la public/Barn_Set_01_V7.jpg)",
+      "Bash(ls -la \"/Users/paul/Documents/Claude Code/Barn Board App/barn-board/.env.local\" 2>&1)",
+      "Bash(cp \"/Users/paul/Documents/Claude Code/Barn Board App/barn-board/.env.local\" .env.local && grep -E \"^\\(VITE_SUPABASE_URL|SUPABASE_SERVICE_ROLE_KEY|VITE_ADMIN_EMAIL|VITE_SUPABASE_ANON_KEY\\)=\" .env.local | sed 's/=.*/=<set>/')",
+      "Bash(python3 scripts/detect_holds.py --image Barn_Set_01_V7.jpg --output src/data/holds_new.json)",
+      "Bash(python3 -c \"import json; d=json.load\\(open\\('src/data/holds.json'\\)\\); print\\('current holds:', len\\(d['holds']\\)\\); print\\('boardRegion:', d['boardRegion']\\); print\\('imageFile:', d['imageFile']\\)\")",
+      "Bash(python3 scripts/merge_holds.py src/data/holds.json src/data/holds_new.json --dry-run)"
     ]
   }
 }
