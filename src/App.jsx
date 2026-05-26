@@ -2057,6 +2057,8 @@ export default function App() {
             session={editingSession}
             allSessions={sessions}
             gradeSystem={settings.gradeSystem}
+            routes={routes}
+            playlists={playlists}
             onSave={updateSession}
             onCancel={() => { setEditingSession(null); setView('settings'); }}
           />

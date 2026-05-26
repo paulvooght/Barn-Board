@@ -45,16 +45,291 @@ function sessionOrdinalInWeek(session, allSessions) {
 }
 
 /**
+ * Get the available angles for a route.
+ * Uses route.angleGrades entries if present, else falls back to [route.angle] if set, else [].
+ */
+function getRouteAngles(route) {
+  if (!route) return [];
+  if (route.angleGrades && route.angleGrades.length > 0) {
+    return route.angleGrades.map(ag => ag.angle);
+  }
+  if (route.angle) return [route.angle];
+  return [];
+}
+
+/**
+ * Lookup the grade for a given angle on a route.
+ * Falls back to route.grade if not found in angleGrades.
+ */
+function gradeForAngle(route, angle) {
+  if (route.angleGrades) {
+    const ag = route.angleGrades.find(a => a.angle === angle);
+    if (ag) return ag.grade;
+  }
+  return route.grade;
+}
+
+// ── 3-segment toggle states ──
+const TOGGLE_STATES = ['tried', 'sent', 'flashed'];
+
+/**
+ * RoutePickerModal
+ *
+ * Props:
+ *   routes       — full routes array
+ *   playlists    — user's playlists [{ id, name, routeIds: [...] }]
+ *   loggedIds    — Set of route IDs already logged (to show as already added)
+ *   onPick(routeId) — called when user taps a route
+ *   onClose()    — close without picking
+ */
+function RoutePickerModal({ routes, playlists = [], loggedIds = new Set(), onPick, onClose }) {
+  const [tab, setTab] = useState('all'); // 'all' | 'playlists'
+  const [searchText, setSearchText] = useState('');
+  const [gradeFilter, setGradeFilter] = useState('');
+  const [selectedPlaylist, setSelectedPlaylist] = useState(null);
+
+  const filteredRoutes = useMemo(() => {
+    let list = routes || [];
+    if (selectedPlaylist) {
+      const pl = playlists.find(p => p.id === selectedPlaylist);
+      if (pl) list = list.filter(r => pl.routeIds.includes(r.id));
+    }
+    if (searchText.trim()) {
+      const q = searchText.trim().toLowerCase();
+      list = list.filter(r =>
+        (r.name || '').toLowerCase().includes(q) ||
+        (r.grade || '').toLowerCase().includes(q)
+      );
+    }
+    if (gradeFilter) {
+      list = list.filter(r => r.grade === gradeFilter);
+    }
+    return list;
+  }, [routes, playlists, selectedPlaylist, searchText, gradeFilter]);
+
+  const allGrades = useMemo(() => {
+    const g = new Set((routes || []).map(r => r.grade).filter(Boolean));
+    return [...g].sort();
+  }, [routes]);
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 1000,
+        background: 'rgba(26,10,0,0.5)',
+        display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
+      }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          background: 'var(--bg-page, #FFAB94)',
+          borderRadius: '18px 18px 0 0',
+          width: '100%', maxWidth: '480px',
+          maxHeight: '85vh',
+          display: 'flex', flexDirection: 'column',
+          padding: '0 0 env(safe-area-inset-bottom, 0)',
+        }}
+      >
+        {/* Handle bar */}
+        <div style={{ display: 'flex', justifyContent: 'center', padding: '10px 0 6px' }}>
+          <div style={{ width: '40px', height: '4px', borderRadius: '2px', background: 'rgba(26,10,0,0.2)' }} />
+        </div>
+
+        {/* Header */}
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '4px 16px 12px',
+        }}>
+          <div style={{ fontSize: '15px', fontWeight: 800, fontFamily: 'var(--font-heading)', color: 'var(--text-primary)' }}>
+            Add Route
+          </div>
+          <button
+            onClick={onClose}
+            style={{
+              width: '30px', height: '30px', borderRadius: '50%', border: 'none',
+              background: 'rgba(26,10,0,0.1)', color: 'var(--text-primary)',
+              fontSize: '16px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}
+          >
+            ✕
+          </button>
+        </div>
+
+        {/* Tabs */}
+        <div style={{ display: 'flex', padding: '0 16px', gap: '6px', marginBottom: '10px' }}>
+          {['all', 'playlists'].map(t => (
+            <button
+              key={t}
+              onClick={() => { setTab(t); setSelectedPlaylist(null); setSearchText(''); setGradeFilter(''); }}
+              style={{
+                padding: '7px 16px', borderRadius: '8px', border: 'none',
+                fontSize: '13px', fontWeight: 700, cursor: 'pointer',
+                background: tab === t ? 'var(--accent)' : 'rgba(26,10,0,0.08)',
+                color: tab === t ? '#fff' : 'var(--text-secondary)',
+                transition: 'background 0.15s, color 0.15s',
+              }}
+            >
+              {t === 'all' ? 'All Routes' : 'Playlists'}
+            </button>
+          ))}
+        </div>
+
+        {tab === 'all' && (
+          /* Search + filter row */
+          <div style={{ display: 'flex', gap: '8px', padding: '0 16px', marginBottom: '10px' }}>
+            <input
+              type="text"
+              placeholder="Search name or grade…"
+              value={searchText}
+              onChange={e => setSearchText(e.target.value)}
+              style={{
+                flex: 1, padding: '8px 12px', borderRadius: '8px', fontSize: '13px',
+                border: '1.5px solid rgba(26,10,0,0.15)', background: 'rgba(255,255,255,0.7)',
+                color: 'var(--text-primary)', outline: 'none', fontFamily: 'inherit',
+              }}
+            />
+            <select
+              value={gradeFilter}
+              onChange={e => setGradeFilter(e.target.value)}
+              style={{
+                padding: '8px 10px', borderRadius: '8px', fontSize: '13px',
+                border: '1.5px solid rgba(26,10,0,0.15)', background: 'rgba(255,255,255,0.7)',
+                color: 'var(--text-primary)', fontFamily: 'inherit', outline: 'none', cursor: 'pointer',
+              }}
+            >
+              <option value="">All grades</option>
+              {allGrades.map(g => <option key={g} value={g}>{g}</option>)}
+            </select>
+          </div>
+        )}
+
+        {tab === 'playlists' && !selectedPlaylist && (
+          <div style={{ padding: '0 16px 8px', fontSize: '11px', color: 'var(--text-dim)' }}>
+            Tap a playlist to see its routes.
+          </div>
+        )}
+
+        {tab === 'playlists' && selectedPlaylist && (
+          <div style={{ padding: '0 16px 8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <button
+              onClick={() => setSelectedPlaylist(null)}
+              style={{
+                padding: '5px 12px', borderRadius: '7px', fontSize: '12px', fontWeight: 700,
+                border: '1.5px solid rgba(26,10,0,0.15)', background: 'transparent',
+                color: 'var(--text-secondary)', cursor: 'pointer',
+              }}
+            >
+              ← Back
+            </button>
+            <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>
+              {playlists.find(p => p.id === selectedPlaylist)?.name || 'Playlist'}
+            </div>
+          </div>
+        )}
+
+        {/* Scrollable list */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '0 16px 16px' }}>
+          {tab === 'playlists' && !selectedPlaylist ? (
+            playlists.length === 0 ? (
+              <div style={{ padding: '20px 0', textAlign: 'center', fontSize: '13px', color: 'var(--text-dim)' }}>
+                No playlists yet.
+              </div>
+            ) : (
+              playlists.map(pl => (
+                <button
+                  key={pl.id}
+                  onClick={() => setSelectedPlaylist(pl.id)}
+                  style={{
+                    width: '100%', padding: '12px 14px', borderRadius: '10px',
+                    background: 'var(--bg-card)', border: '1px solid var(--border)',
+                    marginBottom: '8px', cursor: 'pointer', textAlign: 'left',
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  }}
+                >
+                  <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>{pl.name}</span>
+                  <span style={{ fontSize: '12px', color: 'var(--text-dim)' }}>
+                    {(routes || []).filter(r => pl.routeIds.includes(r.id)).length} routes →
+                  </span>
+                </button>
+              ))
+            )
+          ) : (
+            filteredRoutes.length === 0 ? (
+              <div style={{ padding: '20px 0', textAlign: 'center', fontSize: '13px', color: 'var(--text-dim)' }}>
+                No routes found.
+              </div>
+            ) : (
+              filteredRoutes.map(route => {
+                const alreadyLogged = loggedIds.has(route.id);
+                return (
+                  <button
+                    key={route.id}
+                    onClick={() => !alreadyLogged && onPick(route.id)}
+                    disabled={alreadyLogged}
+                    style={{
+                      width: '100%', padding: '10px 12px', borderRadius: '10px',
+                      background: 'var(--bg-card)', border: `1px solid ${alreadyLogged ? 'rgba(26,10,0,0.08)' : 'var(--border)'}`,
+                      marginBottom: '7px', cursor: alreadyLogged ? 'default' : 'pointer',
+                      textAlign: 'left', display: 'flex', alignItems: 'center', gap: '10px',
+                      opacity: alreadyLogged ? 0.5 : 1,
+                    }}
+                  >
+                    <span style={{
+                      background: 'var(--yellow)', color: 'var(--text-primary)',
+                      padding: '3px 10px', borderRadius: '8px',
+                      fontSize: '13px', fontWeight: 800, fontFamily: 'var(--font-heading)',
+                      flexShrink: 0,
+                    }}>
+                      {route.grade}
+                    </span>
+                    <span style={{
+                      flex: 1, fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)',
+                      whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                    }}>
+                      {route.name || 'Unnamed route'}
+                    </span>
+                    {route.angle && (
+                      <span style={{ fontSize: '11px', color: 'var(--accent)', fontFamily: 'var(--font-heading)', fontWeight: 700, flexShrink: 0 }}>
+                        {route.angle}°
+                      </span>
+                    )}
+                    {alreadyLogged && (
+                      <span style={{ fontSize: '10px', color: 'var(--text-dim)', flexShrink: 0 }}>added</span>
+                    )}
+                  </button>
+                );
+              })
+            )
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
  * SessionEditView
  *
  * Props:
  *   session       — the session object being edited
  *   allSessions   — full sessions array (for week-ordinal computation)
  *   gradeSystem   — 'V' or 'Font'
+ *   routes        — full routes array (for route picker and name/grade display)
+ *   playlists     — user's playlists
  *   onSave(updatedSession) — called with the modified session
  *   onCancel()    — back without saving
  */
-export default function SessionEditView({ session, allSessions = [], gradeSystem = 'V', onSave, onCancel }) {
+export default function SessionEditView({
+  session,
+  allSessions = [],
+  gradeSystem = 'V',
+  routes = [],
+  playlists = [],
+  onSave,
+  onCancel,
+}) {
   // ── Derive initial duration ──
   const initDurationMs = session.startTime && session.endTime
     ? Math.max(0, new Date(session.endTime) - new Date(session.startTime))
@@ -68,6 +343,57 @@ export default function SessionEditView({ session, allSessions = [], gradeSystem
   const [anglesClimbed, setAnglesClimbed] = useState(session.anglesClimbed || []);
   const [warmupGrade, setWarmupGrade] = useState(session.warmupGrade || '');
 
+  // ── Route log state ──
+  // Derive initial logged route IDs (union of all 4 sources)
+  const initLoggedIds = useMemo(() => {
+    const ids = new Set([
+      ...(session.routesAttempted || []),
+      ...(session.routesSent || []),
+      ...((session.sends || []).map(s => s.routeId)),
+      ...(session.flashedRouteIds || []),
+    ]);
+    return [...ids];
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- intentionally only on mount
+
+  // Per-route status: { [routeId]: 'tried' | 'sent' | 'flashed' }
+  const initStatus = useMemo(() => {
+    const map = {};
+    initLoggedIds.forEach(id => {
+      if ((session.flashedRouteIds || []).includes(id)) {
+        map[id] = 'flashed';
+      } else if ((session.routesSent || []).includes(id) || (session.sends || []).some(s => s.routeId === id)) {
+        map[id] = 'sent';
+      } else {
+        map[id] = 'tried';
+      }
+    });
+    return map;
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- intentionally only on mount
+
+  // Per-route selected angles: { [routeId]: number[] }
+  // For sent/flashed, sourced from sends[]; for tried, sourced from angleAttempts[]
+  const initAngles = useMemo(() => {
+    const map = {};
+    initLoggedIds.forEach(id => {
+      const status = initStatus[id];
+      if (status === 'sent' || status === 'flashed') {
+        const angles = (session.sends || [])
+          .filter(s => s.routeId === id && s.angle != null)
+          .map(s => s.angle);
+        map[id] = [...new Set(angles)];
+      } else {
+        const entry = (session.angleAttempts || []).find(a => a.routeId === id);
+        map[id] = entry ? entry.angles : [];
+      }
+    });
+    return map;
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- intentionally only on mount
+
+  const [loggedIds, setLoggedIds] = useState(initLoggedIds);
+  const [routeStatus, setRouteStatus] = useState(initStatus);
+  const [routeAngles, setRouteAngles] = useState(initAngles);
+  const [showPicker, setShowPicker] = useState(false);
+
   // ── Header info ──
   const sessionDate = new Date(session.startTime);
   const dateLabel = formatDate(sessionDate);
@@ -79,10 +405,17 @@ export default function SessionEditView({ session, allSessions = [], gradeSystem
   // ── Grades for warmup dropdown ──
   const grades = gradeSystem === 'Font' ? FONT_GRADES : V_GRADES;
 
+  // ── Routes lookup map ──
+  const routeMap = useMemo(() => {
+    const m = {};
+    (routes || []).forEach(r => { m[r.id] = r; });
+    return m;
+  }, [routes]);
+
   // ── Dirty check ──
   const isDirty = useMemo(() => {
     const newDurationMs = (hours * 3600 + mins * 60) * 1000;
-    const origDurationMs = Math.round(initDurationMs / 60000) * 60000; // original rounded to minute
+    const origDurationMs = Math.round(initDurationMs / 60000) * 60000;
     const newDurRounded = Math.round(newDurationMs / 60000) * 60000;
     if (newDurRounded !== origDurationMs) return true;
 
@@ -92,8 +425,67 @@ export default function SessionEditView({ session, allSessions = [], gradeSystem
 
     if ((warmupGrade || '') !== (session.warmupGrade || '')) return true;
 
+    // Check route log changes
+    const origLoggedIds = new Set([
+      ...(session.routesAttempted || []),
+      ...(session.routesSent || []),
+      ...((session.sends || []).map(s => s.routeId)),
+      ...(session.flashedRouteIds || []),
+    ]);
+    if (loggedIds.length !== origLoggedIds.size) return true;
+    if (loggedIds.some(id => !origLoggedIds.has(id))) return true;
+
+    // Check statuses
+    for (const id of loggedIds) {
+      if (routeStatus[id] !== initStatus[id]) return true;
+      const origA = (initAngles[id] || []).slice().sort((a, b) => a - b);
+      const newA = (routeAngles[id] || []).slice().sort((a, b) => a - b);
+      if (JSON.stringify(origA) !== JSON.stringify(newA)) return true;
+    }
+
     return false;
-  }, [hours, mins, anglesClimbed, warmupGrade, session, initDurationMs]);
+  }, [hours, mins, anglesClimbed, warmupGrade, loggedIds, routeStatus, routeAngles, session, initDurationMs, initStatus, initAngles]);
+
+  // ── Route log handlers ──
+
+  const handleAddRoute = (routeId) => {
+    if (loggedIds.includes(routeId)) return; // no-op if already logged
+    setLoggedIds(prev => [...prev, routeId]);
+    setRouteStatus(prev => ({ ...prev, [routeId]: 'tried' }));
+    setRouteAngles(prev => ({ ...prev, [routeId]: [] }));
+    setShowPicker(false);
+  };
+
+  const handleRemoveRoute = (routeId) => {
+    setLoggedIds(prev => prev.filter(id => id !== routeId));
+    setRouteStatus(prev => {
+      const next = { ...prev };
+      delete next[routeId];
+      return next;
+    });
+    setRouteAngles(prev => {
+      const next = { ...prev };
+      delete next[routeId];
+      return next;
+    });
+  };
+
+  const handleToggleStatus = (routeId) => {
+    setRouteStatus(prev => {
+      const cur = prev[routeId] || 'tried';
+      const idx = TOGGLE_STATES.indexOf(cur);
+      const next = TOGGLE_STATES[(idx + 1) % TOGGLE_STATES.length];
+      return { ...prev, [routeId]: next };
+    });
+  };
+
+  const handleToggleAngleForRoute = (routeId, angle) => {
+    setRouteAngles(prev => {
+      const cur = prev[routeId] || [];
+      const next = cur.includes(angle) ? cur.filter(a => a !== angle) : [...cur, angle];
+      return { ...prev, [routeId]: next };
+    });
+  };
 
   // ── Save handler ──
   const handleSave = () => {
@@ -101,24 +493,72 @@ export default function SessionEditView({ session, allSessions = [], gradeSystem
       ? new Date(new Date(session.startTime).getTime() + (hours * 3600 + mins * 60) * 1000).toISOString()
       : session.endTime;
 
+    // Rebuild route arrays from local state
+    const newRoutesAttempted = [...loggedIds]; // all logged routes were attempted
+    const newRoutesSent = loggedIds.filter(id => routeStatus[id] === 'sent' || routeStatus[id] === 'flashed');
+    const newFlashedIds = loggedIds.filter(id => routeStatus[id] === 'flashed');
+
+    // Rebuild sends array
+    const timestampForSends = session.endTime || session.startTime || new Date().toISOString();
+    const newSends = [];
+    newRoutesSent.forEach(routeId => {
+      const route = routeMap[routeId];
+      const selectedAngles = routeAngles[routeId] || [];
+      if (selectedAngles.length > 0) {
+        selectedAngles.forEach(angle => {
+          newSends.push({
+            routeId,
+            angle,
+            grade: route ? gradeForAngle(route, angle) : (route?.grade || ''),
+            time: timestampForSends,
+          });
+        });
+      } else {
+        newSends.push({
+          routeId,
+          angle: null,
+          grade: route?.grade || '',
+          time: timestampForSends,
+        });
+      }
+    });
+
+    // Rebuild angleAttempts for tried-only routes
+    const newAngleAttempts = loggedIds
+      .filter(id => routeStatus[id] === 'tried')
+      .map(id => ({ routeId: id, angles: routeAngles[id] || [] }))
+      .filter(a => a.angles.length > 0); // omit empty to avoid polluting stored JSON
+
     const updated = {
       ...session,
       endTime: newEndTime,
       anglesClimbed,
       warmupGrade: warmupGrade || undefined,
+      routesAttempted: newRoutesAttempted,
+      routesSent: newRoutesSent,
+      sends: newSends,
+      flashedRouteIds: newFlashedIds.length > 0 ? newFlashedIds : undefined,
+      angleAttempts: newAngleAttempts.length > 0 ? newAngleAttempts : undefined,
     };
-    // Clean up undefined fields so they don't pollute stored JSON
+    // Clean up undefined fields
     if (!updated.warmupGrade) delete updated.warmupGrade;
+    if (!updated.flashedRouteIds) delete updated.flashedRouteIds;
+    if (!updated.angleAttempts) delete updated.angleAttempts;
 
     onSave(updated);
   };
 
-  // ── Angle chip toggle ──
+  // ── Angle chip toggle (session-level) ──
   const toggleAngle = (angle) => {
     setAnglesClimbed(prev =>
       prev.includes(angle) ? prev.filter(a => a !== angle) : [...prev, angle]
     );
   };
+
+  // ── Status label/color helpers ──
+  const statusLabel = { tried: 'Tried', sent: 'Sent', flashed: 'Flash' };
+  const statusBg = { tried: 'rgba(26,10,0,0.08)', sent: '#22d3ee', flashed: '#FFCB47' };
+  const statusColor = { tried: 'var(--text-secondary)', sent: '#fff', flashed: '#1A0A00' };
 
   return (
     <div style={{ padding: '16px 12px', maxWidth: '480px', margin: '0 auto' }}>
@@ -240,7 +680,133 @@ export default function SessionEditView({ session, allSessions = [], gradeSystem
         </select>
       </div>
 
-      {/* ── Routes (next task) ── */}
+      {/* ── Routes Logged card ── */}
+      <div style={{ ...cardStyle, marginTop: '12px' }}>
+        <div style={sectionTitleStyle}>Routes Logged</div>
+
+        {loggedIds.length === 0 && (
+          <div style={{ fontSize: '12px', color: 'var(--text-dim)', marginBottom: '10px', lineHeight: 1.4 }}>
+            No routes logged on this session yet.
+          </div>
+        )}
+
+        {loggedIds.map(routeId => {
+          const route = routeMap[routeId];
+          const status = routeStatus[routeId] || 'tried';
+          const selectedAngles = routeAngles[routeId] || [];
+          const availableAngles = route ? getRouteAngles(route) : [];
+
+          return (
+            <div
+              key={routeId}
+              style={{
+                borderRadius: '10px', padding: '10px 12px', marginBottom: '8px',
+                background: 'rgba(255,255,255,0.5)',
+                border: '1px solid rgba(26,10,0,0.1)',
+              }}
+            >
+              {/* Top row: grade pill + name + trash */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                <span style={{
+                  background: 'var(--yellow)', color: 'var(--text-primary)',
+                  padding: '3px 10px', borderRadius: '8px',
+                  fontSize: '12px', fontWeight: 800, fontFamily: 'var(--font-heading)',
+                  flexShrink: 0,
+                }}>
+                  {route?.grade || '?'}
+                </span>
+                <span style={{
+                  flex: 1, fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)',
+                  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                }}>
+                  {route?.name || routeId}
+                </span>
+                <button
+                  onClick={() => handleRemoveRoute(routeId)}
+                  title="Remove from session"
+                  style={{
+                    width: '28px', height: '28px', borderRadius: '7px', border: 'none',
+                    background: 'rgba(220,50,50,0.1)', color: '#dc3232',
+                    fontSize: '14px', cursor: 'pointer', flexShrink: 0,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}
+                >
+                  🗑
+                </button>
+              </div>
+
+              {/* Status toggle row */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: availableAngles.length > 0 ? '8px' : '0' }}>
+                <div style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.5px', marginRight: '2px', textTransform: 'uppercase' }}>Status</div>
+                <div style={{
+                  display: 'flex', borderRadius: '8px', overflow: 'hidden',
+                  border: '1.5px solid rgba(26,10,0,0.12)',
+                }}>
+                  {TOGGLE_STATES.map(s => (
+                    <button
+                      key={s}
+                      onClick={() => {
+                        setRouteStatus(prev => ({ ...prev, [routeId]: s }));
+                      }}
+                      style={{
+                        padding: '7px 12px', border: 'none', cursor: 'pointer',
+                        fontSize: '12px', fontWeight: 700, minHeight: '36px',
+                        background: status === s ? statusBg[s] : 'rgba(255,255,255,0.4)',
+                        color: status === s ? statusColor[s] : 'var(--text-secondary)',
+                        transition: 'background 0.12s, color 0.12s',
+                        borderRight: s !== 'flashed' ? '1px solid rgba(26,10,0,0.08)' : 'none',
+                      }}
+                    >
+                      {statusLabel[s]}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Angle chips row — only if route has angles defined */}
+              {availableAngles.length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px', alignItems: 'center' }}>
+                  <div style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.5px', marginRight: '2px', textTransform: 'uppercase' }}>Angle</div>
+                  {availableAngles.map(angle => {
+                    const active = selectedAngles.includes(angle);
+                    return (
+                      <button
+                        key={angle}
+                        onClick={() => handleToggleAngleForRoute(routeId, angle)}
+                        style={{
+                          padding: '4px 10px', borderRadius: '7px', border: 'none',
+                          fontSize: '12px', fontWeight: 700, cursor: 'pointer',
+                          background: active ? 'var(--accent)' : 'rgba(26,10,0,0.07)',
+                          color: active ? '#fff' : 'var(--text-secondary)',
+                          fontFamily: 'var(--font-heading)',
+                          transition: 'background 0.12s, color 0.12s',
+                          minHeight: '32px',
+                        }}
+                      >
+                        {angle}°
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })}
+
+        {/* Add route button */}
+        <button
+          onClick={() => setShowPicker(true)}
+          style={{
+            width: '100%', padding: '10px', borderRadius: '9px',
+            border: '1.5px dashed rgba(26,10,0,0.2)', background: 'transparent',
+            color: 'var(--accent)', fontSize: '13px', fontWeight: 700, cursor: 'pointer',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+            marginTop: loggedIds.length > 0 ? '4px' : '0',
+          }}
+        >
+          + Add route
+        </button>
+      </div>
 
       {/* ── Action row ── */}
       <div style={{ display: 'flex', gap: '10px', marginTop: '24px', paddingBottom: '32px' }}>
@@ -269,6 +835,17 @@ export default function SessionEditView({ session, allSessions = [], gradeSystem
           Cancel
         </button>
       </div>
+
+      {/* ── Route picker modal ── */}
+      {showPicker && (
+        <RoutePickerModal
+          routes={routes}
+          playlists={playlists}
+          loggedIds={new Set(loggedIds)}
+          onPick={handleAddRoute}
+          onClose={() => setShowPicker(false)}
+        />
+      )}
     </div>
   );
 }
