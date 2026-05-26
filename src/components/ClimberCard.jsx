@@ -214,6 +214,39 @@ export default function ClimberCard({ stats, delta, gradeSystem, displayName, pe
   // ── 5 & 6. Composition sections (warm-up guarded) ────────────────────────
   const enoughData = stats.nonWarmupSendCount >= 3;
 
+  // ── Hardest send section (always shown when there's a top send) ─────────────
+  const hardestSendSection = stats.topGradeRoute ? (
+    <div style={{ marginBottom: '14px' }}>
+      <div style={sectionLabelStyle}>Hardest Send</div>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
+        <span style={{
+          fontSize: '18px',
+          fontWeight: 800,
+          fontFamily: 'var(--font-heading)',
+          color: 'var(--accent)',
+        }}>
+          {stats.topGradeRoute.grade}
+        </span>
+        {stats.topGradeRoute.name && (
+          <>
+            <span style={{ fontSize: '12px', color: 'var(--text-dim)' }}>—</span>
+            <span style={{
+              fontSize: '12px',
+              fontWeight: 600,
+              color: 'var(--text-primary)',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              maxWidth: '180px',
+            }}>
+              {stats.topGradeRoute.name}
+            </span>
+          </>
+        )}
+      </div>
+    </div>
+  ) : null;
+
   const topGradeSection = enoughData && stats.topGradePerHoldType.length > 0 ? (
     <div style={{ marginBottom: '14px' }}>
       <div style={sectionLabelStyle}>Top Grade Per Hold Type</div>
@@ -311,6 +344,7 @@ export default function ClimberCard({ stats, delta, gradeSystem, displayName, pe
       {timeBlock}
       {gradeRow}
       {activityRow}
+      {hardestSendSection}
       {topGradeSection}
       {compositionSection}
     </div>

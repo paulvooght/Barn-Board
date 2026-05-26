@@ -340,9 +340,18 @@ export function computeStats(sessions, routes, userRouteData, period, gradeSyste
 
   // Top grade in period (no warm-up filter — raw max)
   let topGradeIndex = -1;
+  let topGradeRoute = null;
   for (const send of periodSends) {
     const idx = getGradeIndex(send.grade, gradeSystem);
-    if (idx > topGradeIndex) topGradeIndex = idx;
+    if (idx > topGradeIndex) {
+      topGradeIndex = idx;
+      const route = safeRoutes.find(r => r.id === send.routeId);
+      topGradeRoute = {
+        grade: send.grade,
+        routeId: send.routeId,
+        name: route?.name || null,
+      };
+    }
   }
   const topGrade = topGradeIndex >= 0 ? gradeFromIndex(topGradeIndex, gradeSystem) : null;
 
@@ -455,6 +464,7 @@ export function computeStats(sessions, routes, userRouteData, period, gradeSyste
     // Grade
     topGrade,
     topGradeIndex,
+    topGradeRoute,
     avgGrade,
     avgGradeSampleSize,
 
