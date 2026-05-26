@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import PeriodPicker from './PeriodPicker';
 import ClimberCard from './ClimberCard';
 import HoldHeatMap from './HoldHeatMap';
-import SessionRollup from './SessionRollup';
+import UnfinishedBusinessCard from './UnfinishedBusinessCard';
 import {
   makePeriod,
   computeStats,
@@ -264,13 +264,11 @@ export default function SessionsView({
         />
       )}
 
-      {/* Session Rollup — sparkline, streaks, PRs, unfinished business */}
-      <SessionRollup
+      {/* Unfinished Business — routes tried but not yet sent (all-time) */}
+      <UnfinishedBusinessCard
         sessions={safeSessions}
         routes={safeRoutes}
         userRouteData={safeURD}
-        period={period}
-        gradeSystem={gradeSystem}
         profilesById={profilesById}
         onViewRoute={onViewRoute}
       />
