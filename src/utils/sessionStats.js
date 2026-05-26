@@ -277,8 +277,20 @@ export function getWarmupCeilingIndex(topIndex) {
 
 /**
  * Convenience: returns the ceiling index in one call.
+ *
+ * @param {Array}  sessions
+ * @param {string} gradeSystem
+ * @param {Object|null} [sessionOverride] — optional session object. If it has a
+ *   `warmupGrade` field, that grade index is used directly as the ceiling instead
+ *   of deriving one from the global top. Pass null/undefined to use the default
+ *   derived ceiling (backwards-compatible with two-arg callers).
  */
-export function getWarmupCeiling(sessions, gradeSystem) {
+export function getWarmupCeiling(sessions, gradeSystem, sessionOverride) {
+  // If the caller passed a specific session with a warmupGrade override, use it.
+  if (sessionOverride && sessionOverride.warmupGrade) {
+    const overrideIdx = getGradeIndex(sessionOverride.warmupGrade, gradeSystem);
+    if (overrideIdx >= 0) return overrideIdx;
+  }
   const top = getWarmupReferenceIndex(sessions, gradeSystem);
   if (top < 0) return -1;
   return getWarmupCeilingIndex(top);
@@ -362,8 +374,14 @@ export function computeStats(sessions, routes, userRouteData, period, gradeSyste
   }
 
   // ── Warm-up filter ────────────────────────────────────────────────────────
-  // ceiling is derived from all-time (or recent) top, not limited to period
-  const warmupCeiling = getWarmupCeiling(safeSessions, gradeSystem);
+  // For a single-session period: check if that session has a warmupGrade override.
+  // For all other periods: use the global derived ceiling (per-session overrides
+  // are too noisy to aggregate across multiple sessions).
+  let warmupCeilingSession = null;
+  if (period.type === 'session' && period.sessionId) {
+    warmupCeilingSession = safeSessions.find(s => s.id === period.sessionId) || null;
+  }
+  const warmupCeiling = getWarmupCeiling(safeSessions, gradeSystem, warmupCeilingSession);
 
   const nonWarmupSends = periodSends.filter(send => {
     if (warmupCeiling < 0) return true;

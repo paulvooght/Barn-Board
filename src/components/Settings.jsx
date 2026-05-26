@@ -11,7 +11,7 @@ import { supabase } from '../lib/supabase';
  *   displayName              — current user display name (string)
  *   onSaveDisplayName(name)  — async fn, throws on failure (e.g. duplicate name)
  */
-export default function Settings({ settings, updateSettings, allHolds, onSetupBoard, sessions = [], routes = [], isAdmin = true, userEmail, onSignOut, onViewSession, onUpdateBoardImage, currentImageName, displayName = '', onSaveDisplayName }) {
+export default function Settings({ settings, updateSettings, allHolds, onSetupBoard, sessions = [], routes = [], isAdmin = true, userEmail, onSignOut, onViewSession, onEditSession, onUpdateBoardImage, currentImageName, displayName = '', onSaveDisplayName }) {
   const totalHolds = allHolds.length;
   const [showChart, setShowChart] = useState(false);
   const [showSessions, setShowSessions] = useState(false);
@@ -429,74 +429,98 @@ export default function Settings({ settings, updateSettings, allHolds, onSetupBo
                 : null;
 
               return (
-                <button
+                <div
                   key={s.id}
-                  onClick={() => onViewSession && onViewSession(s)}
                   style={{
-                    display: 'flex', alignItems: 'center', gap: '10px',
-                    padding: '10px 12px', borderRadius: '10px',
-                    border: '1px solid rgba(26,10,0,0.08)',
-                    background: 'rgba(255,255,255,0.5)',
-                    cursor: 'pointer', textAlign: 'left', width: '100%',
+                    display: 'flex', alignItems: 'center', gap: '6px',
                   }}
                 >
-                  {/* Date */}
-                  <div style={{ minWidth: '52px' }}>
-                    <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)' }}>
-                      {start.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                  <button
+                    onClick={() => onViewSession && onViewSession(s)}
+                    style={{
+                      flex: 1, display: 'flex', alignItems: 'center', gap: '10px',
+                      padding: '10px 12px', borderRadius: '10px',
+                      border: '1px solid rgba(26,10,0,0.08)',
+                      background: 'rgba(255,255,255,0.5)',
+                      cursor: 'pointer', textAlign: 'left',
+                    }}
+                  >
+                    {/* Date */}
+                    <div style={{ minWidth: '52px' }}>
+                      <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)' }}>
+                        {start.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                      </div>
+                      <div style={{ fontSize: '9px', color: 'var(--text-dim)', fontFamily: 'var(--font-heading)' }}>
+                        {start.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+                      </div>
                     </div>
-                    <div style={{ fontSize: '9px', color: 'var(--text-dim)', fontFamily: 'var(--font-heading)' }}>
-                      {start.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+
+                    {/* Duration */}
+                    <div style={{
+                      fontSize: '14px', fontWeight: 800, fontFamily: 'var(--font-heading)',
+                      color: '#B85A48', minWidth: '44px',
+                    }}>
+                      {durationStr}
                     </div>
-                  </div>
 
-                  {/* Duration */}
-                  <div style={{
-                    fontSize: '14px', fontWeight: 800, fontFamily: 'var(--font-heading)',
-                    color: '#B85A48', minWidth: '44px',
-                  }}>
-                    {durationStr}
-                  </div>
+                    {/* Stats */}
+                    <div style={{ flex: 1, display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
+                      {sentCount > 0 && (
+                        <span style={{
+                          fontSize: '10px', fontWeight: 700, color: '#B85A48',
+                          background: 'rgba(212,112,90,0.15)', padding: '2px 7px', borderRadius: '6px',
+                        }}>
+                          {sentCount} sent
+                        </span>
+                      )}
+                      {createdCount > 0 && (
+                        <span style={{
+                          fontSize: '10px', fontWeight: 700, color: 'var(--accent)',
+                          background: 'rgba(0,71,255,0.08)', padding: '2px 7px', borderRadius: '6px',
+                        }}>
+                          {createdCount} new
+                        </span>
+                      )}
+                      {hardest && (
+                        <span style={{
+                          fontSize: '10px', fontWeight: 800, fontFamily: 'var(--font-heading)',
+                          color: 'var(--text-primary)', background: 'var(--yellow)',
+                          padding: '2px 7px', borderRadius: '6px',
+                        }}>
+                          {hardest.grade}
+                        </span>
+                      )}
+                      {anglesClimbed.length > 0 && (
+                        <span style={{
+                          fontSize: '9px', fontWeight: 600, color: 'var(--text-dim)',
+                        }}>
+                          {anglesClimbed.map(a => `${a}°`).join(', ')}
+                        </span>
+                      )}
+                    </div>
 
-                  {/* Stats */}
-                  <div style={{ flex: 1, display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
-                    {sentCount > 0 && (
-                      <span style={{
-                        fontSize: '10px', fontWeight: 700, color: '#B85A48',
-                        background: 'rgba(212,112,90,0.15)', padding: '2px 7px', borderRadius: '6px',
-                      }}>
-                        {sentCount} sent
-                      </span>
-                    )}
-                    {createdCount > 0 && (
-                      <span style={{
-                        fontSize: '10px', fontWeight: 700, color: 'var(--accent)',
-                        background: 'rgba(0,71,255,0.08)', padding: '2px 7px', borderRadius: '6px',
-                      }}>
-                        {createdCount} new
-                      </span>
-                    )}
-                    {hardest && (
-                      <span style={{
-                        fontSize: '10px', fontWeight: 800, fontFamily: 'var(--font-heading)',
-                        color: 'var(--text-primary)', background: 'var(--yellow)',
-                        padding: '2px 7px', borderRadius: '6px',
-                      }}>
-                        {hardest.grade}
-                      </span>
-                    )}
-                    {anglesClimbed.length > 0 && (
-                      <span style={{
-                        fontSize: '9px', fontWeight: 600, color: 'var(--text-dim)',
-                      }}>
-                        {anglesClimbed.map(a => `${a}°`).join(', ')}
-                      </span>
-                    )}
-                  </div>
+                    {/* Arrow */}
+                    <span style={{ fontSize: '12px', color: 'var(--text-dim)' }}>›</span>
+                  </button>
 
-                  {/* Arrow */}
-                  <span style={{ fontSize: '12px', color: 'var(--text-dim)' }}>›</span>
-                </button>
+                  {/* Pencil / Edit button */}
+                  {onEditSession && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onEditSession(s); }}
+                      title="Edit session"
+                      style={{
+                        width: '36px', height: '36px', borderRadius: '8px', flexShrink: 0,
+                        border: '1px solid rgba(0,71,255,0.2)',
+                        background: 'rgba(0,71,255,0.06)',
+                        color: 'var(--accent)', cursor: 'pointer',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontSize: '14px',
+                      }}
+                    >
+                      ✎
+                    </button>
+                  )}
+                </div>
               );
             })}
             {sessions.length > 20 && (

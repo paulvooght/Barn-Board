@@ -14,6 +14,7 @@ const SessionSummary = lazy(() => import('./components/SessionSummary'));
 const SessionsView = lazy(() => import('./components/SessionsView'));
 const AuthView = lazy(() => import('./components/AuthView'));
 const BoardImageUpdateView = lazy(() => import('./components/BoardImageUpdateView'));
+const SessionEditView = lazy(() => import('./components/SessionEditView'));
 import { useLocalStorage } from './hooks/useLocalStorage';
 import { useCustomHolds } from './hooks/useCustomHolds';
 import holdsData from './data/holds.json';
@@ -535,9 +536,28 @@ export default function App() {
     setPlaylists(prev => [...prev, newPl]);
   }, []);
 
+  // ─── Session edit handlers ─────────────────────────────────────────
+  const handleEditSession = useCallback((session) => {
+    setEditingSession(session);
+    setView('sessionEdit');
+  }, []);
+
+  const updateSession = useCallback((updatedSession) => {
+    let updated;
+    setSessions(prev => {
+      updated = prev.map(s => s.id === updatedSession.id ? updatedSession : s);
+      return updated;
+    });
+    // Flush immediately — don't wait for debounce
+    if (updated) flushSessionsToSupabase(updated);
+    setEditingSession(null);
+    setView('settings');
+  }, [setSessions, flushSessionsToSupabase]);
+
   // UI state
-  // view: board | create | routes | sessions | settings | viewRoute | addHold | editHold | setupBoard | sessionSummary
+  // view: board | create | routes | sessions | settings | viewRoute | addHold | editHold | setupBoard | sessionSummary | sessionEdit
   const [view, setView]                 = useState('board');
+  const [editingSession, setEditingSession] = useState(null);
   const [selectionMode, setSelectionMode] = useState(SELECTION_MODES.HAND);
   const [holdSelection, setHoldSelection] = useState({});
   const holdSelectionRef = useRef(holdSelection);
@@ -2023,10 +2043,24 @@ export default function App() {
           userEmail={user?.email}
           onSignOut={() => supabase.auth.signOut()}
           onViewSession={(session) => { setCompletedSession(session); setView('sessionSummary'); }}
+          onEditSession={handleEditSession}
           onUpdateBoardImage={() => setView('updateBoardImage')}
           displayName={displayName}
           onSaveDisplayName={saveDisplayName}
         />
+      )}
+
+      {/* ── Session Edit ── */}
+      {view === 'sessionEdit' && editingSession && (
+        <Suspense fallback={<div style={{ padding: '40px 16px', textAlign: 'center', color: '#1A0A00', opacity: 0.4, fontSize: 13 }}>Loading...</div>}>
+          <SessionEditView
+            session={editingSession}
+            allSessions={sessions}
+            gradeSystem={settings.gradeSystem}
+            onSave={updateSession}
+            onCancel={() => { setEditingSession(null); setView('settings'); }}
+          />
+        </Suspense>
       )}
 
       {/* ── Update Board Image wizard ── */}
