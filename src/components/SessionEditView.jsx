@@ -46,15 +46,17 @@ function sessionOrdinalInWeek(session, allSessions) {
 
 /**
  * Get the available angles for a route.
- * Uses route.angleGrades entries if present, else falls back to [route.angle] if set, else [].
+ * Union of route.angle (headline) and all route.angleGrades[].angle values,
+ * deduped and sorted ascending. Falls back to [] if neither is set.
  */
 function getRouteAngles(route) {
   if (!route) return [];
+  const set = new Set();
+  if (route.angle != null) set.add(route.angle);
   if (route.angleGrades && route.angleGrades.length > 0) {
-    return route.angleGrades.map(ag => ag.angle);
+    route.angleGrades.forEach(ag => { if (ag.angle != null) set.add(ag.angle); });
   }
-  if (route.angle) return [route.angle];
-  return [];
+  return [...set].sort((a, b) => a - b);
 }
 
 /**

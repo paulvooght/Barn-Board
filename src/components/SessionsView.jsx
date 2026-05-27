@@ -27,6 +27,7 @@ export default function SessionsView({
   allHolds,
   profilesById,
   onViewRoute,
+  onEditSession,
 }) {
   const safeSessions = sessions || [];
   const safeRoutes = routes || [];
@@ -251,6 +252,14 @@ export default function SessionsView({
         gradeSystem={gradeSystem}
         displayName={displayName}
         period={period}
+        onEditSession={
+          period?.type === 'session' && onEditSession
+            ? (() => {
+                const selectedSession = safeSessions.find(s => s.id === period.sessionId);
+                return selectedSession ? () => onEditSession(selectedSession) : null;
+              })()
+            : null
+        }
       />
 
       {/* Hold Heat Map */}

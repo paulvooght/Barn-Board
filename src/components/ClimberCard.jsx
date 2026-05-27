@@ -43,7 +43,7 @@ function formatMinutes(mins) {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export default function ClimberCard({ stats, delta, gradeSystem, displayName, period }) {
+export default function ClimberCard({ stats, delta, gradeSystem, displayName, period, onEditSession }) {
   if (!stats) return null;
 
   const cardStyle = {
@@ -337,9 +337,37 @@ export default function ClimberCard({ stats, delta, gradeSystem, displayName, pe
     }
   }
 
+  // ── Pencil button (session period only) ─────────────────────────────────
+  const pencilButton = (period?.type === 'session' && onEditSession) ? (
+    <button
+      onClick={onEditSession}
+      title="Edit session"
+      style={{
+        position: 'absolute',
+        top: '12px',
+        right: '12px',
+        width: '32px',
+        height: '32px',
+        borderRadius: '8px',
+        border: '1px solid rgba(0,71,255,0.2)',
+        background: 'rgba(0,71,255,0.06)',
+        color: 'var(--accent)',
+        cursor: 'pointer',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        fontSize: '14px',
+        flexShrink: 0,
+      }}
+    >
+      ✎
+    </button>
+  ) : null;
+
   // ── Assemble ─────────────────────────────────────────────────────────────
   return (
-    <div style={cardStyle}>
+    <div style={{ ...cardStyle, position: 'relative' }}>
+      {pencilButton}
       {headerRow}
       {timeBlock}
       {gradeRow}

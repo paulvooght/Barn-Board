@@ -364,8 +364,8 @@ export default function Settings({ settings, updateSettings, allHolds, onSetupBo
         </div>
       )}
 
-      {/* ── Session History ── */}
-      <div style={{ marginBottom: '16px' }}>
+      {/* ── Session History (hidden when betaSessionLogger is on) ── */}
+      {!settings.betaSessionLogger && <div style={{ marginBottom: '16px' }}>
         <button
           onClick={() => setShowSessions(prev => !prev)}
           style={{
@@ -532,7 +532,7 @@ export default function Settings({ settings, updateSettings, allHolds, onSetupBo
         )}
           </div>
         )}
-      </div>
+      </div>}
 
       {/* ── Board Specs ── */}
       <div style={cardStyle}>
