@@ -96,7 +96,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
 
   const [activeTool, setActiveTool] = useState(TOOLS.SELECT);
   const [selectedIds, setSelectedIds] = useState([]);       // multi-select: array of hold IDs
-  const [multiSelectMode, setMultiSelectMode] = useState(false); // opt-in multi-select
+  const [vertexEditId, setVertexEditId] = useState(null);   // hold currently showing vertex handles
   const [showAllOutlines, setShowAllOutlines] = useState(true);
   const [selectRotation, setSelectRotation] = useState(0);  // rotation for selected holds
   const [selectScale, setSelectScale] = useState(100);       // scale % for selected holds
@@ -127,6 +127,17 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
   // offsetX/Y: cursor distance from hold centroid at drag-start — keeps cursor relative to hold
   const [draggingHold, setDraggingHold] = useState(null); // { holdId, isMulti, offsetX, offsetY }
 
+  // Pending hold interaction (both touch and mouse) — cleared when drag activates or gesture ends
+  // Stores: { hitId, startClientX, startClientY, offsetX, offsetY }
+  const pendingHoldRef = useRef(null);
+  const longPressTimerRef = useRef(null);
+
+  // Refs to current state values for use inside setTimeout/event-handler closures
+  const selectedIdsRef = useRef([]);
+  const vertexEditIdRef = useRef(null);
+  useEffect(() => { selectedIdsRef.current = selectedIds; }, [selectedIds]);
+  useEffect(() => { vertexEditIdRef.current = vertexEditId; }, [vertexEditId]);
+
   // Image / zoom / pan
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imgSize, setImgSize] = useState({ w: 1200, h: 900 });
@@ -145,6 +156,13 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
 
   useEffect(() => { scaleRef.current = scale; }, [scale]);
   useEffect(() => { panRef.current = pan; }, [pan]);
+
+  // Cancel long-press timer on unmount
+  useEffect(() => {
+    return () => {
+      if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     const svg = svgRef.current;
@@ -294,6 +312,9 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
 
   // Derived: first selected hold (for single-selection actions like vertex editing)
   const selectedId = selectedIds.length > 0 ? selectedIds[0] : null;
+  // vertexEditHold: the hold whose vertices are currently shown (may differ from selectedId in general)
+  const vertexEditHold = vertexEditId ? holds.find(h => h.id === vertexEditId) : null;
+  // selectedHold kept for compatibility with rotate/scale/copy actions that still use the first selected hold
   const selectedHold = selectedId ? holds.find(h => h.id === selectedId) : null;
   const isHoldSelected = (id) => selectedIds.includes(id);
 
@@ -334,7 +355,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
 
   function clearSelection() {
     setSelectedIds([]);
-    setMultiSelectMode(false);
+    setVertexEditId(null);
     setLassoSelectActive(false);
     setSelectRotation(0);
     setSelectScale(100);
@@ -343,6 +364,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
 
   function selectAllHolds() {
     setSelectedIds(holds.map(h => h.id));
+    setVertexEditId(null);
   }
 
   function deleteSelected() {
@@ -527,8 +549,8 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
   }
 
   function addVertexToSelected() {
-    if (!selectedHold?.polygon || selectedHold.polygon.length < 3) return;
-    const poly = selectedHold.polygon;
+    if (!vertexEditHold?.polygon || vertexEditHold.polygon.length < 3) return;
+    const poly = vertexEditHold.polygon;
     let longestIdx = 0, longestDist = 0;
     for (let i = 0; i < poly.length; i++) {
       const j = (i + 1) % poly.length;
@@ -542,7 +564,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
     const newPoly = [...poly];
     newPoly.splice(j, 0, [midX, midY]);
     setHolds(prev => prev.map(h => {
-      if (h.id !== selectedId) return h;
+      if (h.id !== vertexEditId) return h;
       const [cx, cy] = centroid(newPoly);
       const bb = boundingBox(newPoly);
       return { ...h, polygon: newPoly, cx: r1(cx), cy: r1(cy), w_pct: r1(bb.w), h_pct: r1(bb.h) };
@@ -550,8 +572,8 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
   }
 
   function removeVertexFromSelected() {
-    if (!selectedHold?.polygon || selectedHold.polygon.length <= 3) return;
-    const poly = selectedHold.polygon;
+    if (!vertexEditHold?.polygon || vertexEditHold.polygon.length <= 3) return;
+    const poly = vertexEditHold.polygon;
     // Remove the least significant vertex (smallest triangle area with its neighbors)
     let minArea = Infinity;
     let minIdx = -1;
@@ -565,7 +587,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
     if (minIdx < 0) return;
     const newPoly = poly.filter((_, i) => i !== minIdx);
     setHolds(prev => prev.map(h => {
-      if (h.id !== selectedId) return h;
+      if (h.id !== vertexEditId) return h;
       const [cx, cy] = centroid(newPoly);
       const bb = boundingBox(newPoly);
       return { ...h, polygon: newPoly, cx: r1(cx), cy: r1(cy), w_pct: r1(bb.w), h_pct: r1(bb.h) };
@@ -599,7 +621,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
     }
     // Lasso draw — start freehand path (draw tool OR select-lasso sub-mode)
     if ((activeTool === TOOLS.DRAW && drawMode === 'lasso') ||
-        (activeTool === TOOLS.SELECT && multiSelectMode && lassoSelectActive)) {
+        (activeTool === TOOLS.SELECT && lassoSelectActive)) {
       const pct = clientToBoardPct(e.clientX, e.clientY);
       if (pct) {
         lassoActiveRef.current = true;
@@ -608,21 +630,17 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
         return;
       }
     }
-    // Select tool — drag selected hold(s) to move
+    // Select tool — set up pending interaction; drag activates in handleMouseMove
     if (activeTool === TOOLS.SELECT) {
       const pct = clientToBoardPct(e.clientX, e.clientY);
       if (pct) {
         const hitId = findHoldAtPoint(pct.x, pct.y, holds, 3);
-        if (hitId && selectedIds.includes(hitId)) {
-          const multi = selectedIds.length > 1;
-          // Record offset from cursor to hold centroid so cursor stays in same spot on hold
+        if (hitId) {
           const holdObj = holds.find(h => h.id === hitId);
           const [hcx, hcy] = holdObj?.polygon ? centroid(holdObj.polygon) : [holdObj?.cx ?? pct.x, holdObj?.cy ?? pct.y];
           const offsetX = pct.x - hcx;
           const offsetY = pct.y - hcy;
-          beginCoalesce();
-          setDraggingHold({ holdId: hitId, isMulti: multi, offsetX, offsetY });
-          if (multi) moveMultiLastRef.current = pct;
+          pendingHoldRef.current = { hitId, startClientX: e.clientX, startClientY: e.clientY, offsetX, offsetY };
           return;
         }
       }
@@ -642,6 +660,31 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
     if (lassoActiveRef.current && pct) {
       setDrawPoints(prev => [...prev, [r1(pct.x), r1(pct.y)]]);
       return;
+    }
+    // Pending hold: activate drag if movement exceeds ~4px threshold
+    if (pendingHoldRef.current && !draggingHold) {
+      const p = pendingHoldRef.current;
+      const dx = e.clientX - p.startClientX;
+      const dy = e.clientY - p.startClientY;
+      if (dx * dx + dy * dy > 16) { // 4px threshold
+        const hitId = p.hitId;
+        const curIds = selectedIdsRef.current;
+        // Rule 4: if hold is not in current selection, replace selection with just this hold
+        const isMulti = curIds.includes(hitId) && curIds.length > 1;
+        if (!curIds.includes(hitId)) {
+          setSelectedIds([hitId]);
+          setVertexEditId(null);
+        } else if (vertexEditIdRef.current && vertexEditIdRef.current !== hitId) {
+          // Dragging a different hold while vertex-edit was on another — clear vertex edit
+          setVertexEditId(null);
+        }
+        beginCoalesce();
+        setDraggingHold({ holdId: hitId, isMulti, offsetX: p.offsetX, offsetY: p.offsetY });
+        if (isMulti) moveMultiLastRef.current = pct;
+        pendingHoldRef.current = null;
+        return;
+      }
+      return; // still pending, don't pan
     }
     // Drag-move hold — subtract cursor-to-centroid offset so hold doesn't jump to cursor centre
     if (draggingHold && pct) {
@@ -674,14 +717,21 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
   }
 
   function handleMouseUp(e) {
-    if (isSynthesizedMouse()) { panDragRef.current.active = false; return; }
+    if (isSynthesizedMouse()) { panDragRef.current.active = false; pendingHoldRef.current = null; return; }
     if (lassoActiveRef.current) {
       lassoActiveRef.current = false;
-      if (activeTool === TOOLS.SELECT && multiSelectMode && lassoSelectActive) {
+      if (activeTool === TOOLS.SELECT && lassoSelectActive) {
         finishLassoSelect();
       } else {
         finishLasso();
       }
+      return;
+    }
+    // Pending hold interaction that never became a drag → treat as tap
+    if (pendingHoldRef.current) {
+      const hitId = pendingHoldRef.current.hitId;
+      pendingHoldRef.current = null;
+      handleHoldTap(hitId);
       return;
     }
     if (draggingHold) { endCoalesce(); setDraggingHold(null); moveMultiLastRef.current = null; return; }
@@ -691,6 +741,23 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
       if (pct) handleClick(pct);
     }
     panDragRef.current.active = false;
+  }
+
+  // handleHoldTap: called when a tap on a hold is confirmed (no drag, no long-press).
+  // Rules: add to selection (additive multi-select). Already-selected → no-op.
+  // If tapping a hold that is NOT the vertex-edit hold while in vertex-edit mode → exit vertex edit.
+  function handleHoldTap(hitId) {
+    if (!hitId) return;
+    // Exit vertex-edit mode if tapping a different hold (or any hold in vertex-edit mode)
+    if (vertexEditIdRef.current && vertexEditIdRef.current !== hitId) {
+      setVertexEditId(null);
+    }
+    // Additive multi-select: add if not already selected; no-op if already selected
+    const curIds = selectedIdsRef.current;
+    if (!curIds.includes(hitId)) {
+      setSelectedIds(prev => [...prev, hitId]);
+    }
+    // (No removal on re-tap — use Deselect or tap empty space to clear)
   }
 
   function handleClick(pct) {
@@ -717,16 +784,9 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
       if (!hitId) {
         // Tap empty space → deselect all
         clearSelection();
-      } else if (multiSelectMode) {
-        // Multi-select mode: toggle hold in/out of selection
-        if (selectedIds.includes(hitId)) {
-          setSelectedIds(prev => prev.filter(id => id !== hitId));
-        } else {
-          setSelectedIds(prev => [...prev, hitId]);
-        }
       } else {
-        // Single-select mode: tap any hold → select just that one
-        setSelectedIds([hitId]);
+        // Tap on hold → additive multi-select (handled via handleHoldTap)
+        handleHoldTap(hitId);
       }
     } else if (activeTool === TOOLS.DRAW && drawMode === 'polygon') {
       if (drawClosed) {
@@ -747,6 +807,9 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
     if (e.touches.length === 2) {
       pinchRef.current.active = true;
       panDragRef.current.active = false;
+      // Cancel any pending hold interaction on second finger down
+      if (longPressTimerRef.current) { clearTimeout(longPressTimerRef.current); longPressTimerRef.current = null; }
+      pendingHoldRef.current = null;
       const t0 = e.touches[0], t1 = e.touches[1];
       pinchRef.current.lastDist = Math.hypot(t0.clientX - t1.clientX, t0.clientY - t1.clientY);
       return;
@@ -766,7 +829,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
       }
       // Lasso draw — start freehand path (draw tool OR select-lasso sub-mode)
       if ((activeTool === TOOLS.DRAW && drawMode === 'lasso') ||
-          (activeTool === TOOLS.SELECT && multiSelectMode && lassoSelectActive)) {
+          (activeTool === TOOLS.SELECT && lassoSelectActive)) {
         const pct = clientToBoardPct(touch.clientX, touch.clientY);
         if (pct) {
           lassoActiveRef.current = true;
@@ -777,20 +840,28 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
           return;
         }
       }
-      // Select tool — drag selected hold(s) to move
+      // Select tool — set up pending interaction with long-press timer
       if (activeTool === TOOLS.SELECT) {
         const pct = clientToBoardPct(touch.clientX, touch.clientY);
         if (pct) {
           const hitId = findHoldAtPoint(pct.x, pct.y, holds, 5);
-          if (hitId && selectedIds.includes(hitId)) {
-            const multi = selectedIds.length > 1;
+          if (hitId) {
             const holdObj = holds.find(h => h.id === hitId);
             const [hcx, hcy] = holdObj?.polygon ? centroid(holdObj.polygon) : [holdObj?.cx ?? pct.x, holdObj?.cy ?? pct.y];
             const offsetX = pct.x - hcx;
             const offsetY = pct.y - hcy;
-            beginCoalesce();
-            setDraggingHold({ holdId: hitId, isMulti: multi, offsetX, offsetY });
-            if (multi) moveMultiLastRef.current = pct;
+            pendingHoldRef.current = { hitId, startClientX: touch.clientX, startClientY: touch.clientY, offsetX, offsetY };
+            // Long-press timer — fires vertex-edit mode after 500 ms if finger hasn't moved/lifted
+            longPressTimerRef.current = setTimeout(() => {
+              longPressTimerRef.current = null;
+              // Only fire if the pending interaction is still the same one (not cleared by move/end)
+              if (!pendingHoldRef.current || pendingHoldRef.current.hitId !== hitId) return;
+              pendingHoldRef.current = null;
+              // Enter vertex-edit mode using refs (closures go stale — selectedIds/vertexEditId via refs)
+              setSelectedIds([hitId]);
+              setVertexEditId(hitId);
+              navigator.vibrate?.(15);
+            }, 500);
             return;
           }
         }
@@ -827,6 +898,36 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
         lassoBoardPctRef.current = { x: pct.x, y: pct.y };
         setDrawPoints(prev => [...prev, [r1(pct.x), r1(pct.y)]]);
         setLassoLoupeUpdate(prev => prev + 1);
+        return;
+      }
+      // Pending hold: activate drag if movement exceeds ~6px threshold
+      if (pendingHoldRef.current && !draggingHold) {
+        const p = pendingHoldRef.current;
+        const dx = touch.clientX - p.startClientX;
+        const dy = touch.clientY - p.startClientY;
+        if (dx * dx + dy * dy > 36) { // ~6px threshold
+          // Cancel long-press timer — finger moved
+          if (longPressTimerRef.current) { clearTimeout(longPressTimerRef.current); longPressTimerRef.current = null; }
+          const hitId = p.hitId;
+          const curIds = selectedIdsRef.current;
+          // Rule 4: if hold is not in current selection, replace selection with just this hold
+          const isInSelection = curIds.includes(hitId);
+          const isMulti = isInSelection && curIds.length > 1;
+          if (!isInSelection) {
+            setSelectedIds([hitId]);
+            setVertexEditId(null);
+          } else if (vertexEditIdRef.current && vertexEditIdRef.current !== hitId) {
+            setVertexEditId(null);
+          }
+          beginCoalesce();
+          setDraggingHold({ holdId: hitId, isMulti, offsetX: p.offsetX, offsetY: p.offsetY });
+          if (isMulti) moveMultiLastRef.current = pct;
+          pendingHoldRef.current = null;
+          e.preventDefault();
+          return;
+        }
+        // Still within threshold — don't pan yet
+        e.preventDefault(); // prevent scroll while we're deciding
         return;
       }
       if (draggingHold && pct) {
@@ -872,17 +973,28 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
   }
 
   function handleTouchEnd(e) {
+    // Cancel long-press timer on lift
+    if (longPressTimerRef.current) { clearTimeout(longPressTimerRef.current); longPressTimerRef.current = null; }
     if (lassoActiveRef.current) {
       lassoActiveRef.current = false;
       lassoPosRef.current = null;
       lassoBoardPctRef.current = null;
       pinchRef.current.active = false;
       panDragRef.current.active = false;
-      if (activeTool === TOOLS.SELECT && multiSelectMode && lassoSelectActive) {
+      if (activeTool === TOOLS.SELECT && lassoSelectActive) {
         finishLassoSelect();
       } else {
         finishLasso();
       }
+      return;
+    }
+    // Pending hold interaction that never became a drag → treat as tap
+    if (pendingHoldRef.current) {
+      const hitId = pendingHoldRef.current.hitId;
+      pendingHoldRef.current = null;
+      pinchRef.current.active = false;
+      panDragRef.current.active = false;
+      handleHoldTap(hitId);
       return;
     }
     if (draggingHold) { endCoalesce(); setDraggingHold(null); moveMultiLastRef.current = null; pinchRef.current.active = false; panDragRef.current.active = false; return; }
@@ -908,6 +1020,24 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
     }
     pinchRef.current.active = false;
     panDragRef.current.active = false;
+  }
+
+  function handleDoubleClick(e) {
+    if (isSynthesizedMouse()) return; // guard against iOS double-tap synthesizing this
+    if (managerMode === 'boundaries' && activeTool === TOOLS.SELECT) {
+      const pct = clientToBoardPct(e.clientX, e.clientY);
+      if (pct) {
+        const hitId = findHoldAtPoint(pct.x, pct.y, holds, 3);
+        if (hitId) {
+          // Enter vertex-edit mode for this hold
+          setSelectedIds([hitId]);
+          setVertexEditId(hitId);
+          navigator.vibrate?.(15);
+          return;
+        }
+      }
+    }
+    if (isZoomed) resetZoom();
   }
 
   function startVertexDrag(holdId, vertexIdx, e) {
@@ -938,6 +1068,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
     lassoActiveRef.current = false;
     setLassoSelectActive(false);
     setDrawMode('polygon');
+    setVertexEditId(null);
     if (tool !== TOOLS.COPY) {
       setClipboard(null);
     }
@@ -956,8 +1087,8 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
   function renderHoldOutline(hold) {
     const isSel = isHoldSelected(hold.id);
     const isInspected = managerMode === 'metadata' && inspectedHoldId === hold.id;
-    // Only show vertex handles on first selected hold (single select) in boundaries mode
-    const showVertices = managerMode === 'boundaries' && hold.id === selectedId && selectedIds.length === 1;
+    // Show vertex handles only on the vertex-edit hold (long-press / double-click to activate)
+    const showVertices = managerMode === 'boundaries' && hold.id === vertexEditId;
     const hasPoly = hold.polygon?.length >= 3;
     const confidence = hold.confidence || 'high';
     const isHigh = confidence === 'high';
@@ -1090,7 +1221,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
   }
 
   function renderDrawingState() {
-    const isSelectLasso = activeTool === TOOLS.SELECT && multiSelectMode && lassoSelectActive;
+    const isSelectLasso = activeTool === TOOLS.SELECT && lassoSelectActive;
     if (activeTool !== TOOLS.DRAW && !isSelectLasso) return null;
     if (drawPoints.length === 0) return null;
     const zPx = pxScale / scale;
@@ -1416,22 +1547,28 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
           )}
 
           {/* Select tool actions — three rows (full) or minimal stub when nothing selected:
-              1) Multi · [Lasso when multi on] · Select All · [Deselect · Copy when selection exists]
-              2) + Vertex · − Vertex (single-select only)
+              1) Lasso · Select All · [Deselect · Copy when selection exists]
+              2) + Vertex · − Vertex · Confirm (gated on vertexEditId — enter via long-press or double-click)
               3) Rotate · Scale · Delete (right-aligned) */}
           {activeTool === TOOLS.SELECT && selectedIds.length === 0 && (
             /* Minimal toolbar: available before any selection is made */
             <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
               <button
-                onClick={() => { setMultiSelectMode(prev => !prev); setLassoSelectActive(false); }}
+                onClick={() => setLassoSelectActive(prev => !prev)}
                 style={{
                   ...secBtnStyle,
-                  background: multiSelectMode ? 'var(--accent)' : secBtnStyle.background,
-                  color: multiSelectMode ? '#fff' : secBtnStyle.color,
-                  borderColor: multiSelectMode ? 'var(--accent)' : secBtnStyle.borderColor,
+                  background: lassoSelectActive ? 'var(--accent)' : secBtnStyle.background,
+                  color: lassoSelectActive ? '#fff' : secBtnStyle.color,
+                  borderColor: lassoSelectActive ? 'var(--accent)' : secBtnStyle.borderColor,
                 }}
-              >Multi</button>
-              {multiSelectMode && (
+              >Lasso</button>
+              <button onClick={selectAllHolds} style={secBtnStyle}>Select All</button>
+            </div>
+          )}
+          {activeTool === TOOLS.SELECT && selectedIds.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', width: '100%' }}>
+              {/* Row 1 */}
+              <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
                 <button
                   onClick={() => setLassoSelectActive(prev => !prev)}
                   style={{
@@ -1441,34 +1578,6 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
                     borderColor: lassoSelectActive ? 'var(--accent)' : secBtnStyle.borderColor,
                   }}
                 >Lasso</button>
-              )}
-              <button onClick={selectAllHolds} style={secBtnStyle}>Select All</button>
-            </div>
-          )}
-          {activeTool === TOOLS.SELECT && selectedIds.length > 0 && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', width: '100%' }}>
-              {/* Row 1 */}
-              <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
-                <button
-                  onClick={() => { setMultiSelectMode(prev => !prev); setLassoSelectActive(false); }}
-                  style={{
-                    ...secBtnStyle,
-                    background: multiSelectMode ? 'var(--accent)' : secBtnStyle.background,
-                    color: multiSelectMode ? '#fff' : secBtnStyle.color,
-                    borderColor: multiSelectMode ? 'var(--accent)' : secBtnStyle.borderColor,
-                  }}
-                >Multi</button>
-                {multiSelectMode && (
-                  <button
-                    onClick={() => setLassoSelectActive(prev => !prev)}
-                    style={{
-                      ...secBtnStyle,
-                      background: lassoSelectActive ? 'var(--accent)' : secBtnStyle.background,
-                      color: lassoSelectActive ? '#fff' : secBtnStyle.color,
-                      borderColor: lassoSelectActive ? 'var(--accent)' : secBtnStyle.borderColor,
-                    }}
-                  >Lasso</button>
-                )}
                 <button onClick={selectAllHolds} style={secBtnStyle}>Select All</button>
                 <button onClick={clearSelection} style={secBtnStyle}>Deselect</button>
                 {selectedIds.length === 1 && (
@@ -1476,17 +1585,19 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
                 )}
               </div>
 
-              {/* Row 2 — single-select only */}
-              {selectedIds.length === 1 && (
+              {/* Row 2 — vertex edit (only available when vertexEditId is set via long-press or double-click) */}
+              {vertexEditId && (
                 <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
-                  <button onClick={addVertexToSelected} style={secBtnStyle} disabled={!selectedHold?.polygon}>+ Vertex</button>
-                  <button onClick={removeVertexFromSelected} style={secBtnStyle} disabled={!selectedHold?.polygon || selectedHold.polygon.length <= 3}>− Vertex</button>
-                  {selectedHold?.confidence === 'medium' && (
+                  <span style={{ fontSize: '10px', color: 'var(--text-muted)', fontWeight: 700, letterSpacing: '0.3px', textTransform: 'uppercase' }}>Vertices</span>
+                  <button onClick={addVertexToSelected} style={secBtnStyle} disabled={!vertexEditHold?.polygon}>+ Vertex</button>
+                  <button onClick={removeVertexFromSelected} style={secBtnStyle} disabled={!vertexEditHold?.polygon || vertexEditHold.polygon.length <= 3}>− Vertex</button>
+                  {vertexEditHold?.confidence === 'medium' && (
                     <button
-                      onClick={() => setHolds(prev => prev.map(h => h.id === selectedId ? { ...h, confidence: 'high' } : h))}
+                      onClick={() => setHolds(prev => prev.map(h => h.id === vertexEditId ? { ...h, confidence: 'high' } : h))}
                       style={{ ...secBtnStyle, background: '#22c55e', color: '#fff', borderColor: '#22c55e' }}
                     >Confirm</button>
                   )}
+                  <button onClick={() => setVertexEditId(null)} style={{ ...secBtnStyle, fontSize: '10px' }}>Done</button>
                 </div>
               )}
 
@@ -1551,11 +1662,17 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
           onTouchStart={handleTouchStart}
           onTouchMove={handleTouchMove}
           onTouchEnd={handleTouchEnd}
+          onTouchCancel={() => {
+            if (longPressTimerRef.current) { clearTimeout(longPressTimerRef.current); longPressTimerRef.current = null; }
+            pendingHoldRef.current = null;
+            pinchRef.current.active = false;
+            panDragRef.current.active = false;
+          }}
           onMouseDown={handleMouseDown}
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
           onMouseLeave={handleMouseUp}
-          onDoubleClick={isZoomed ? resetZoom : undefined}
+          onDoubleClick={handleDoubleClick}
           onContextMenu={(e) => e.preventDefault()}
           style={{
             width: '100%', height: '100%',
