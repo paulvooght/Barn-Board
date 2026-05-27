@@ -537,7 +537,9 @@ export default function App() {
   }, []);
 
   // ─── Session edit handlers ─────────────────────────────────────────
-  const handleEditSession = useCallback((session) => {
+  const handleEditSession = useCallback((session, source = 'settings') => {
+    editSessionSourceRef.current = source;
+    setEditSessionSource(source);
     setEditingSession(session);
     setView('sessionEdit');
   }, []);
@@ -551,7 +553,10 @@ export default function App() {
     // Flush immediately — don't wait for debounce
     if (updated) flushSessionsToSupabase(updated);
     setEditingSession(null);
-    setView('settings');
+    const returnTo = editSessionSourceRef.current;
+    editSessionSourceRef.current = 'settings';
+    setEditSessionSource('settings');
+    setView(returnTo === 'sessions' ? 'sessions' : 'settings');
   }, [setSessions, flushSessionsToSupabase]);
 
   // UI state
@@ -575,6 +580,15 @@ export default function App() {
   const [swipeDx, setSwipeDx] = useState(0);
   const [transitionMode, setTransitionMode] = useState('snap'); // 'none' | 'snap' | 'slide'
   const [carouselActive, setCarouselActive] = useState(false); // true when neighbour cards should be mounted
+
+  // Lifted period state for Sessions tab — persists across navigation
+  const [sessionsPeriod, setSessionsPeriod] = useState(null);
+
+  // Back-nav sources — track where viewRoute / sessionEdit were launched from
+  const [viewRouteSource, setViewRouteSource] = useState('routes'); // 'routes' | 'sessions'
+  const viewRouteSourceRef = useRef('routes');
+  const [editSessionSource, setEditSessionSource] = useState('settings'); // 'settings' | 'sessions'
+  const editSessionSourceRef = useRef('settings');
 
   // Route form state
   const [routeName, setRouteName]   = useState('');
@@ -922,6 +936,15 @@ export default function App() {
     });
     setView('viewRoute');
   }, [setRoutes, allHolds]);
+
+  // Entry point from Sessions tab — sets back-nav source to 'sessions'
+  const handleViewRouteFromSessions = useCallback((routeId) => {
+    const route = routes.find(r => r.id === routeId);
+    if (!route) return;
+    viewRouteSourceRef.current = 'sessions';
+    setViewRouteSource('sessions');
+    viewRoute(route);
+  }, [routes, viewRoute]);
 
   const commitNavigation = useCallback((direction) => {
     if (!viewingRoute || viewRouteOrder.length === 0) return;
@@ -1844,7 +1867,10 @@ export default function App() {
           setSwipeDx(0);
           setTransitionMode('snap');
           setCarouselActive(false);
-          setView('routes');
+          const returnTo = viewRouteSourceRef.current;
+          viewRouteSourceRef.current = 'routes';
+          setViewRouteSource('routes');
+          setView(returnTo === 'sessions' ? 'sessions' : 'routes');
         };
 
         // Shared props passed to all RouteViewCard instances
@@ -2022,10 +2048,10 @@ export default function App() {
             boardRegion={holdsData.boardRegion}
             allHolds={allHolds}
             profilesById={profilesById}
-            onViewRoute={(routeId) => {
-              const route = routes.find(r => r.id === routeId);
-              if (route) viewRoute(route);
-            }}
+            onViewRoute={handleViewRouteFromSessions}
+            onEditSession={(session) => handleEditSession(session, 'sessions')}
+            period={sessionsPeriod}
+            onChangePeriod={setSessionsPeriod}
           />
         </Suspense>
       )}
@@ -2060,7 +2086,13 @@ export default function App() {
             routes={routes}
             playlists={playlists}
             onSave={updateSession}
-            onCancel={() => { setEditingSession(null); setView('settings'); }}
+            onCancel={() => {
+              setEditingSession(null);
+              const returnTo = editSessionSourceRef.current;
+              editSessionSourceRef.current = 'settings';
+              setEditSessionSource('settings');
+              setView(returnTo === 'sessions' ? 'sessions' : 'settings');
+            }}
           />
         </Suspense>
       )}

@@ -1,8 +1,10 @@
-import { useState, useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import PeriodPicker from './PeriodPicker';
 import ClimberCard from './ClimberCard';
 import HoldHeatMap from './HoldHeatMap';
 import UnfinishedBusinessCard from './UnfinishedBusinessCard';
+import SessionRoutesCard from './SessionRoutesCard';
+import SessionHistoryAccordion from './SessionHistoryAccordion';
 import {
   makePeriod,
   computeStats,
@@ -28,6 +30,9 @@ export default function SessionsView({
   profilesById,
   onViewRoute,
   onEditSession,
+  // Lifted period state — App.jsx owns these so selection survives navigation
+  period,
+  onChangePeriod,
 }) {
   const safeSessions = sessions || [];
   const safeRoutes = routes || [];
@@ -41,19 +46,28 @@ export default function SessionsView({
       (a, b) => new Date(b.startTime) - new Date(a.startTime)
     );
     return makePeriod('session', sorted[0].id, safeSessions);
-  }, []); // intentionally stable — only computed once on mount
+  }, []); // intentionally stable — only computed once
 
-  const [period, setPeriod] = useState(defaultPeriod);
+  // Initialise parent period on first render (when it is null)
+  useEffect(() => {
+    if (period === null && onChangePeriod) {
+      onChangePeriod(defaultPeriod);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Use a safe local fallback so the rest of the component never sees null
+  const safePeriod = period ?? defaultPeriod;
+  const setPeriod = onChangePeriod ?? (() => {});
 
   // ── Stats computation (memoised) ──────────────────────────────────────────
   const stats = useMemo(
-    () => computeStats(safeSessions, safeRoutes, safeURD, period, gradeSystem),
-    [safeSessions, safeRoutes, safeURD, period, gradeSystem]
+    () => computeStats(safeSessions, safeRoutes, safeURD, safePeriod, gradeSystem),
+    [safeSessions, safeRoutes, safeURD, safePeriod, gradeSystem]
   );
 
   const prevPeriod = useMemo(
-    () => previousPeriod(period, safeSessions),
-    [period, safeSessions]
+    () => previousPeriod(safePeriod, safeSessions),
+    [safePeriod, safeSessions]
   );
 
   const previousStats = useMemo(() => {
@@ -68,8 +82,8 @@ export default function SessionsView({
 
   // ── Hold heat map data (memoised) ─────────────────────────────────────────
   const heat = useMemo(
-    () => computeHoldHeat(safeSessions, safeRoutes, safeURD, period),
-    [safeSessions, safeRoutes, safeURD, period]
+    () => computeHoldHeat(safeSessions, safeRoutes, safeURD, safePeriod),
+    [safeSessions, safeRoutes, safeURD, safePeriod]
   );
 
   // ── Styles ────────────────────────────────────────────────────────────────
@@ -240,27 +254,43 @@ export default function SessionsView({
       {/* Period Picker */}
       <PeriodPicker
         sessions={safeSessions}
-        period={period}
+        period={safePeriod}
         onChange={setPeriod}
       />
 
       {/* Climber Card */}
-      <ClimberCard
-        stats={stats}
-        previousStats={previousStats}
-        delta={delta}
-        gradeSystem={gradeSystem}
-        displayName={displayName}
-        period={period}
-        onEditSession={
-          period?.type === 'session' && onEditSession
-            ? (() => {
-                const selectedSession = safeSessions.find(s => s.id === period.sessionId);
-                return selectedSession ? () => onEditSession(selectedSession) : null;
-              })()
-            : null
-        }
-      />
+      {(() => {
+        const selectedSession = safePeriod?.type === 'session'
+          ? safeSessions.find(s => s.id === safePeriod.sessionId)
+          : null;
+        return (
+          <ClimberCard
+            stats={stats}
+            previousStats={previousStats}
+            delta={delta}
+            gradeSystem={gradeSystem}
+            displayName={displayName}
+            period={safePeriod}
+            onEditSession={
+              selectedSession && onEditSession
+                ? () => onEditSession(selectedSession)
+                : null
+            }
+          />
+        );
+      })()}
+
+      {/* Routes this session — only when a specific session is selected */}
+      {safePeriod?.type === 'session' && (() => {
+        const selectedSession = safeSessions.find(s => s.id === safePeriod.sessionId);
+        return selectedSession ? (
+          <SessionRoutesCard
+            session={selectedSession}
+            routes={safeRoutes}
+            onViewRoute={onViewRoute}
+          />
+        ) : null;
+      })()}
 
       {/* Hold Heat Map */}
       {boardImageSrc && boardRegion && allHolds && (
@@ -269,7 +299,7 @@ export default function SessionsView({
           boardRegion={boardRegion}
           allHolds={allHolds}
           heat={heat}
-          periodLabel={period.label}
+          periodLabel={safePeriod.label}
         />
       )}
 
@@ -280,6 +310,18 @@ export default function SessionsView({
         userRouteData={safeURD}
         profilesById={profilesById}
         onViewRoute={onViewRoute}
+      />
+
+      {/* Session History — collapsible accordion at bottom */}
+      <SessionHistoryAccordion
+        sessions={safeSessions}
+        routes={safeRoutes}
+        gradeSystem={gradeSystem}
+        selectedSessionId={safePeriod?.type === 'session' ? safePeriod.sessionId : null}
+        onSelectSession={(sessionId) => {
+          const p = makePeriod('session', sessionId, safeSessions);
+          setPeriod(p);
+        }}
       />
     </div>
   );
