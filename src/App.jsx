@@ -1556,6 +1556,9 @@ export default function App() {
     if (e.touches.length !== 1) return;
     // transitionMode === 'slide' means a commit animation is in progress — ignore
     if (transitionMode === 'slide') return;
+    // Don't engage swipe when touch starts on a slider or any element opted out via data-no-swipe.
+    // This auto-covers all native range inputs (angle sliders, positivity, duration, etc.).
+    if (e.target && e.target.closest && e.target.closest('input[type="range"], [data-no-swipe], [data-no-swipe] *')) return;
     swipeRef.current = {
       startX: e.touches[0].clientX,
       startY: e.touches[0].clientY,
@@ -1568,6 +1571,18 @@ export default function App() {
 
   const handleSwipeMove = (e) => {
     if (!swipeRef.current.active) return;
+    // Second finger landed — user is pinching/zooming. Abandon swipe and snap back if engaged.
+    if (e.touches.length > 1) {
+      const wasEngaged = swipeRef.current.engaged;
+      swipeRef.current.active = false;
+      swipeRef.current.engaged = false;
+      if (wasEngaged) {
+        setTransitionMode('snap');
+        setSwipeDx(0);
+        setTimeout(() => setCarouselActive(false), 220);
+      }
+      return;
+    }
     const t = e.touches[0];
     const dx = t.clientX - swipeRef.current.startX;
     const dy = t.clientY - swipeRef.current.startY;
