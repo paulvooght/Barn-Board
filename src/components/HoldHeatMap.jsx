@@ -196,6 +196,17 @@ export default function HoldHeatMap({
               overflow: 'visible',
             }}
           >
+            {/* Dimming overlay — darkens the board image so heat colours pop */}
+            <rect
+              x={0}
+              y={0}
+              width={imgSize.w}
+              height={imgSize.h}
+              fill="black"
+              fillOpacity={0.5}
+              pointerEvents="none"
+            />
+
             {(allHolds || []).map((hold) => {
               const count = counts[hold.id] || 0;
               const opacity = count > 0 ? 0.5 + 0.4 * (count / maxCount) : 0.08;
