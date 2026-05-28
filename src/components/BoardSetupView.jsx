@@ -161,13 +161,43 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
   useEffect(() => { scaleRef.current = scale; }, [scale]);
   useEffect(() => { panRef.current = pan; }, [pan]);
 
-  // Cancel long-press timer and dots-visible timer on unmount
+  // Cancel long-press timer on unmount
   useEffect(() => {
     return () => {
       if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
-      if (dotsVisibleTimerRef.current) clearTimeout(dotsVisibleTimerRef.current);
     };
   }, []);
+
+  // Single source of truth for dotsVisible — driven by selectedIds.length and vertexEditId.
+  // This covers ALL selection paths: tap, lasso-select, Select All, long-press, double-click.
+  const prevSelectedCountRef = useRef(0);
+  useEffect(() => {
+    const prev = prevSelectedCountRef.current;
+    const curr = selectedIds.length;
+    prevSelectedCountRef.current = curr;
+
+    if (curr === 0) {
+      // Selection cleared — hide dots immediately, cancel any pending timer
+      if (dotsVisibleTimerRef.current) { clearTimeout(dotsVisibleTimerRef.current); dotsVisibleTimerRef.current = null; }
+      setDotsVisible(false);
+    } else if (vertexEditId) {
+      // Vertex-edit mode active (long-press or double-click) — show dots immediately
+      if (dotsVisibleTimerRef.current) { clearTimeout(dotsVisibleTimerRef.current); dotsVisibleTimerRef.current = null; }
+      setDotsVisible(true);
+    } else if (prev === 0 && curr >= 1) {
+      // Transition from empty → non-empty selection (without vertex edit) — delay 500 ms
+      if (dotsVisibleTimerRef.current) clearTimeout(dotsVisibleTimerRef.current);
+      dotsVisibleTimerRef.current = setTimeout(() => {
+        dotsVisibleTimerRef.current = null;
+        setDotsVisible(true);
+      }, 500);
+    }
+    // If already non-empty and stays non-empty (additive tap), dots stay as-is — no action needed.
+
+    return () => {
+      if (dotsVisibleTimerRef.current) { clearTimeout(dotsVisibleTimerRef.current); dotsVisibleTimerRef.current = null; }
+    };
+  }, [selectedIds.length, vertexEditId]);
 
   useEffect(() => {
     const svg = svgRef.current;
@@ -365,9 +395,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
     setSelectRotation(0);
     setSelectScale(100);
     selectOrigPolysRef.current = {};
-    // Cancel any pending dots timer and hide dots
-    if (dotsVisibleTimerRef.current) { clearTimeout(dotsVisibleTimerRef.current); dotsVisibleTimerRef.current = null; }
-    setDotsVisible(false);
+    // dotsVisible is driven by the useEffect watching selectedIds.length — no manual reset needed here
   }
 
   function selectAllHolds() {
@@ -753,24 +781,11 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
       // Re-tap on already-selected hold → remove from selection (toggle off)
       const newIds = curIds.filter(id => id !== hitId);
       setSelectedIds(newIds);
-      if (newIds.length === 0) {
-        // No holds left selected — hide dots immediately and cancel any pending timer
-        if (dotsVisibleTimerRef.current) { clearTimeout(dotsVisibleTimerRef.current); dotsVisibleTimerRef.current = null; }
-        setDotsVisible(false);
-      }
+      // dotsVisible driven by useEffect watching selectedIds.length — no manual update needed
     } else {
       // New hold — add to selection
-      const wasEmpty = curIds.length === 0;
       setSelectedIds(prev => [...prev, hitId]);
-      if (wasEmpty) {
-        // First hold selected — schedule dots to appear after 500 ms
-        if (dotsVisibleTimerRef.current) clearTimeout(dotsVisibleTimerRef.current);
-        dotsVisibleTimerRef.current = setTimeout(() => {
-          dotsVisibleTimerRef.current = null;
-          setDotsVisible(true);
-        }, 500);
-      }
-      // If dots already visible (dotsVisible===true), they stay visible for the new hold too
+      // dotsVisible driven by useEffect watching selectedIds.length — no manual update needed
     }
   }
 
@@ -874,9 +889,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
               // Enter vertex-edit mode using refs (closures go stale — selectedIds/vertexEditId via refs)
               setSelectedIds([hitId]);
               setVertexEditId(hitId);
-              // Dots visible immediately on long-press (cancel any pending 500ms dot timer)
-              if (dotsVisibleTimerRef.current) { clearTimeout(dotsVisibleTimerRef.current); dotsVisibleTimerRef.current = null; }
-              setDotsVisible(true);
+              // dotsVisible driven by useEffect watching vertexEditId — no manual update needed
               navigator.vibrate?.(15);
             }, 500);
             return;
@@ -1032,11 +1045,9 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
       if (pct) {
         const hitId = findHoldAtPoint(pct.x, pct.y, holds, 3);
         if (hitId) {
-          // Enter vertex-edit mode for this hold — dots visible immediately
+          // Enter vertex-edit mode for this hold — dotsVisible driven by useEffect watching vertexEditId
           setSelectedIds([hitId]);
           setVertexEditId(hitId);
-          if (dotsVisibleTimerRef.current) { clearTimeout(dotsVisibleTimerRef.current); dotsVisibleTimerRef.current = null; }
-          setDotsVisible(true);
           navigator.vibrate?.(15);
           return;
         }
