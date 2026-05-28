@@ -1545,15 +1545,18 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
         );
       })()}
 
-      {/* ── Secondary toolbar: contextual actions — always present in boundaries to avoid layout shift ── */}
+      {/* ── Secondary toolbar: contextual actions — always present in boundaries to avoid layout shift ──
+          minHeight is sized to fit the *largest* state (with-selection + vertex-edit = 3 rows of buttons/sliders).
+          This keeps the board image at a fixed vertical position, so selecting/deselecting/entering vertex-edit
+          mode doesn't jump the image around — critical because long-press relies on the finger staying on a stable target. */}
       {managerMode === 'boundaries' && (
         <div style={{
           padding: '6px 12px',
           borderBottom: '1px solid var(--border)',
           background: 'rgba(0,71,255,0.04)',
           flexShrink: 0,
-          display: 'flex', gap: '6px', alignItems: 'center',
-          flexWrap: 'wrap', minHeight: '40px',
+          display: 'flex', gap: '6px', alignItems: 'flex-start',
+          flexWrap: 'wrap', minHeight: '112px',
         }}>
           {/* Draw tool actions */}
           {activeTool === TOOLS.DRAW && (<>
