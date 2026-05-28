@@ -189,8 +189,13 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
       if (armedTimerRef.current) { clearTimeout(armedTimerRef.current); armedTimerRef.current = null; }
       setArmed(true);
       armedRef.current = true;
-    } else if (prev === 0 && curr >= 1) {
-      // Transition from empty → non-empty selection (without vertex edit) — delay 500 ms
+    } else if (curr >= 2) {
+      // Multi-select — always armed so a drag moves the group immediately (no 500 ms delay)
+      if (armedTimerRef.current) { clearTimeout(armedTimerRef.current); armedTimerRef.current = null; }
+      setArmed(true);
+      armedRef.current = true;
+    } else if (prev === 0 && curr === 1) {
+      // Transition from empty → single selection (without vertex edit) — delay 500 ms
       if (armedTimerRef.current) clearTimeout(armedTimerRef.current);
       armedTimerRef.current = setTimeout(() => {
         armedTimerRef.current = null;
@@ -198,7 +203,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
         armedRef.current = true;
       }, 500);
     }
-    // If already non-empty and stays non-empty (additive tap), armed stays as-is — no action needed.
+    // If already non-empty single selection and stays single (re-tap noop), armed stays as-is.
 
     return () => {
       if (armedTimerRef.current) { clearTimeout(armedTimerRef.current); armedTimerRef.current = null; }
