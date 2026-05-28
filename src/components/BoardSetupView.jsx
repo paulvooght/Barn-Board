@@ -132,15 +132,18 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
   const pendingHoldRef = useRef(null);
   const longPressTimerRef = useRef(null);
 
-  // Centroid drag-dot visibility: appears 500 ms after first hold is selected via tap
-  const [dotsVisible, setDotsVisible] = useState(false);
-  const dotsVisibleTimerRef = useRef(null);
+  // Armed state: becomes true 500 ms after first hold is selected, immediately on vertex-edit.
+  // When armed, dragging a selected hold body moves the hold; otherwise drag falls through to pan.
+  const [armed, setArmed] = useState(false);
+  const armedRef = useRef(false);
+  const armedTimerRef = useRef(null);
 
   // Refs to current state values for use inside setTimeout/event-handler closures
   const selectedIdsRef = useRef([]);
   const vertexEditIdRef = useRef(null);
   useEffect(() => { selectedIdsRef.current = selectedIds; }, [selectedIds]);
   useEffect(() => { vertexEditIdRef.current = vertexEditId; }, [vertexEditId]);
+  useEffect(() => { armedRef.current = armed; }, [armed]);
 
   // Image / zoom / pan
   const [imageLoaded, setImageLoaded] = useState(false);
@@ -168,7 +171,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
     };
   }, []);
 
-  // Single source of truth for dotsVisible — driven by selectedIds.length and vertexEditId.
+  // Single source of truth for armed — driven by selectedIds.length and vertexEditId.
   // This covers ALL selection paths: tap, lasso-select, Select All, long-press, double-click.
   const prevSelectedCountRef = useRef(0);
   useEffect(() => {
@@ -177,25 +180,28 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
     prevSelectedCountRef.current = curr;
 
     if (curr === 0) {
-      // Selection cleared — hide dots immediately, cancel any pending timer
-      if (dotsVisibleTimerRef.current) { clearTimeout(dotsVisibleTimerRef.current); dotsVisibleTimerRef.current = null; }
-      setDotsVisible(false);
+      // Selection cleared — disarm immediately, cancel any pending timer
+      if (armedTimerRef.current) { clearTimeout(armedTimerRef.current); armedTimerRef.current = null; }
+      setArmed(false);
+      armedRef.current = false;
     } else if (vertexEditId) {
-      // Vertex-edit mode active (long-press or double-click) — show dots immediately
-      if (dotsVisibleTimerRef.current) { clearTimeout(dotsVisibleTimerRef.current); dotsVisibleTimerRef.current = null; }
-      setDotsVisible(true);
+      // Vertex-edit mode active (long-press or double-click) — arm immediately
+      if (armedTimerRef.current) { clearTimeout(armedTimerRef.current); armedTimerRef.current = null; }
+      setArmed(true);
+      armedRef.current = true;
     } else if (prev === 0 && curr >= 1) {
       // Transition from empty → non-empty selection (without vertex edit) — delay 500 ms
-      if (dotsVisibleTimerRef.current) clearTimeout(dotsVisibleTimerRef.current);
-      dotsVisibleTimerRef.current = setTimeout(() => {
-        dotsVisibleTimerRef.current = null;
-        setDotsVisible(true);
+      if (armedTimerRef.current) clearTimeout(armedTimerRef.current);
+      armedTimerRef.current = setTimeout(() => {
+        armedTimerRef.current = null;
+        setArmed(true);
+        armedRef.current = true;
       }, 500);
     }
-    // If already non-empty and stays non-empty (additive tap), dots stay as-is — no action needed.
+    // If already non-empty and stays non-empty (additive tap), armed stays as-is — no action needed.
 
     return () => {
-      if (dotsVisibleTimerRef.current) { clearTimeout(dotsVisibleTimerRef.current); dotsVisibleTimerRef.current = null; }
+      if (armedTimerRef.current) { clearTimeout(armedTimerRef.current); armedTimerRef.current = null; }
     };
   }, [selectedIds.length, vertexEditId]);
 
@@ -395,7 +401,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
     setSelectRotation(0);
     setSelectScale(100);
     selectOrigPolysRef.current = {};
-    // dotsVisible is driven by the useEffect watching selectedIds.length — no manual reset needed here
+    // armed is driven by the useEffect watching selectedIds.length — no manual reset needed here
   }
 
   function selectAllHolds() {
@@ -677,6 +683,14 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
           const offsetX = pct.x - hcx;
           const offsetY = pct.y - hcy;
           pendingHoldRef.current = { hitId, startClientX: e.clientX, startClientY: e.clientY, offsetX, offsetY };
+          // Also initialize panDrag so that if movement exceeds threshold and we don't start a hold-drag,
+          // pan is already armed and ready to take over.
+          panDragRef.current = {
+            active: true,
+            startX: e.clientX, startY: e.clientY,
+            basePanX: panRef.current.x, basePanY: panRef.current.y,
+            moved: false,
+          };
           return;
         }
       }
@@ -697,15 +711,25 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
       setDrawPoints(prev => [...prev, [r1(pct.x), r1(pct.y)]]);
       return;
     }
-    // Pending hold: if finger/mouse moves beyond threshold, cancel pending tap and let pan proceed
-    // (Drag from polygon body is no longer supported — drag only starts from the centroid dot)
+    // Pending hold: if mouse moves beyond threshold, decide between hold-drag (armed) or pan
     if (pendingHoldRef.current && !draggingHold) {
       const p = pendingHoldRef.current;
       const dx = e.clientX - p.startClientX;
       const dy = e.clientY - p.startClientY;
-      if (dx * dx + dy * dy > 16) { // 4px threshold — cancel tap, fall through to pan
+      if (dx * dx + dy * dy > 16) { // 4px threshold
+        const { hitId, offsetX, offsetY } = p;
         pendingHoldRef.current = null;
-        // Fall through to pan handling below
+        // If armed AND the hit hold is selected → start a hold-drag
+        if (armedRef.current && selectedIdsRef.current.includes(hitId)) {
+          const isMulti = selectedIdsRef.current.length > 1;
+          beginCoalesce();
+          setDraggingHold({ holdId: hitId, isMulti, offsetX, offsetY });
+          if (isMulti) moveMultiLastRef.current = pct;
+          panDragRef.current.active = false; // prevent pan from also firing
+          e.preventDefault();
+          return;
+        }
+        // Not armed or hold not in selection → fall through to pan (panDragRef already initialized)
       } else {
         return; // still within threshold — don't pan yet
       }
@@ -781,11 +805,11 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
       // Re-tap on already-selected hold → remove from selection (toggle off)
       const newIds = curIds.filter(id => id !== hitId);
       setSelectedIds(newIds);
-      // dotsVisible driven by useEffect watching selectedIds.length — no manual update needed
+      // armed driven by useEffect watching selectedIds.length — no manual update needed
     } else {
       // New hold — add to selection
       setSelectedIds(prev => [...prev, hitId]);
-      // dotsVisible driven by useEffect watching selectedIds.length — no manual update needed
+      // armed driven by useEffect watching selectedIds.length — no manual update needed
     }
   }
 
@@ -889,9 +913,17 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
               // Enter vertex-edit mode using refs (closures go stale — selectedIds/vertexEditId via refs)
               setSelectedIds([hitId]);
               setVertexEditId(hitId);
-              // dotsVisible driven by useEffect watching vertexEditId — no manual update needed
+              // armed driven by useEffect watching vertexEditId — no manual update needed
               navigator.vibrate?.(15);
             }, 500);
+            // Also initialize panDrag so that if movement exceeds threshold and we don't start a hold-drag,
+            // pan is already armed and ready to take over.
+            panDragRef.current = {
+              active: true,
+              startX: touch.clientX, startY: touch.clientY,
+              basePanX: panRef.current.x, basePanY: panRef.current.y,
+              moved: false,
+            };
             return;
           }
         }
@@ -930,16 +962,26 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
         setLassoLoupeUpdate(prev => prev + 1);
         return;
       }
-      // Pending hold: if finger moves beyond threshold, cancel pending tap/long-press and let pan proceed
-      // (Drag from polygon body is no longer supported — drag only starts from the centroid dot)
+      // Pending hold: if finger moves beyond threshold, decide between hold-drag (armed) or pan
       if (pendingHoldRef.current && !draggingHold) {
         const p = pendingHoldRef.current;
         const dx = touch.clientX - p.startClientX;
         const dy = touch.clientY - p.startClientY;
-        if (dx * dx + dy * dy > 36) { // ~6px threshold — cancel pending, fall through to pan
+        if (dx * dx + dy * dy > 81) { // ~9px threshold — more forgiving for fingertip wobble
           if (longPressTimerRef.current) { clearTimeout(longPressTimerRef.current); longPressTimerRef.current = null; }
+          const { hitId, offsetX, offsetY } = p;
           pendingHoldRef.current = null;
-          // Fall through to pan handling below
+          // If armed AND the hit hold is selected → start a hold-drag
+          if (armedRef.current && selectedIdsRef.current.includes(hitId)) {
+            const isMulti = selectedIdsRef.current.length > 1;
+            beginCoalesce();
+            setDraggingHold({ holdId: hitId, isMulti, offsetX, offsetY });
+            if (isMulti) moveMultiLastRef.current = pct;
+            panDragRef.current.active = false; // prevent pan from also firing
+            e.preventDefault();
+            return;
+          }
+          // Not armed or hold not in selection → fall through to pan (panDragRef already initialized)
         } else {
           // Still within threshold — don't pan yet
           e.preventDefault(); // prevent scroll while we're deciding
@@ -1045,7 +1087,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
       if (pct) {
         const hitId = findHoldAtPoint(pct.x, pct.y, holds, 3);
         if (hitId) {
-          // Enter vertex-edit mode for this hold — dotsVisible driven by useEffect watching vertexEditId
+          // Enter vertex-edit mode for this hold — armed driven by useEffect watching vertexEditId
           setSelectedIds([hitId]);
           setVertexEditId(hitId);
           navigator.vibrate?.(15);
@@ -1054,30 +1096,6 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
       }
     }
     if (isZoomed) resetZoom();
-  }
-
-  // startDotDrag: called from the centroid dot's onTouchStart / onMouseDown.
-  // Initiates a draggingHold drag from the dot (the sole drag entry point for hold bodies).
-  function startDotDrag(hold, e) {
-    e.stopPropagation(); // CRITICAL — prevent board touch/mouse handler from also firing
-    if (e.type === 'touchstart') {
-      lastTouchTimeRef.current = Date.now();
-    } else {
-      // mousedown — guard against synthesized mouse events from touch
-      if (isSynthesizedMouse()) return;
-    }
-    const clientX = e.type === 'touchstart' ? (e.touches[0]?.clientX ?? e.clientX) : e.clientX;
-    const clientY = e.type === 'touchstart' ? (e.touches[0]?.clientY ?? e.clientY) : e.clientY;
-    const pct = clientToBoardPct(clientX, clientY);
-    if (!pct) return;
-    const [hcx, hcy] = hold.polygon ? centroid(hold.polygon) : [hold.cx ?? pct.x, hold.cy ?? pct.y];
-    const offsetX = pct.x - hcx;
-    const offsetY = pct.y - hcy;
-    const curIds = selectedIdsRef.current;
-    const isMulti = curIds.length > 1;
-    beginCoalesce();
-    setDraggingHold({ holdId: hold.id, isMulti, offsetX, offsetY });
-    if (isMulti) moveMultiLastRef.current = pct;
   }
 
   function startVertexDrag(holdId, vertexIdx, e) {
@@ -1113,9 +1131,10 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
       setClipboard(null);
     }
     setActiveTool(tool);
-    // Reset dot visibility on tool switch
-    if (dotsVisibleTimerRef.current) { clearTimeout(dotsVisibleTimerRef.current); dotsVisibleTimerRef.current = null; }
-    setDotsVisible(false);
+    // Reset armed state on tool switch
+    if (armedTimerRef.current) { clearTimeout(armedTimerRef.current); armedTimerRef.current = null; }
+    setArmed(false);
+    armedRef.current = false;
   }
 
   // ─── Derived values ─────────────────────────────────────────────────
@@ -1208,12 +1227,6 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
       const ry = Math.max((h / 100) * bH / 2, 4);
       const highlighted = isSel || isInspected;
 
-      // Centroid dot for ellipse-only holds
-      const showDotE = managerMode === 'boundaries' && activeTool === TOOLS.SELECT && isSel && dotsVisible;
-      const svgScaleE = getSvgScale();
-      const dotVrE = Math.round(3 * pxScale);
-      const dotHitRE = 22 / svgScaleE;
-
       return (
         <g key={hold.id}>
           <ellipse cx={cx} cy={cy} rx={rx} ry={ry}
@@ -1223,35 +1236,12 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
             strokeDasharray={!highlighted && !isHigh ? `${Math.round(6 * zPx)} ${Math.round(4 * zPx)}` : 'none'}
             style={{ pointerEvents: 'none' }}
           />
-          {showDotE && (
-            <g style={{ cursor: 'move' }}
-              onTouchStart={(e) => startDotDrag(hold, e)}
-              onMouseDown={(e) => startDotDrag(hold, e)}
-            >
-              <circle cx={cx} cy={cy} r={dotHitRE}
-                fill="transparent" stroke="none" style={{ pointerEvents: 'all' }} />
-              <circle cx={cx} cy={cy} r={dotVrE}
-                fill="#fff" stroke="#0047FF"
-                strokeWidth={Math.max(Math.round(1.5 * pxScale), 1)}
-                style={{ pointerEvents: 'none' }}
-              />
-            </g>
-          )}
         </g>
       );
     }
 
     const pts = hold.polygon.map(([x, y]) => `${toSvgX(x)},${toSvgY(y)}`).join(' ');
     const highlighted = isSel || isInspected;
-
-    // Centroid dot — shown for selected holds when dotsVisible is true, only in boundaries+SELECT
-    const showDot = managerMode === 'boundaries' && activeTool === TOOLS.SELECT && isSel && dotsVisible;
-    const [dotCx, dotCy] = hold.polygon ? centroid(hold.polygon) : [hold.cx, hold.cy];
-    const dotSvgX = toSvgX(dotCx);
-    const dotSvgY = toSvgY(dotCy);
-    const svgScale = getSvgScale();
-    const dotVr = Math.round(3 * pxScale);
-    const dotHitR = 22 / svgScale;
 
     return (
       <g key={hold.id}>
@@ -1289,20 +1279,6 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
             </g>
           );
         })}
-        {showDot && (
-          <g style={{ cursor: 'move' }}
-            onTouchStart={(e) => startDotDrag(hold, e)}
-            onMouseDown={(e) => startDotDrag(hold, e)}
-          >
-            <circle cx={dotSvgX} cy={dotSvgY} r={dotHitR}
-              fill="transparent" stroke="none" style={{ pointerEvents: 'all' }} />
-            <circle cx={dotSvgX} cy={dotSvgY} r={dotVr}
-              fill="#fff" stroke="#0047FF"
-              strokeWidth={Math.max(Math.round(1.5 * pxScale), 1)}
-              style={{ pointerEvents: 'none' }}
-            />
-          </g>
-        )}
       </g>
     );
   }
