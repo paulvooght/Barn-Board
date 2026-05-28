@@ -126,6 +126,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
   // Whole-hold drag state (for pasted hold repositioning)
   // offsetX/Y: cursor distance from hold centroid at drag-start — keeps cursor relative to hold
   const [draggingHold, setDraggingHold] = useState(null); // { holdId, isMulti, offsetX, offsetY }
+  const holdDragClientRef = useRef(null);   // { clientX, clientY } during single-hold touch drag — for loupe
 
   // Pending hold interaction (both touch and mouse) — cleared when drag activates or gesture ends
   // Stores: { hitId, startClientX, startClientY, offsetX, offsetY }
@@ -982,6 +983,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
             beginCoalesce();
             setDraggingHold({ holdId: hitId, isMulti, offsetX, offsetY });
             if (isMulti) moveMultiLastRef.current = pct;
+            else holdDragClientRef.current = { clientX: touch.clientX, clientY: touch.clientY };
             panDragRef.current.active = false; // prevent pan from also firing
             e.preventDefault();
             return;
@@ -998,6 +1000,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
         if (draggingHold.isMulti) {
           moveMultipleHolds(pct);
         } else {
+          holdDragClientRef.current = { clientX: touch.clientX, clientY: touch.clientY };
           moveHoldTo(draggingHold.holdId, { x: pct.x - draggingHold.offsetX, y: pct.y - draggingHold.offsetY });
         }
         return;
@@ -1060,7 +1063,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
       handleHoldTap(hitId);
       return;
     }
-    if (draggingHold) { endCoalesce(); setDraggingHold(null); moveMultiLastRef.current = null; pinchRef.current.active = false; panDragRef.current.active = false; return; }
+    if (draggingHold) { endCoalesce(); setDraggingHold(null); moveMultiLastRef.current = null; holdDragClientRef.current = null; pinchRef.current.active = false; panDragRef.current.active = false; return; }
     if (draggingVertexRef.current) {
       endCoalesce();
       const wasTap = !vertexDragActiveRef.current;
@@ -2077,6 +2080,69 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
         // Apply same DPR normalization as main view
         const dprFactor = 2 / (window.devicePixelRatio || 2);
         const lPx = loupePxScale * dprFactor;
+
+        return (
+          <div style={{
+            position: 'fixed', left: loupeLeft, top: loupeTop,
+            width: LOUPE_W, height: LOUPE_H,
+            borderRadius: `${LOUPE_RADIUS}px`,
+            border: '2px solid rgba(255,255,255,0.9)',
+            boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
+            overflow: 'hidden', pointerEvents: 'none', zIndex: 300,
+            background: '#1a0a00',
+          }}>
+            <img src={imgSrc} srcSet={imgSrcSet} sizes={imgSizes} alt="" draggable={false}
+              style={{ position: 'absolute', width: magW, height: magH, left: imgLeft, top: imgTop, pointerEvents: 'none' }}
+            />
+            {poly && poly.length >= 3 && (
+              <svg
+                viewBox={`0 0 ${imgSize.w} ${imgSize.h}`}
+                preserveAspectRatio="none"
+                style={{ position: 'absolute', left: imgLeft, top: imgTop, width: magW, height: magH, pointerEvents: 'none' }}
+              >
+                <polygon
+                  points={poly.map(([x, y]) => `${toSvgX(x)},${toSvgY(y)}`).join(' ')}
+                  fill="none" stroke="#0047FF" strokeWidth={Math.max(Math.round(2 * lPx), 1)}
+                  strokeLinejoin="round"
+                />
+              </svg>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* Single-hold move magnifier loupe — touch only, multi-select excluded */}
+      {draggingHold && !draggingHold.isMulti && holdDragClientRef.current && (() => {
+        const hold = holds.find(h => h.id === draggingHold.holdId);
+        if (!hold) return null;
+        const [hcx, hcy] = hold.polygon ? centroid(hold.polygon) : [hold.cx, hold.cy];
+
+        const LOUPE_W = 180;
+        const LOUPE_H = 120;
+        const LOUPE_RADIUS = 60;
+        const MAGNIFICATION = 3 * scale;
+        const OFFSET_ABOVE = 80;
+
+        const { clientX, clientY } = holdDragClientRef.current;
+
+        // Centre the magnified view on the hold's centroid (the detail the thumb covers)
+        const imgFracX = (boardRegion.left / 100) + (hcx / 100) * (boardRegion.width / 100);
+        const imgFracY = (boardRegion.top / 100) + (hcy / 100) * (boardRegion.height / 100);
+
+        const magW = LOUPE_W * MAGNIFICATION;
+        const magH = magW * (imgSize.h / imgSize.w);
+
+        const imgLeft = -(imgFracX * magW) + LOUPE_W / 2;
+        const imgTop  = -(imgFracY * magH) + LOUPE_H / 2;
+
+        const loupeLeft = clamp(clientX - LOUPE_W / 2, 4, window.innerWidth - LOUPE_W - 4);
+        const loupeTop  = clamp(clientY - OFFSET_ABOVE - LOUPE_H, 4, clientY - OFFSET_ABOVE);
+
+        const loupePxScale = imgSize.w / magW;
+        const dprFactor = 2 / (window.devicePixelRatio || 2);
+        const lPx = loupePxScale * dprFactor;
+
+        const poly = hold.polygon;
 
         return (
           <div style={{
