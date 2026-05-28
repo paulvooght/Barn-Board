@@ -1224,7 +1224,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
     // pxScale converts screen px → SVG units at 1x zoom. Dividing by scale compensates for CSS zoom.
     const zPx = pxScale / scale;
     // Green: very thin. Selected: medium. Medium confidence: hairline.
-    const lineWidth = (isSel || isInspected) ? Math.max(Math.round(2.5 * zPx), 1) : isHigh ? Math.max(Math.round(0.7 * zPx), 1) : Math.max(Math.round(0.5 * zPx), 1);
+    const lineWidth = (isSel || isInspected || showVertices) ? Math.max(Math.round(2.5 * zPx), 1) : isHigh ? Math.max(Math.round(0.7 * zPx), 1) : Math.max(Math.round(0.5 * zPx), 1);
 
     if (!hasPoly) {
       const cx = toSvgX(hold.cx);
@@ -1233,7 +1233,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
       const h = hold.h_pct || hold.r * 2 || 4;
       const rx = Math.max((w / 100) * bW / 2, 4);
       const ry = Math.max((h / 100) * bH / 2, 4);
-      const highlighted = isSel || isInspected;
+      const highlighted = isSel || isInspected || showVertices;
 
       return (
         <g key={hold.id}>
@@ -1249,7 +1249,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
     }
 
     const pts = hold.polygon.map(([x, y]) => `${toSvgX(x)},${toSvgY(y)}`).join(' ');
-    const highlighted = isSel || isInspected;
+    const highlighted = isSel || isInspected || showVertices;
 
     return (
       <g key={hold.id}>
