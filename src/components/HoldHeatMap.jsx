@@ -203,14 +203,17 @@ export default function HoldHeatMap({
               width={imgSize.w}
               height={imgSize.h}
               fill="black"
-              fillOpacity={0.5}
+              fillOpacity={0.7}
               pointerEvents="none"
             />
 
             {(allHolds || []).map((hold) => {
               const count = counts[hold.id] || 0;
-              const opacity = count > 0 ? 0.5 + 0.4 * (count / maxCount) : 0.03;
+              const isUsed = count > 0;
+              const opacity = isUsed ? 0.5 + 0.4 * (count / maxCount) : 0.03;
               const fill = heatColor(count, maxCount);
+              // Only used holds get the white outline — unused holds stay outline-free so they recede into the dimmed board.
+              const strokeColor = isUsed ? 'rgba(255,255,255,0.6)' : 'none';
               const hasPolygon = hold.polygon && hold.polygon.length >= 3;
 
               if (hasPolygon) {
@@ -221,7 +224,7 @@ export default function HoldHeatMap({
                     points={pts}
                     fill={fill}
                     fillOpacity={opacity}
-                    stroke="rgba(255,255,255,0.6)"
+                    stroke={strokeColor}
                     strokeWidth={2}
                     strokeLinejoin="round"
                     style={{ cursor: 'pointer' }}
@@ -247,7 +250,7 @@ export default function HoldHeatMap({
                   ry={ry}
                   fill={fill}
                   fillOpacity={opacity}
-                  stroke="rgba(255,255,255,0.6)"
+                  stroke={strokeColor}
                   strokeWidth={2}
                   style={{ cursor: 'pointer' }}
                   onClick={(e) => handleHoldClick(e, hold)}
