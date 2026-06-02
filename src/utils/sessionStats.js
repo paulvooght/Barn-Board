@@ -515,32 +515,60 @@ export function computeStats(sessions, routes, userRouteData, period, gradeSyste
  * @param {Object} period        — period descriptor from makePeriod()
  * @returns {{ counts: { [holdId]: number }, maxCount: number, totalSends: number }}
  */
-export function computeHoldHeat(sessions, routes, userRouteData, period) {
+export function computeHoldHeat(sessions, routes, userRouteData, period, mode = 'sent') {
   const safeRoutes = routes || [];
   const safeURD = userRouteData || {};
+  const includeTried = mode === 'sentAndTried';
   const counts = {};
   let totalSends = 0;
+  let totalTried = 0;
+
+  const addHolds = (route) => {
+    for (const holdId of Object.keys(route.holds)) {
+      counts[holdId] = (counts[holdId] || 0) + 1;
+    }
+  };
 
   if (period.type === 'all') {
-    // One count per route the user has marked sent
+    // One count per route the user has marked sent; tried-but-not-sent routes
+    // add their holds too when the combined mode is active.
     for (const [routeId, urd] of Object.entries(safeURD)) {
-      if (!urd?.sent) continue;
       const route = safeRoutes.find(r => r.id === routeId);
       if (!route?.holds) continue;
-      totalSends++;
-      for (const holdId of Object.keys(route.holds)) {
-        counts[holdId] = (counts[holdId] || 0) + 1;
+      if (urd?.sent) {
+        totalSends++;
+        addHolds(route);
+      } else if (includeTried && urd?.attempted) {
+        totalTried++;
+        addHolds(route);
       }
     }
   } else {
     // One count per send event in the period (same route sent twice = counted twice)
     const periodSends = filterSends(sessions || [], period);
     totalSends = periodSends.length;
+    const sentRouteIds = new Set();
     for (const send of periodSends) {
+      sentRouteIds.add(send.routeId);
       const route = safeRoutes.find(r => r.id === send.routeId);
       if (!route?.holds) continue;
-      for (const holdId of Object.keys(route.holds)) {
-        counts[holdId] = (counts[holdId] || 0) + 1;
+      addHolds(route);
+    }
+
+    // Combined mode: add routes attempted in the period but NOT sent in it,
+    // one count per distinct route (sent routes already counted above).
+    if (includeTried) {
+      const triedRouteIds = new Set();
+      for (const session of filterSessions(sessions || [], period)) {
+        for (const rid of (session.routesAttempted || [])) {
+          if (!sentRouteIds.has(rid)) triedRouteIds.add(rid);
+        }
+      }
+      for (const rid of triedRouteIds) {
+        const route = safeRoutes.find(r => r.id === rid);
+        if (!route?.holds) continue;
+        totalTried++;
+        addHolds(route);
       }
     }
   }
@@ -549,7 +577,7 @@ export function computeHoldHeat(sessions, routes, userRouteData, period) {
     ? Math.max(...Object.values(counts))
     : 0;
 
-  return { counts, maxCount, totalSends };
+  return { counts, maxCount, totalSends, totalTried };
 }
 
 // ─── Unfinished business ──────────────────────────────────────────────────────

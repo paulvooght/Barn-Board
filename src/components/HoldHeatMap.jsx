@@ -53,8 +53,10 @@ export default function HoldHeatMap({
   allHolds,
   heat,
   periodLabel,
+  mode = 'sent',
+  onChangeMode,
 }) {
-  const { counts = {}, maxCount = 0, totalSends = 0 } = heat || {};
+  const { counts = {}, maxCount = 0, totalSends = 0, totalTried = 0 } = heat || {};
 
   const imgRef  = useRef(null);
   const svgRef  = useRef(null);
@@ -137,30 +139,81 @@ export default function HoldHeatMap({
     margin: 0,
   };
 
-  // ── Empty state ───────────────────────────────────────────────────────────────
+  // ── Source toggle: sent only ↔ sent + tried ─────────────────────────────────
 
-  if (totalSends === 0) {
-    return (
-      <div style={cardStyle}>
-        <div style={headerStyle}>
-          <p style={titleStyle}>Hold Heat Map</p>
-          <p style={{ ...subheadStyle, fontStyle: 'italic', marginTop: '8px', opacity: 0.6 }}>
-            No sends in this period — nothing to map yet.
-          </p>
-        </div>
-      </div>
-    );
+  const toggleWrapStyle = {
+    display: 'inline-flex',
+    gap: '2px',
+    padding: '3px',
+    borderRadius: '8px',
+    background: 'rgba(0,0,0,0.06)',
+    margin: '8px 0 2px',
+  };
+
+  function segStyle(active) {
+    return {
+      border: 'none',
+      cursor: 'pointer',
+      fontFamily: "'DM Sans', sans-serif",
+      fontSize: '11px',
+      fontWeight: 700,
+      padding: '5px 11px',
+      borderRadius: '6px',
+      background: active ? 'var(--accent)' : 'transparent',
+      color: active ? '#fff' : 'var(--text-muted)',
+      transition: 'background 0.15s, color 0.15s',
+    };
   }
+
+  const SourceToggle = () => (
+    <div style={toggleWrapStyle} onClick={(e) => e.stopPropagation()}>
+      <button
+        type="button"
+        style={segStyle(mode === 'sentAndTried')}
+        onClick={() => onChangeMode?.('sentAndTried')}
+      >
+        Sent + tried
+      </button>
+      <button
+        type="button"
+        style={segStyle(mode === 'sent')}
+        onClick={() => onChangeMode?.('sent')}
+      >
+        Sent only
+      </button>
+    </div>
+  );
+
+  // ── Subhead text adapts to the active mode ──────────────────────────────────
+
+  const sendsLabel = `${totalSends} send${totalSends === 1 ? '' : 's'}`;
+  const triedLabel = `${totalTried} tried`;
+  const subheadText = mode === 'sentAndTried'
+    ? `Showing holds from ${periodLabel} · ${sendsLabel} + ${triedLabel}`
+    : `Showing holds used during ${periodLabel} · ${sendsLabel}`;
+
+  const hasData = (totalSends + totalTried) > 0;
 
   return (
     <div style={cardStyle} onClick={handleContainerClick}>
       {/* Header */}
       <div style={headerStyle}>
         <p style={titleStyle}>Hold Heat Map</p>
-        <p style={subheadStyle}>
-          Showing holds used during {periodLabel} · {totalSends} send{totalSends === 1 ? '' : 's'}
-        </p>
+        <SourceToggle />
+        <p style={{ ...subheadStyle, marginTop: '6px' }}>{subheadText}</p>
       </div>
+
+      {/* Empty state for the active mode */}
+      {!hasData && (
+        <p style={{ ...subheadStyle, fontStyle: 'italic', opacity: 0.6, padding: '0 16px 14px' }}>
+          {mode === 'sentAndTried'
+            ? 'No sends or tried routes in this period — nothing to map yet.'
+            : 'No sends in this period — nothing to map yet.'}
+        </p>
+      )}
+
+      {hasData && (
+      <>
 
       {/* Board image + SVG overlay */}
       <div style={{ position: 'relative', lineHeight: 0 }} ref={svgRef}>
@@ -306,6 +359,8 @@ export default function HoldHeatMap({
           <span style={{ fontSize: '10px', color: 'var(--text-muted)', fontWeight: 600, minWidth: 24, textAlign: 'right' }}>High</span>
         </div>
       </div>
+      </>
+      )}
     </div>
   );
 }

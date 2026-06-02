@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import PeriodPicker from './PeriodPicker';
 import ClimberCard from './ClimberCard';
 import HoldHeatMap from './HoldHeatMap';
@@ -81,9 +81,11 @@ export default function SessionsView({
   );
 
   // ── Hold heat map data (memoised) ─────────────────────────────────────────
+  // 'sent' = holds from sent routes only; 'sentAndTried' = adds tried routes too.
+  const [heatMode, setHeatMode] = useState('sent');
   const heat = useMemo(
-    () => computeHoldHeat(safeSessions, safeRoutes, safeURD, safePeriod),
-    [safeSessions, safeRoutes, safeURD, safePeriod]
+    () => computeHoldHeat(safeSessions, safeRoutes, safeURD, safePeriod, heatMode),
+    [safeSessions, safeRoutes, safeURD, safePeriod, heatMode]
   );
 
   // ── Styles ────────────────────────────────────────────────────────────────
@@ -300,6 +302,8 @@ export default function SessionsView({
           allHolds={allHolds}
           heat={heat}
           periodLabel={safePeriod.label}
+          mode={heatMode}
+          onChangeMode={setHeatMode}
         />
       )}
 
