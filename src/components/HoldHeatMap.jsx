@@ -209,7 +209,7 @@ export default function HoldHeatMap({
 
             {(allHolds || []).map((hold) => {
               const count = counts[hold.id] || 0;
-              const opacity = count > 0 ? 0.5 + 0.4 * (count / maxCount) : 0.08;
+              const opacity = count > 0 ? 0.5 + 0.4 * (count / maxCount) : 0.03;
               const fill = heatColor(count, maxCount);
               const hasPolygon = hold.polygon && hold.polygon.length >= 3;
 
