@@ -13,7 +13,10 @@ const { boardRegion } = holdsData;
 
 export default function BoardView({ holds, selection, onHoldTap, onBoardClick, interactive, dimBoard, imgSrc, imgSrcSet, imgSizes, holdSnapshots, onZoomChange, children }) {
   const [imageLoaded, setImageLoaded] = useState(false);
-  const [imgSize, setImgSize]         = useState({ w: 1200, h: 900 });
+  // Default to the board image's native ratio (1500×1463) so the box reserves
+  // the correct height BEFORE the image loads — prevents the thin-strip → full
+  // jump. The image wizard warps replacements to these dims, so the ratio holds.
+  const [imgSize, setImgSize]         = useState({ w: 1500, h: 1463 });
   const [scale, setScale]             = useState(1);
   const [pan, setPan]                 = useState({ x: 0, y: 0 });
   const [pxScale, setPxScale]         = useState(1);
@@ -351,6 +354,7 @@ export default function BoardView({ holds, selection, onHoldTap, onBoardClick, i
             border: '12px solid #FFE227',
             borderRadius: '2px',
             lineHeight: 0,
+            background: 'rgba(26,10,0,0.04)',
           }}>
           <img
             ref={imgRef}
@@ -369,7 +373,8 @@ export default function BoardView({ holds, selection, onHoldTap, onBoardClick, i
             style={{
               width: '100%',
               display: 'block',
-              opacity: imageLoaded ? 1 : 0.3,
+              aspectRatio: `${imgSize.w} / ${imgSize.h}`,
+              opacity: imageLoaded ? 1 : 0,
               transition: 'opacity 0.4s',
             }}
             draggable={false}
@@ -479,6 +484,23 @@ export default function BoardView({ holds, selection, onHoldTap, onBoardClick, i
           )}
           </div>{/* end yellow border wrapper */}
         </div>
+
+        {/* Loading spinner — shown until the board image loads. The box height is
+            already reserved (image aspect-ratio), so there's no layout jump. */}
+        {!imageLoaded && (
+          <div style={{
+            position: 'absolute', inset: 0,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            pointerEvents: 'none', zIndex: 15,
+          }}>
+            <div style={{
+              width: '34px', height: '34px', borderRadius: '50%',
+              border: '3px solid rgba(0,71,255,0.2)',
+              borderTopColor: 'var(--accent)',
+              animation: 'spin 0.8s linear infinite',
+            }} />
+          </div>
+        )}
 
         {asButton && (
           <div style={{

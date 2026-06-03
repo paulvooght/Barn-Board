@@ -105,3 +105,8 @@ input[type="range"]::-webkit-slider-thumb {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.4; }
 }
+
+/* Loading spinner (board image) */
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
