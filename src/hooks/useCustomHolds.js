@@ -1,7 +1,7 @@
 import { useMemo, useEffect, useRef } from 'react';
 import { useLocalStorage } from './useLocalStorage';
 import holdsData from '../data/holds.json';
-import { supabase } from '../lib/supabase';
+import * as db from '../lib/db';
 
 /**
  * Manages hold data across three layers:
@@ -32,7 +32,7 @@ export function useCustomHolds(user) {
     loadedForUser.current = user.id;
 
     const load = async () => {
-      const { data, error } = await supabase.from('board_settings').select('key, data').in('key', ['hold_overrides', 'custom_holds']);
+      const { data, error } = await db.getBoardSettingsIn(['hold_overrides', 'custom_holds']);
       if (error) { console.error('[Supabase] board_settings load error:', error); return; }
 
       const overridesRow = data?.find(r => r.key === 'hold_overrides');
@@ -44,7 +44,7 @@ export function useCustomHolds(user) {
         // First time — migrate localStorage overrides to Supabase
         const local = JSON.parse(localStorage.getItem('barnboard_hold_overrides') || '{}');
         if (Object.keys(local).length > 0) {
-          await supabase.from('board_settings').upsert({ key: 'hold_overrides', data: local });
+          await db.setBoardSetting('hold_overrides', local);
         }
       }
 
@@ -53,7 +53,7 @@ export function useCustomHolds(user) {
       } else {
         const local = JSON.parse(localStorage.getItem('barnboard_custom_holds') || '[]');
         if (local.length > 0) {
-          await supabase.from('board_settings').upsert({ key: 'custom_holds', data: local });
+          await db.setBoardSetting('custom_holds', local);
         }
       }
     };
@@ -64,16 +64,12 @@ export function useCustomHolds(user) {
   // Returns a promise so callers can await critical writes
   const syncOverrides = (overrides) => {
     if (!user) return Promise.resolve();
-    return supabase.from('board_settings')
-      .upsert({ key: 'hold_overrides', data: overrides, updated_at: new Date().toISOString() })
-      .then(({ error }) => { if (error) console.error('[Supabase] hold_overrides sync:', error); });
+    return db.setBoardSetting('hold_overrides', overrides);
   };
 
   const syncCustoms = (customs) => {
     if (!user) return Promise.resolve();
-    return supabase.from('board_settings')
-      .upsert({ key: 'custom_holds', data: customs, updated_at: new Date().toISOString() })
-      .then(({ error }) => { if (error) console.error('[Supabase] custom_holds sync:', error); });
+    return db.setBoardSetting('custom_holds', customs);
   };
 
   // ─── Mutations ────────────────────────────────────────────────────

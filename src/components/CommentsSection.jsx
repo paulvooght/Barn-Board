@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { supabase } from '../lib/supabase';
+import * as db from '../lib/db';
 import CommentItem from './CommentItem';
 
 /**
@@ -38,11 +38,7 @@ export default function CommentsSection({
 
     async function fetchComments() {
       setLoading(true);
-      const { data, error: fetchErr } = await supabase
-        .from('route_comments')
-        .select('*')
-        .eq('route_id', routeId)
-        .order('created_at', { ascending: true });
+      const { data, error: fetchErr } = await db.fetchComments(routeId);
 
       if (cancelled) return;
       if (fetchErr) {
@@ -61,11 +57,7 @@ export default function CommentsSection({
   useEffect(() => {
     function handleVisibility() {
       if (document.visibilityState === 'visible' && expandedRef.current && routeId) {
-        supabase
-          .from('route_comments')
-          .select('*')
-          .eq('route_id', routeId)
-          .order('created_at', { ascending: true })
+        db.fetchComments(routeId)
           .then(({ data, error: fetchErr }) => {
             if (fetchErr) {
               console.error('CommentsSection visibility refetch error:', fetchErr);
@@ -85,11 +77,7 @@ export default function CommentsSection({
 
     setError('');
     setPosting(true);
-    const { data, error: postErr } = await supabase
-      .from('route_comments')
-      .insert({ route_id: routeId, user_id: currentUserId, body })
-      .select()
-      .single();
+    const { data, error: postErr } = await db.insertComment(routeId, currentUserId, body);
 
     if (postErr) {
       console.error('CommentsSection post error:', postErr);
@@ -116,10 +104,7 @@ export default function CommentsSection({
     // Optimistic update
     setComments(prev => prev.map(c => c.id === commentId ? { ...c, likes: newLikes } : c));
 
-    const { error } = await supabase
-      .from('route_comments')
-      .update({ likes: newLikes })
-      .eq('id', commentId);
+    const { error } = await db.updateComment(commentId, { likes: newLikes });
 
     if (error) {
       console.error('CommentsSection like error:', error);
@@ -141,10 +126,7 @@ export default function CommentsSection({
     // Optimistic update
     setComments(prev => prev.map(c => c.id === commentId ? { ...c, flags: newFlags } : c));
 
-    const { error } = await supabase
-      .from('route_comments')
-      .update({ flags: newFlags })
-      .eq('id', commentId);
+    const { error } = await db.updateComment(commentId, { flags: newFlags });
 
     if (error) {
       console.error('CommentsSection flag error:', error);
@@ -155,12 +137,7 @@ export default function CommentsSection({
 
   async function handleEdit(commentId, newBody) {
     setError('');
-    const { data, error: editErr } = await supabase
-      .from('route_comments')
-      .update({ body: newBody })
-      .eq('id', commentId)
-      .select()
-      .single();
+    const { data, error: editErr } = await db.updateCommentReturning(commentId, { body: newBody });
 
     if (editErr) {
       console.error('CommentsSection edit error:', editErr);
@@ -172,10 +149,7 @@ export default function CommentsSection({
 
   async function handleDelete(commentId) {
     setError('');
-    const { error: deleteErr } = await supabase
-      .from('route_comments')
-      .delete()
-      .eq('id', commentId);
+    const { error: deleteErr } = await db.deleteComment(commentId);
 
     if (deleteErr) {
       console.error('CommentsSection delete error:', deleteErr);

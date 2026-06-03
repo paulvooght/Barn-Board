@@ -112,6 +112,11 @@ export function getBoardSetting(key) {
   return supabase.from('board_settings').select('data').eq('key', key).maybeSingle();
 }
 
+/** Read several settings blobs at once. Returns rows [{ key, data }]. */
+export function getBoardSettingsIn(keys) {
+  return supabase.from('board_settings').select('key, data').in('key', keys);
+}
+
 /** Write one settings blob by key. Stamps updated_at, conflicts on key. */
 export async function setBoardSetting(key, data) {
   const { error } = await supabase.from('board_settings').upsert(
@@ -155,4 +160,55 @@ export async function upsertProfile(userId, fields) {
     { onConflict: 'user_id' }
   );
   return { error };
+}
+
+// ─── route_comments ──────────────────────────────────────────────────────────
+// These return the query builder (thenable) — callers do their own error
+// handling + optimistic rollback, so they need the { data, error } result.
+
+export function fetchComments(routeId) {
+  return supabase.from('route_comments').select('*').eq('route_id', routeId).order('created_at', { ascending: true });
+}
+
+/** Insert a comment and return the created row. */
+export function insertComment(routeId, userId, body) {
+  return supabase.from('route_comments').insert({ route_id: routeId, user_id: userId, body }).select().single();
+}
+
+/** Patch a comment in place (e.g. { likes } / { flags }). No row returned. */
+export function updateComment(commentId, fields) {
+  return supabase.from('route_comments').update(fields).eq('id', commentId);
+}
+
+/** Patch a comment and return the updated row (e.g. body edit). */
+export function updateCommentReturning(commentId, fields) {
+  return supabase.from('route_comments').update(fields).eq('id', commentId).select().single();
+}
+
+export function deleteComment(commentId) {
+  return supabase.from('route_comments').delete().eq('id', commentId);
+}
+
+// ─── storage: board images ───────────────────────────────────────────────────
+
+const BOARD_IMAGES_BUCKET = 'board-images';
+
+/** Public base URL for the board-images bucket. */
+export const BOARD_IMAGES_BASE_URL =
+  `${import.meta.env.VITE_SUPABASE_URL}/storage/v1/object/public/${BOARD_IMAGES_BUCKET}`;
+
+/**
+ * Upload the four responsive board-image variants (full + 2000/1200/800w).
+ * Ensures the bucket exists, then uploads in parallel. Returns the array of
+ * upload results so the caller can inspect per-file errors.
+ */
+export async function uploadBoardImage(imageName, imageBlobs) {
+  await supabase.storage.createBucket(BOARD_IMAGES_BUCKET, { public: true }).catch(() => {});
+  const opts = { contentType: 'image/jpeg', upsert: true };
+  return Promise.all([
+    supabase.storage.from(BOARD_IMAGES_BUCKET).upload(`${imageName}.jpg`, imageBlobs.full, opts),
+    supabase.storage.from(BOARD_IMAGES_BUCKET).upload(`${imageName}-2000w.jpg`, imageBlobs.w2000, opts),
+    supabase.storage.from(BOARD_IMAGES_BUCKET).upload(`${imageName}-1200w.jpg`, imageBlobs.w1200, opts),
+    supabase.storage.from(BOARD_IMAGES_BUCKET).upload(`${imageName}-800w.jpg`, imageBlobs.w800, opts),
+  ]);
 }

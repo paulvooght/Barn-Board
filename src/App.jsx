@@ -1374,18 +1374,9 @@ export default function App() {
 
   const handleBoardImageSave = async ({ imageName, imageBlobs }) => {
     try {
-      // 1. Ensure bucket exists (createBucket returns error if exists — that's fine)
-      await supabase.storage.createBucket('board-images', { public: true }).catch(() => {});
-
-      // 2. Upload all sizes in parallel
-      const baseUrl = `${import.meta.env.VITE_SUPABASE_URL}/storage/v1/object/public/board-images`;
-      const uploads = [
-        supabase.storage.from('board-images').upload(`${imageName}.jpg`, imageBlobs.full, { contentType: 'image/jpeg', upsert: true }),
-        supabase.storage.from('board-images').upload(`${imageName}-2000w.jpg`, imageBlobs.w2000, { contentType: 'image/jpeg', upsert: true }),
-        supabase.storage.from('board-images').upload(`${imageName}-1200w.jpg`, imageBlobs.w1200, { contentType: 'image/jpeg', upsert: true }),
-        supabase.storage.from('board-images').upload(`${imageName}-800w.jpg`, imageBlobs.w800, { contentType: 'image/jpeg', upsert: true }),
-      ];
-      const results = await Promise.all(uploads);
+      // 1. Upload all sizes (ensures the bucket exists; uploads 4 variants in parallel)
+      const baseUrl = db.BOARD_IMAGES_BASE_URL;
+      const results = await db.uploadBoardImage(imageName, imageBlobs);
 
       // Check for upload errors
       const errors = results.filter(r => r.error);
@@ -1404,9 +1395,7 @@ export default function App() {
       };
 
       // Save config to board_settings
-      const { error: settingsError } = await supabase
-        .from('board_settings')
-        .upsert({ key: 'board_image_config', data: config });
+      const { error: settingsError } = await db.setBoardSetting('board_image_config', config);
       if (settingsError) throw settingsError;
 
       // Update local state and return to settings
