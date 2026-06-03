@@ -1467,7 +1467,7 @@ export default function BoardImageUpdateView({ currentImgSrc, currentImageName, 
   const [pendingPins, setPendingPins] = useState(null); // [[x,y], ...] in workspace coords
 
   // Confirm step state
-  const [imageName, setImageName] = useState(() => autoIncrementName(currentImageName || 'Barn_Set_01_V5'));
+  const [imageName, setImageName] = useState(() => autoIncrementName(currentImageName || 'Barn_Set_01_V7'));
   const [nameError, setNameError] = useState('');
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
@@ -1588,7 +1588,7 @@ export default function BoardImageUpdateView({ currentImgSrc, currentImageName, 
   // ── Render ────────────────────────────────────────────────────────────────
 
   // Use currentImgSrc (with cache buster) for display in AlignStep
-  const alignImgSrc = currentImgSrc || currentImageUrl || '/Barn_Set_01_V5.jpg';
+  const alignImgSrc = currentImgSrc || currentImageUrl || '/Barn_Set_01_V7.jpg';
 
   // ── Guided camera overlay (full-viewport, rendered above everything) ───────
   if (showGuidedCamera) {

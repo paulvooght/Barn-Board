@@ -7,10 +7,10 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=2" />
-    <link rel="preload" as="image"
-          href="/Barn_Set_01_V5-800w.jpg"
-          imagesrcset="/Barn_Set_01_V5-800w.jpg 800w, /Barn_Set_01_V5-1200w.jpg 1200w, /Barn_Set_01_V5-2000w.jpg 2000w"
-          imagesizes="100vw" />
+    <!-- The board image is dynamic (Supabase board_image_config), so a static
+         image preload would be wasted for returning users. Instead, warm the
+         Supabase connection so the actual image + data fetch fast. -->
+    <link rel="preconnect" href="https://omsucewpjhfqjnpqdmsh.supabase.co" />
     <title>Barn Board</title>
     <!-- Fonts are self-hosted (see src/main.jsx — @fontsource DM Sans + Kodchasan):
          bundled with the app and precached by the service worker, so there's no

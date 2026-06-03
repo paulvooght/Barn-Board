@@ -2,11 +2,11 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import holdsData from '../data/holds.json';
 
 // ─── Board photo reference dimensions ────────────────────────────────────────
-// Source: holds.json imageFile (Barn_Set_01_V5.jpg) — 1500 × 1463 px natural size.
+// Source: current board image (Barn_Set_01_V7.jpg) — 1280 × 1248 px natural size.
 // Future improvement: read from holds.json metadata dynamically.
-const PHOTO_W = 1500;
-const PHOTO_H = 1463;
-const TARGET_ASPECT = PHOTO_W / PHOTO_H; // ≈ 1.0253
+const PHOTO_W = 1280;
+const PHOTO_H = 1248;
+const TARGET_ASPECT = PHOTO_W / PHOTO_H; // ≈ 1.0256
 
 // ─── Anchor hold selection ────────────────────────────────────────────────────
 // Divide the board area into a 4×3 grid (columns × rows).

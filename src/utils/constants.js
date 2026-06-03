@@ -178,11 +178,13 @@ export function getYouTubeThumbnail(url) {
   return id ? `https://img.youtube.com/vi/${id}/mqdefault.jpg` : null;
 }
 
-export const DEFAULT_BOARD_IMAGE = '/Barn_Set_01_V5.jpg';
+// Static fallback used only until the dynamic board_image_config loads (or when
+// offline / brand-new). Kept in sync with the current live image (V7).
+export const DEFAULT_BOARD_IMAGE = '/Barn_Set_01_V7.jpg';
 export const DEFAULT_BOARD_SRCSET =
-  '/Barn_Set_01_V5-800w.jpg 800w, ' +
-  '/Barn_Set_01_V5-1200w.jpg 1200w, ' +
-  '/Barn_Set_01_V5-2000w.jpg 2000w';
+  '/Barn_Set_01_V7-800w.jpg 800w, ' +
+  '/Barn_Set_01_V7-1200w.jpg 1200w, ' +
+  '/Barn_Set_01_V7-2000w.jpg 2000w';
 export const DEFAULT_BOARD_SIZES = '100vw';
 
 export const BOARD_SPECS = {

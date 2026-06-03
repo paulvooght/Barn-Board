@@ -2060,8 +2060,8 @@ export default function App() {
       {view === 'updateBoardImage' && (
         <BoardImageUpdateView
           currentImgSrc={imgSrc}
-          currentImageName={boardImageConfig?.imageName || 'Barn_Set_01_V5'}
-          currentImageUrl={boardImageConfig ? `${boardImageConfig.baseUrl}/${boardImageConfig.imageName}.jpg` : '/Barn_Set_01_V5.jpg'}
+          currentImageName={boardImageConfig?.imageName || 'Barn_Set_01_V7'}
+          currentImageUrl={boardImageConfig ? `${boardImageConfig.baseUrl}/${boardImageConfig.imageName}.jpg` : '/Barn_Set_01_V7.jpg'}
           holds={allHolds}
           onSave={handleBoardImageSave}
           onCancel={() => setView('settings')}
