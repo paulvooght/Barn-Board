@@ -1,197 +1,118 @@
 # CURRENT_STATE.md — What's Working, What's Not, What's Fragile
 
-*Last updated: 2026-04-17*
+*Last updated: 2026-06-03*
+*Milestone tag for this state: `v1.3-pre-multi-wall` (annotated, pushed). Restore with `git checkout v1.3-pre-multi-wall`.*
+
+> **This doc was fully re-synced with the code on 2026-06-03.** The app had grown well beyond
+> the previous version of this file (40 source files, ~17,300 lines). Several things the old doc
+> listed as "not yet built" (per-user sends, per-user ratings, creator-only editing, shared
+> playlists) are **built and live**, and sync is now **realtime**, not just visibility-based.
 
 ## Genuinely Working
 
-### Core Features
-- **Auth** — email/password login via Supabase, session persistence, admin check via VITE_ADMIN_EMAIL
-- **Route creation** — tap holds on board image, assign modes (start/hand/foot/handOnly/finish), fill form, save
-- **Route editing** — edit existing routes, change holds, update metadata
-- **Route deletion** — with confirmation
-- **Route viewing** — dimmed board with full-intensity hold cutouts via SVG mask
-- **Route list** — sorting (date, grade, rating), filtering (grade range, rating, hold types, styles), hide-sent toggle
-- **Playlists** — create, rename, delete, add/remove routes, view filtered by playlist
-- **Grade systems** — V-Grade / Font toggle with conversion
-- **Star ratings** — 1-5 on route cards
-- **Sent tracking** — mark routes sent, per-angle-grade sent tracking
-- **Angle-grade system** — multiple angle/grade combos per route
+### Routes
+- **Create / edit / delete** — tap holds on the board, assign modes (start/hand/foot/handOnly/finish), fill the form, save. Creator-only editing enforced by `creatorId`.
+- **Route form** — name (with a random name-generator hint), grade, angle, setter, description, YouTube URL, hold types (auto-collected from hold metadata), techniques, styles.
+- **Route view** — dimmed board with full-intensity hold cutouts via SVG mask; **swipe carousel** to move between routes in the current filter/sort order.
+- **Missing-hold system** — routes flag holds that no longer exist; ghost outlines drawn from stored `holdSnapshots`; auto-strip on save.
 
-### Hold Management
-- **Three-layer hold data** — base JSON + overrides + custom holds, all syncing to Supabase
-- **Hold Manager** (admin only) — Select/Draw/Copy tools with undo/redo
-- **Hold Manager modes** — Boundaries mode (edit polygons) and Hold Info mode (view/edit metadata)
-- **Hold polygon editor** — draw vertices, reshape, delete, add vertex on edge
-- **Hold metadata** — name, color (12 options), hold types (10), positivity (-5 to +5), material (Wood/PU/Fibreglass/Dual-tex)
-- **Hold info cards** — tap hold in metadata mode to see summary, "Edit Hold" button
-- **Hold info from route view** — "Hold Info" toggle below board when viewing a route, tap route holds to see metadata
-- **Copy/paste holds** — copy hold → place → rotate → drag → done
-- **Bulk operations** — "Delete all medium" confidence holds, "Select All"
+### Per-user progress (private, in `user_route_data`)
+- **4-state send cycle** — empty → **tried → sent → flash** → empty, tracked both route-wide and **per-angle**.
+- **Star ratings** — each user rates 1–5; the card shows the **community average** (optimistically updated).
+- **Community grade suggestions** — users suggest a headline and/or per-angle grade; the app derives a **consensus** and re-normalises it live when the viewer switches V ↔ Font.
 
-### Session Tracking
-- **Start/Stop session** — timer-based, records board angle
-- **Log sends** — route + angle + grade per send
-- **Log attempts** — track attempted routes
-- **Session summary** — duration, sends breakdown, hardest grade, angles climbed
-- **Deduplication** — won't double-count sends of the same route at same angle
+### Route list
+- Sort (date / grade / rating, with direction toggle); filter (setter search, grade range incl. hidden angle-grades, min rating, hold types, styles); hide-sent toggle.
+- **Playlists** — create / rename / delete / add / remove, tile UI.
+- **Shared playlists** — publish a playlist publicly, browse others', subscribe (adds a private copy).
 
-### Data & Sync
-- **Supabase storage** — routes, sessions, playlists, hold overrides, custom holds
-- **Multi-device sync** — data re-fetched when tab becomes visible
-- **localStorage migration** — existing data auto-migrated on first Supabase login
-- **Immediate flush** — critical writes (save route, end session) sync instantly
-- **Debounced sync** — non-critical changes sync after 1500ms
+### Sessions (behind the `betaSessionLogger` toggle)
+- Start / stop with a header timer + board-angle slider + log-angle control; session summary after Stop.
+- **Sessions tab** — period picker (last session / week / month / all-time), **Climber Card** (top grades, strengths/weaknesses by hold type, climber-type label, period-over-period deltas), **Hold Heat Map**, **Unfinished Business**, per-session route list, session-history accordion.
+- **Session editor** — edit a past session's sends, angles and times.
+- Pure stats engine in `sessionStats.js` (side-effect-free, testable).
 
-### Hold Warning System
-- **Missing hold detection** — routes flag holds that no longer exist on board
-- **Ghost outlines** — missing holds shown as dotted outlines using stored snapshots
-- **Fix route flow** — edit route to remove/replace missing holds
-- **Warning dots** — use physical hold color from snapshots (not selection type color)
-- **Auto-strip on save** — missing hold IDs removed from route on save
+### Community
+- **Comments** — per-route threads; post, like 👍, flag "⚑ Neg"; admin hard-delete; route-creator name highlighted yellow with a "setter" pill.
+- **Display names** — required before commenting; globally unique; editable in Settings.
 
-### Auto Hold Type Collection
-- **Route form auto-fills** hold type tags from individual holds' metadata
-- **TagPicker highlights** auto-detected types with bold + ✦ indicator
-- **Additive only** — auto-types are added to user selections, never removed
+### Hold management (admin)
+- **Hold Manager** (`BoardSetupView`) — Select/Draw/Copy tools; Boundaries / Hold-Info / Heatmap modes; undo/redo; lasso; copy-paste; long-press vertex editing.
+- **Hold editor** (`HoldEditorView`) — polygon + metadata (name, colour, hold types, positivity, material).
+- **Board image wizard** (`BoardImageUpdateView`) — upload → crop → align → fine-tune → confirm, with perspective warp; publishes 4 responsive variants to the `board-images` bucket and writes `board_image_config`.
+
+### Settings
+- Display name, grade system (V/Font) + conversion chart, admin/climber mode, board specs, beta toggles (Session Record, Video Thumbnail), account (email, sign out, **change password**).
+
+### Auth, data & sync
+- Email/password auth (Supabase); dev-only autologin for UI testing.
+- **Four cooperating sync paths:** immediate flush (save route / end session), 1500 ms debounce, **realtime postgres subscription on `routes`**, tab-visibility refetch, plus an **offline pending-route queue** (`pendingRouteSync.js`) retried on load / visibility / `online`.
+- First-login localStorage → Supabase migration. PWA (installable, offline shell).
+- Three-layer hold data (base JSON → overrides → custom), all synced to `board_settings`.
 
 ## Known Bugs / Issues
 
-### ⚠️ Hold IDs scrambled after board image replacement (ACTIVE — needs fix)
-- Board image was replaced and `detect_holds.py` re-ran, overwriting `holds.json`
-- All 24 original hold IDs now point to different physical holds (IDs assigned by sort order, new holds interspersed)
-- Existing routes reference old hold IDs → holds render in wrong positions
-- **Fix designed**: spatial matching to restore old IDs + assign new IDs to 19 newly detected holds
-- See TASK_SPEC.md for the complete repair plan
+### ⚠️ Hold-ID scramble after board-image replacement (STATUS UNCONFIRMED)
+- Historically, re-running `detect_holds.py` over `holds.json` re-sorted IDs and broke existing routes. The **safe additive merge workflow** (`merge_holds.py`) and the in-app image wizard now exist to prevent this.
+- **Needs confirmation from Paul:** do existing routes currently render holds in the correct positions? If yes, this is resolved and the entry can be removed. If routes look wrong, the repair plan is the spatial-match merge.
 
-### Multi-device sync is visibility-based, not real-time
-- Data only refreshes when switching back to the tab (visibilitychange event)
-- If both devices are open simultaneously, changes won't appear until you switch away and back
-- Playlists use the same mechanism — create on laptop, must tab-switch on phone to see it
+### Admin check fails open
+- Client-side `isAdmin` in App.jsx defaults to `true` when `VITE_ADMIN_EMAIL` is unset. RLS still gates comment-delete server-side, but Hold Manager / image wizard are client-gated. Default-to-false is the fix.
+
+### Core schema not captured in migrations
+- Only `profiles`, `route_comments`, and the `user_route_data` angle-column ALTER live in `supabase/migrations/`. `routes`, `sessions`, `board_settings`, base `user_route_data`, and `shared_playlists` were created in the dashboard — the database can't currently be rebuilt from the repo.
 
 ### Session tracking edge cases
-- Session summary may show duplicate route sends if the same route is marked sent multiple times at different points
-- Personal best count may be off by one in edge cases with the deduplication logic
+- Summary may show duplicate sends if a route is toggled sent multiple times; personal-best counts can be off-by-one in dedup edge cases.
 
-### Hold Manager image sizing
-- Recently fixed (`xMidYMin meet`), but the SVG-over-image alignment is sensitive to CSS changes
-- Any change to the flex container, image sizing, or preserveAspectRatio will break hold boundary alignment
-- Must test on BOTH phone AND laptop after any change to BoardSetupView layout
+### Multi-device freshness
+- Routes sync in realtime; **other tables** (sessions, playlists, per-user data, holds) still refresh on tab-visibility, not live.
 
 ## Fragile / Risky Areas
 
-### BoardSetupView.jsx (~1280 lines)
-- **Most complex file in the app** — handles 3 tools, 2 modes, copy/paste, undo/redo, vertex editing, zoom/pan
-- Touch/mouse event handling is carefully tuned — any change risks mobile breakage
-- The `preserveAspectRatio="xMidYMin meet"` fix was hard-won — do not change to `xMidYMid`
-- Copy/paste rotation uses `_origPoly` pattern to prevent drift — don't refactor this
+### `BoardSetupView.jsx` (~2,270 lines)
+- Most complex file — 3 tools, 3 modes, copy/paste, undo/redo, vertex editing, zoom/pan. Touch/mouse handling is finely tuned. `preserveAspectRatio="xMidYMin meet"` is load-bearing — do not change to `xMidYMid`. Copy/paste rotation uses the `_origPoly` pattern to avoid drift.
 
-### App.jsx (~1900 lines)
-- **Growing too large** — handles view state, route CRUD, session tracking, Supabase sync, hold data, playlists, and rendering for multiple views
-- State is complex — many `useState` hooks with interdependencies
-- Supabase sync logic (debounced + immediate flush) is interleaved with UI logic
-- Potential refactor target but risky due to interconnected state
+### `App.jsx` (~3,040 lines)
+- Does too much: view state, all CRUD, all four sync paths, per-user data, community grades, and a ~680-line inline `ViewRouteHeader`. State is highly interdependent (many `useState` + mirror refs). The prime refactor target — see Technical Debt.
 
-### Touch Event Handling (all interactive SVG components)
-- `lastTouchTimeRef` + `isSynthesizedMouse()` pattern is non-obvious but essential
-- Removing or altering these guards causes ghost clicks on mobile
-- Must be preserved in BoardSetupView, HoldEditorView, and BoardView
+### Board image wizard hold alignment
+- The align → fine-tune pipeline warps a new photo to match the old image so `boardRegion` stays valid. Historically finicky to get holds lining up; test on phone **and** laptop after any change.
 
-### Coordinate System
-- All hold positions are board-area percentages (0-100), not image percentages
-- `boardRegion` in holds.json defines the mapping
-- If the board photo changes, `boardRegion` must be recalibrated or hold positions break
-- The Python detection script outputs the correct boardRegion for each photo
+### Touch event handling (all interactive SVG)
+- `lastTouchTimeRef` + `isSynthesizedMouse()` guards prevent ghost clicks on mobile. Preserve in BoardSetupView, HoldEditorView, BoardView.
 
-## Recent Important Changes (March–April 2026)
-1. **Supabase integration** — migrated from pure localStorage to Supabase + localStorage cache
-2. **Auth system** — email/password with admin-only Hold Manager access
-3. **Multi-device sync** — tab visibility re-fetch
-4. **Hold Manager SVG fix** — `xMidYMid` → `xMidYMin` for correct alignment on all screen sizes
-5. **Hold Info mode** — metadata viewing/editing in Hold Manager and route view
-6. **Auto hold type collection** — route form pre-fills from hold metadata
-7. **Session tracking improvements** — deduplication, stop button, summary fixes
-8. **Playlists** — create/manage route playlists with Supabase sync
-9. **Hold warning system** — ghost outlines, remove buttons, auto-strip on save
-10. **iOS PWA keyboard fix** — removed `maximum-scale=1.0`/`user-scalable=no` from viewport (suppressed keyboard in standalone mode); pinch-zoom now blocked via CSS `touch-action: pan-x pan-y` on `#root` instead
+### Coordinate system
+- Hold positions are board-area percentages (0–100), mapped via `boardRegion` in `holds.json`. BoardView uses `getScreenCTM().inverse()`; BoardSetupView uses `getBoundingClientRect()` + letterbox math.
 
 ## Technical Debt
-- **App.jsx is too large** (~1900 lines) — could benefit from extracting Supabase sync, session tracking, and route management into custom hooks
-- **No tests** — zero automated tests, all testing is manual
-- **No error boundaries** — Supabase failures can leave app in broken state
-- **No offline mode** — if Supabase is unreachable, the app loads from localStorage cache but new writes may fail silently
-- **Inline styles everywhere** — no CSS modules or styled components, all styles are inline objects
-- **No loading states** — Supabase data loads asynchronously but no skeleton/spinner UI
+- **`App.jsx` too large** — extract the data/sync layer and CRUD into hooks (e.g. `useRouteSync`, `useSessionSync`, `useUserRouteData`) and move `ViewRouteHeader`/`NewAngleSuggestionRow`/`NavButton` to their own files.
+- **No data-access layer** — Supabase calls are scattered across App.jsx, useCustomHolds, CommentsSection, Settings. The `user_route_data` upsert is hand-written **6×** with the full column list each time. A single `db.js` (or per-entity helpers) would remove the duplication **and** is the key enabler for adding a `board_id` dimension (multi-wall).
+- **Duplicated constants** — the V/Font grade arrays are re-declared inline in `Settings.jsx`, `SessionHistoryAccordion.jsx`, and `SessionEditView.jsx` instead of importing from `constants.js`. Drift risk.
+- **Inline styles everywhere** — repeated style objects (e.g. the toggle-switch markup is copy-pasted). CSS variables exist (`:root`) but component styles aren't shared.
+- **~44 `console.*`** calls (31 in App.jsx) — fine for dev, noisy for a 200-user/day production wall.
+- **No tests** — despite ideal pure-function targets (`sessionStats`, `heatMap`, `polygonUtils`, grade conversion).
+- **No error boundary** — a render error white-screens the app.
 
-## What Feels Stable vs Unstable
+## Multi-Wall Readiness (next big feature)
+Goal: support multiple physical boards/walls (e.g. Yonder, Walthamstow) as **separate communities**, with a wall switcher and per-wall data isolation. The app currently has **no board/tenant concept** — everything assumes one board. What's single-board today:
 
-### Stable
-- Route creation flow (hold selection → form → save)
-- Board image rendering with zoom/pan
-- Route view dimming mask
-- Grade system conversion
-- Hold polygon math (polygonUtils.js)
-- Three-layer hold data architecture
-- Auth flow
+- `routes` and `sessions` have no `board_id`.
+- `board_settings` keys (`hold_overrides`, `custom_holds`, `board_image_config`) are **global singletons**.
+- **Base holds ship as one static `holds.json`** — per-wall holds must move into the DB.
+- `profiles.display_name` is **globally unique** (two walls can't both have a "Dave").
+- One global `is_admin` flag (no per-wall roles).
+- RLS uses a "pragmatic trust" model — fine for friends, needs real tenant isolation for paying customers.
 
-### Less Stable
-- Hold Manager layout/sizing (sensitive to CSS changes, must test both phone + laptop)
-- Supabase sync timing (immediate vs debounced, edge cases with rapid changes)
-- Session tracking deduplication
-- Multi-device data freshness
-
-## Not Yet Built — Multi-User / Social Features
-The app is designed for multiple users sharing one board (see CLAUDE.md "Social / Multi-User Model"). The following need implementation:
-
-- **Per-user sent status** — currently `sent` is stored on the route itself. Needs to be per-user so each climber tracks their own sends independently.
-- **Per-user star ratings with community average** — currently rating is stored on the route. Needs per-user ratings with the card showing the average of all users' ratings.
-- **Creator-only editing** — currently any logged-in user can edit any route. Need `creatorId` on routes and edit button only shown to the creator.
-- **Setter search/filter** — filter route list by setter name to find favourite route-setters.
-- **Shared playlists** — playlists are currently private per user. Add option to share a playlist with other users.
-- **Per-user angle-grade sent tracking** — `angleGrades[].sent` should be per-user, not on the shared route record.
-
-## Board Image Update Feature (Session 1 — 2026-04-12)
-
-### What's Built
-- **Dynamic image loading** — board image URL loaded from `board_image_config` in `board_settings` table, with fallback to static files in `public/`
-- **Upload wizard** — `BoardImageUpdateView.jsx` — 3-step wizard (Upload → Crop → Confirm) accessible from Settings (admin only)
-- **Supabase Storage upload** — saves 4 responsive sizes (full, 2000w, 1200w, 800w) to `board-images` bucket
-- **Image rename** — user can name the image (auto-increments version, e.g. `Barn_Set_01_V6`)
-- **Error handling** — upload failures show user-friendly error in the wizard
-- **Multi-device sync** — `board_image_config` re-fetched on tab visibility change
-
-### What's Built (Session 2 — 2026-04-15)
-- **Perspective warp / align step** — 4-corner alignment step between crop and confirm (upload → crop → align → confirm)
-- `AlignStep` component in `BoardImageUpdateView.jsx` — oversized workspace (20% padding), 4 draggable corner pins, background opacity slider, Skip option
-- Canvas-based triangle mesh warp (10×10 grid = 200 triangles) — applies on pin release, renders in-place preview
-- Touch handling follows `lastTouchTimeRef` pattern, 44px hit targets, window-level move/end listeners
-
-### What's Built (Session 3 final — 2026-04-17)
-- **Wizard: `upload → crop → align → fineTune → confirm`** (5 steps). Session 3 went through three iterations on this — the final approach matches the Session-2 UX the user liked, plus a new canvas fine-tune step for post-warp correction.
-- **`AlignStep` (free-quad warp with opacity overlay)** — old image rendered underneath at full opacity; new cropped image on top with user-controlled opacity slider (default 0.6). 4 free-dragging pins apply a live `matrix3d` CSS warp to the new image. User drags pins until **individual holds** visually align between old and new (judged through the opacity overlay, not by corner matching). Optional "Show holds" toggle (off by default) overlays hold polygons onto the old image so the user can see where holds should land. On Next: `perspectiveWarp(croppedCanvas, srcQuad=pins, dstQuad=4 corners of old image, oldW, oldH)` produces a warped canvas at old-image dimensions. "Crop too small" warning shows if cropped canvas < 80% of old image in either axis.
-- **`FineTuneStep` (translate + uniform scale)** — takes the warp output and lets the user pan/zoom it inside the final canvas window to correct any residual drift. Scale clamped to [0.5, 2.0]. Single-finger drag pans; pinch or wheel or slider for uniform scale (NO independent x/y scale to avoid re-distortion). Hold overlay is fixed to the workspace (holds stay put, image moves underneath). Output: a canvas at old-image dimensions composed with the pan/scale transform applied.
-- **Confirm step** renders the composed canvas (fine-tune output) with hold overlay for final visual check. Two back buttons: "Adjust alignment" returns to AlignStep (pins preserved); "Fine tune" returns to FineTuneStep (transform preserved).
-- **`boardRegion` remains single source of truth in `holds.json`** — never per-image. The align+fine-tune pipeline ensures the uploaded image geometrically matches the old one, so hold positions stay valid.
-- **Save path uploads the composed canvas** (fine-tune output) as four responsive variants (full, 2000w, 1200w, 800w).
-- **Cache busting** — `cacheVersion: Date.now()` written on every save; `?v=<cacheVersion>` appended to `imgSrc` and each `imgSrcSet` variant URL.
-- **Helpers in BoardImageUpdateView.jsx:** `computeHomography`, `perspectiveWarp`, `computePerspectiveCSS` (CSS matrix3d builder for live preview).
-
-### Known issue after Session 3 (UNRESOLVED — deferred to Session 4)
-- After the full wizard (align → fineTune → confirm → save), hold outlines on the home view still do **not** line up with the physical holds in the uploaded image. Multiple iterations in Session 3 failed to fix this. User has a new approach — see `SESSION_4_BRIEF.md`.
-
-### What's NOT Built Yet
-- Phone UX testing and polish on the align + fineTune steps
-- "Revert to previous image" option
-- A working image-update workflow (current one ships but doesn't align holds correctly)
-
-### Supabase Setup Required
-- A `board-images` Storage bucket must exist (the code attempts to create it on first upload, but Supabase may require manual creation via dashboard if RLS blocks `createBucket`)
+Likely shape: a `boards` table, a `board_members` (board_id, user_id, role) table, a `board_id` FK on routes/sessions, per-board hold + image config (holds move to DB), an "active board" context threaded through every query, RLS rewritten around membership, and a wall switcher in the UI. **Recommended prep before building:** data-access layer + capture live schema into migrations.
 
 ## Recent Changes
-- **2026-05-28** — **Hold Manager: fix pan regression, drop centroid dot, drag from body when armed** (`src/components/BoardSetupView.jsx`). Pan now works when touch/click starts on a hold (`panDragRef` initialized alongside `pendingHoldRef`). Centroid drag-dot removed entirely (`startDotDrag` deleted, dot SVG rendering removed from both ellipse and polygon branches). `dotsVisible` renamed to `armed` with a mirrored `armedRef` for safe use in event handlers. Drag from hold body now activates only when `armed` (500ms after selection) and the hit hold is in the selection — otherwise movement falls through to pan. Touch tap-cancel threshold loosened from 6px to 9px for more forgiving deselect on mobile.
-- **2026-05-28** — **Hold Manager: fix dotsVisible for lasso/Select All** — replaced per-tap timer scheduling with a single `useEffect` watching `selectedIds.length` and `vertexEditId`; lasso-select and Cmd+A now correctly show dots after 500 ms, vertex-edit paths show dots immediately. (`src/components/BoardSetupView.jsx`)
-- **2026-05-28** — **Hold Manager: re-tap deselects + centroid drag-dot** (`src/components/BoardSetupView.jsx` only). Three behaviour changes: (1) Tapping an already-selected hold now removes it from the selection (toggle off), clearing `dotsVisible` when the last hold is deselected. (2) The polygon body is no longer a drag target — movement beyond the threshold during a pending hold interaction now cancels the tap and falls through to pan. (3) A small white-filled/blue-stroked centroid dot now serves as the sole drag handle per selected hold; the dot appears 500 ms after the first hold is selected via tap (to avoid accidental drags), immediately on long-press or double-click into vertex-edit mode, and immediately on any subsequent tap when `dotsVisible` is already true. Dot is gated on `managerMode === 'boundaries' && activeTool === TOOLS.SELECT` — hidden in heat-map, metadata, and draw modes. `clearSelection()` and `switchTool()` both cancel any pending timer and hide the dot immediately. New state: `dotsVisible` (boolean), `dotsVisibleTimerRef`. New helper: `startDotDrag(hold, e)` — called from dot `onTouchStart`/`onMouseDown`, stamps `lastTouchTimeRef`, calls `e.stopPropagation()`, then activates `draggingHold`.
-- **2026-05-27** — **Hold Manager: new Select tool interaction model** (`src/components/BoardSetupView.jsx` only). Removed `multiSelectMode` state and the Multi toggle button — additive multi-select is now always on. Tap any hold → adds to selection (no replacement). Tap empty space → clears selection. Touch/mouse drag on any hold activates after a small movement threshold (~6px touch, ~4px mouse) without requiring prior tap-to-select; dragging an unselected hold replaces selection with that hold only, dragging an already-selected hold moves the whole multi-selection. Long-press (500ms, touch) enters vertex-edit mode for that hold and fires haptic (`navigator.vibrate(15)`). Double-click (mouse, guarded by `isSynthesizedMouse()`) also enters vertex-edit mode. Vertex handles are now only visible when `vertexEditId` is set — not on ordinary selection. Added `vertexEditId` state; `+ Vertex` / `− Vertex` / `Confirm` buttons gated on `vertexEditId != null`. Lasso promoted to a standalone button visible in both the empty-selection and with-selection toolbar rows. Added `pendingHoldRef` / `longPressTimerRef` for the gesture state machine, with cleanup on touch cancel and unmount. `clearSelection()` and `selectAllHolds()` both clear `vertexEditId`. Draw mode, copy mode, metadata mode, heatmap mode flows unchanged.
-- **2026-05-06** — **Session Record (Phase 1)** — built on `claude/busy-thompson-1c12d1` worktree branch (NOT yet merged to main). New top-level **Sessions** tab gated behind a single beta toggle in Settings → Beta Features → "Session Record" (key `betaSessionLogger`). The standalone `betaAngleLogger` toggle was retired — angle slider now lives inside the Sessions tab and is gated by the same single toggle. Tab structure: Routes / Sessions / Settings. The Start Session button moved off the home view into the Sessions tab; an active session swaps the top of the tab to Stop Session + angle slider + log-angle CTA. Below: a `PeriodPicker` with tabs (Last session / Week / Month / All time), arrow nav and a tap-to-open modal for past periods. Then a `ClimberCard` with headline stats (top grade, sends, sessions), strengths/weaknesses by hold type, common patterns (grade/hold-type/technique/angle), per-angle top grades, climber-type label (17-entry curated map keyed off top hold-type × top technique), avg session length, sessions/week with target line at 2/wk and vs-last-period deltas inline. Then a `HoldHeatMap` overlay on the board image — opacity scales with use count in the selected period, tap a hold for usage tooltip. Then a `SessionRollup` with sparkline of sends-per-session, streaks/badges (First Send, First Flash, Streak Starter, Consistent Climber, Century Club, Flash Hunter), personal records, and an "Unfinished business" list (routes where `attempted=true && !sent && !flashed`). Two new boolean columns added to `user_route_data` schema: **`flashed`** (3-state Sent box cycle: untouched → sent → flash, yellow star icon, user-asserted flash) and **`attempted`** (lifetime per-user flag; previously routes were marked attempted just by opening viewRoute during a session, which polluted data — now action-based: triggered only by Sent, Flash, grade-suggest, comment-post, or an explicit "Tried" pill on viewRoute). **Schema migration the user must run before deploying:** `ALTER TABLE user_route_data ADD COLUMN IF NOT EXISTS flashed BOOLEAN DEFAULT FALSE; ALTER TABLE user_route_data ADD COLUMN IF NOT EXISTS attempted BOOLEAN DEFAULT FALSE;`. New files: `src/utils/sessionStats.js` (pure stats helpers), `src/components/SessionsView.jsx`, `PeriodPicker.jsx`, `ClimberCard.jsx`, `HoldHeatMap.jsx`, `SessionRollup.jsx`. Phase 2 backlog: per-attempt counter (currently skipped — too much info per user), suggested next session (uses weakness data + community routes), weekly/monthly/annual rollups beyond current scope. Known gap: routes with grade strings stored in a different system (V vs Font) than the current `gradeSystem` setting are silently skipped from grade comparisons. Worktree branch is **7 ahead, 6 behind origin/main** — merge-back will likely conflict on `App.jsx` (which `main`'s recent "Make board image the primary CTA" commit also touched). Tag a safe rollback before merging.
-- **2026-04-20** — Added **Comments** feature on route info pages. New `profiles` table (display_name + is_admin) — Settings now has a Display Name field, required before commenting. New `route_comments` table — per-route thread behind a "Comments (N)" dropdown on viewRoute, below metadata. Users post, like 👍, flag "⚑ Neg"; admin hard-deletes. Route creator's name renders yellow with a "setter" pill. `isAdmin` now sourced from `profiles.is_admin` with `VITE_ADMIN_EMAIL` retained as bootstrap fallback. New components: `CommentsSection.jsx`, `CommentItem.jsx`. Migrations: `supabase/migrations/001_profiles.sql`, `002_route_comments.sql` — **must be run manually in Supabase before the feature works**.
-- **2026-04-17 (Session 3 final)** — Third iteration, now stable. Reverted the mid-session "warp to boardRegion" approach (ugly black borders, poor visual hold alignment) and restored the Session-2 align UX the user preferred: 4 free pins with opacity overlay + live matrix3d preview, warping the new image to match the **old image** pixel-for-pixel (not to `boardRegion`). Added a new **FineTuneStep** between align and confirm — translate + uniform scale only, to nudge final placement if warp is slightly off. Added "Show holds" toggle in AlignStep and "crop too small" warning. Final wizard: `upload → crop → align → fineTune → confirm`. `boardRegion` stays single-source in `holds.json`. Cache busting retained. Safe rollback tag: `v1.1-pre-session-3`.
-- **2026-04-15** — Session 2: Added `AlignStep` perspective warp component to `BoardImageUpdateView.jsx`. Wizard was 5 steps (upload → crop → align → trim → confirm). CSS `matrix3d` for real-time preview. Integrated trim into AlignStep (same workspace, crop rect replaces pins). Loupe magnifier on both CropStep and AlignStep. `perspectiveWarp()` accepts output dimensions for trim cropping. *Superseded by Session 3.*
+- **2026-06-03** — **Milestone + docs/housekeeping pass.** Tagged `v1.3-pre-multi-wall` (annotated, pushed) as a restore point before the multi-wall feature. Did a full codebase re-read and re-synced CLAUDE.md (Key Files table, schema, sync pattern, view map, admin note, per-user data shape) and this file with reality. Archived historical root docs into `docs/archive/` and stray board images into `public/Archive/`. No app code changed.
+- **2026-05-28** — **Hold Manager: fix pan regression, drop centroid dot, drag from body when armed** (`src/components/BoardSetupView.jsx`). Pan now works when touch/click starts on a hold (`panDragRef` initialized alongside `pendingHoldRef`). Centroid drag-dot removed entirely. `dotsVisible` renamed to `armed` with a mirrored `armedRef`. Drag from hold body activates only when `armed` (500ms after selection) and the hit hold is in the selection — otherwise movement falls through to pan. Touch tap-cancel threshold loosened 6px → 9px.
+- **2026-05-28** — **Hold Manager: fix dotsVisible for lasso/Select All** — replaced per-tap timer scheduling with a single `useEffect` watching `selectedIds.length` and `vertexEditId`. (`src/components/BoardSetupView.jsx`)
+- **2026-05-27** — **Hold Manager: new Select tool interaction model** (`src/components/BoardSetupView.jsx`). Removed `multiSelectMode`/Multi toggle — additive multi-select always on. Tap adds; tap empty clears; drag activates after a small threshold; long-press (touch) / double-click (mouse) enters vertex-edit; vertex handles only show when `vertexEditId` is set; lasso promoted to a standalone button.
+- **2026-05-06** — **Session Record (Phase 1)** — new **Sessions** tab behind the `betaSessionLogger` toggle. Tab structure Routes / Sessions / Settings. Adds `PeriodPicker`, `ClimberCard`, `HoldHeatMap`, `SessionRollup`/cards, Unfinished Business. Added `flashed` and `attempted` boolean columns to `user_route_data` (action-based attempt tracking). New files: `src/utils/sessionStats.js`, `SessionsView.jsx`, `PeriodPicker.jsx`, `ClimberCard.jsx`, `HoldHeatMap.jsx`. *(Now merged to main.)*
+- **2026-04-20** — **Comments** on route info pages. New `profiles` table (display_name + is_admin) — Settings gained a Display Name field, required before commenting. New `route_comments` table; per-route thread with post/like/flag and admin hard-delete; creator name highlighted with a "setter" pill. `isAdmin` sourced from `profiles.is_admin` with `VITE_ADMIN_EMAIL` bootstrap fallback. New: `CommentsSection.jsx`, `CommentItem.jsx`. Migrations `001_profiles.sql`, `002_route_comments.sql`.
+- **2026-04-17 (Session 3 final)** — Board-image wizard stabilised: `upload → crop → align → fineTune → confirm`. 4 free pins with opacity overlay + live `matrix3d`, warping the new image to match the **old image** pixel-for-pixel; `FineTuneStep` (translate + uniform scale); "Show holds" toggle; "crop too small" warning. `boardRegion` stays single-source in `holds.json`. Safe rollback tag `v1.1-pre-session-3`.
+- **2026-04-15** — Session 2: added `AlignStep` perspective-warp to `BoardImageUpdateView.jsx` (CSS `matrix3d` live preview, loupe magnifier). *Superseded by Session 3.*
+- **March–April 2026** — Supabase integration (localStorage → Supabase + cache); auth + admin-only Hold Manager; tab-visibility sync; Hold Manager SVG alignment fix (`xMidYMid` → `xMidYMin`); Hold-Info mode; auto hold-type collection; session tracking; playlists; missing-hold ghost outlines; iOS PWA keyboard fix.

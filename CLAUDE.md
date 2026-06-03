@@ -31,13 +31,16 @@ Multiple users share one physical board. Any user can create routes, and all rou
 
 ### View State Machine (App.jsx)
 ```
-board → create        (route creation with hold selection on board)
-board → routes        (saved route list with playlists, filtering, sorting)
-board → viewRoute     (view saved route on dimmed board with highlighted holds)
-board → settings      (grade system, Hold Manager, sessions, board specs)
+board → create        (route creation / editing with hold selection on board)
+board → routes        (saved route list: playlists, filtering, sorting, shared playlists)
+board → viewRoute     (view saved route on dimmed board; swipe carousel between routes)
+board → sessions      (Sessions tab: climber card, heat map, history — behind beta toggle)
+board → settings      (grade system, Hold Manager, board image, beta features, account)
 board → sessionSummary (session recap after Stop Session)
+sessions/settings → sessionEdit (edit a past session)
 settings → setupBoard (Hold Manager — BoardSetupView)
-board → addHold / editHold (HoldEditorView — polygon + metadata editor)
+settings → updateBoardImage (board image wizard — BoardImageUpdateView)
+board → holdSelect / addHold / editHold (HoldEditorView — polygon + metadata editor)
 ```
 
 ### Three-Layer Hold Data (useCustomHolds.js)
@@ -49,18 +52,26 @@ board → addHold / editHold (HoldEditorView — polygon + metadata editor)
 ### Supabase Schema
 | Table | PK | Content |
 |-------|----------|---------|
-| `routes` | `id` (text) | `user_id`, `data` (full route JSON), timestamps |
+| `routes` | `id` (text) | `user_id` (creator), `data` (route JSON, per-user fields stripped), timestamps |
+| `user_route_data` | (`user_id`, `route_id`) | per-user `sent`, `flashed`, `attempted`, `rating`, `angle_sends[]`, `angle_flashes[]`, `angle_attempts[]`, `grade_suggestions` (jsonb), timestamps |
 | `sessions` | `id` (text) | `user_id`, `data` (full session JSON), timestamps |
-| `board_settings` | `key` (text) | `data` (JSON blob) — shared across all users |
-| `profiles` | `user_id` | `display_name`, `is_admin`, timestamps |
+| `board_settings` | `key` (text) | `data` (JSON blob) — shared board config |
+| `profiles` | `user_id` | `display_name` (globally unique), `is_admin`, timestamps |
 | `route_comments` | `id` | `route_id`, `user_id`, `body`, `likes[]`, `flags[]`, timestamps |
+| `shared_playlists` | `id` | `user_id`, `name`, `creator_name`, `route_ids[]`, timestamps |
 
-**board_settings keys:** `hold_overrides`, `custom_holds`, `playlists_${userId}`
+**Storage:** `board-images` bucket — full + 800w/1200w/2000w variants per board image.
+
+**board_settings keys:** `hold_overrides`, `custom_holds`, `board_image_config`, `playlists_${userId}`
+
+⚠️ **Migrations only cover `profiles`, `route_comments`, and the `user_route_data` angle-column ALTER.** `routes`, `sessions`, `board_settings`, base `user_route_data`, and `shared_playlists` were created directly in the Supabase dashboard and are **not** captured in `supabase/migrations/`. Capturing the live schema into migration files is a known gap (see CURRENT_STATE.md).
 
 ### Supabase Sync Pattern
 - **Immediate flush** on critical writes (save route, end session)
 - **Debounced 1500ms** on non-critical changes
-- **Tab visibility listener** — re-fetches all data when tab becomes visible (multi-device sync)
+- **Realtime subscription** on the `routes` table (INSERT/UPDATE/DELETE) — instant cross-device route sync via `supabase.channel('routes-realtime')`
+- **Tab visibility listener** — re-fetches all data when tab becomes visible (catch-all sync)
+- **Offline pending-route queue** (`pendingRouteSync.js`) — localStorage-backed; a created route is queued before the network call and retried on load, tab-visibility, and the `online` event, so it can't vanish if the network blinks
 - **First login migration** — moves localStorage data to Supabase automatically
 
 ### Admin System
@@ -68,33 +79,55 @@ board → addHold / editHold (HoldEditorView — polygon + metadata editor)
 - Only admin sees Hold Manager button in Settings
 - Hold data (overrides + custom holds) is shared across all users (one physical board)
 - Admin status is now sourced from `profiles.is_admin` (set manually via SQL after first signup). `VITE_ADMIN_EMAIL` remains as a bootstrap fallback so the first admin isn't locked out before promoting their profile row.
+- ⚠️ **Fail-open:** the client-side `isAdmin` check in App.jsx defaults to `true` when `VITE_ADMIN_EMAIL` is unset. Server-side RLS still gates the genuinely destructive op (comment delete checks `profiles.is_admin`), but the Hold Manager / image wizard are client-gated. Defaulting to `false` is safer — flagged for the cleanup pass.
 
 ### Key Files
+*Line counts are approximate (rounded) — kept loosely in sync, don't treat as exact.*
+
 | File | Lines | Purpose |
 |------|-------|---------|
-| `src/App.jsx` | ~1900 | View state machine, route/session CRUD, navigation, Supabase sync |
-| `src/components/BoardView.jsx` | ~465 | Board image + SVG overlay + zoom/pan + route view dimming |
-| `src/components/BoardSetupView.jsx` | ~1280 | Hold Manager — Select/Draw/Copy, Boundaries/Hold Info modes |
-| `src/components/HoldEditorView.jsx` | ~800 | Individual hold polygon + metadata editor |
-| `src/components/HoldOverlay.jsx` | ~126 | SVG `<g>` per hold — route view highlighting with labels |
-| `src/components/RouteList.jsx` | ~706 | Routes list with playlists, filtering, sorting |
-| `src/components/RouteCard.jsx` | ~144 | Route card (grade, angle, sent, missing holds indicator) |
-| `src/components/RouteForm.jsx` | ~209 | Route create/edit form with auto hold type collection |
-| `src/components/Settings.jsx` | ~598 | Settings, sessions list, board specs, sign out |
-| `src/components/SessionSummary.jsx` | ~346 | Session recap after climbing |
-| `src/components/AuthView.jsx` | ~85 | Email/password login + signup |
-| `src/components/ModeSelector.jsx` | ~28 | Hold selection mode buttons |
+| `src/App.jsx` | ~3040 | View state machine; route/session/playlist CRUD; per-user data & community grades; **all four sync paths** (immediate + debounce + realtime + offline queue). Also defines `ViewRouteHeader` (~680 lines), `NewAngleSuggestionRow`, `NavButton` inline. **Refactor target.** |
+| `src/components/BoardView.jsx` | ~535 | Board image + SVG overlay + zoom/pan + route-view dimming |
+| `src/components/BoardSetupView.jsx` | ~2270 | Hold Manager — Select/Draw/Copy tools, Boundaries/Hold-Info/Heatmap modes, undo/redo, lasso, copy-paste, vertex edit. **Most complex file.** |
+| `src/components/BoardImageUpdateView.jsx` | ~1790 | Board-image wizard: upload → crop → align → fine-tune → confirm, with perspective warp |
+| `src/components/HoldEditorView.jsx` | ~810 | Individual hold polygon + metadata editor |
+| `src/components/HoldOverlay.jsx` | ~126 | SVG per-hold render for route view (outlines + labels) |
+| `src/components/RouteList.jsx` | ~890 | Routes list: sort, filter (incl. setter search), hide-sent, playlists + shared-playlist browse |
+| `src/components/RouteCard.jsx` | ~182 | Route card (grade, angle, 4-state send, rating, missing-hold indicator) |
+| `src/components/RouteViewCard.jsx` | ~319 | Full viewRoute presentation for one route (used by the swipe carousel) |
+| `src/components/RouteForm.jsx` | ~226 | Route create/edit form with auto hold-type collection |
+| `src/components/SentCycleButton.jsx` | ~92 | 4-state send control: empty → tried → sent → flash |
+| `src/components/Settings.jsx` | ~860 | Display name, grade system + chart, admin/climber mode, board specs, beta toggles, account (sign out, change password), session history |
+| `src/components/SessionsView.jsx` | ~332 | Sessions tab orchestrator (period picker + climber card + heat map + cards) |
+| `src/components/ClimberCard.jsx` | ~380 | Headline stats, strengths/weaknesses, climber-type, period deltas |
+| `src/components/HoldHeatMap.jsx` | ~366 | Hold-usage heat-map overlay on the board image |
+| `src/components/PeriodPicker.jsx` | ~255 | Session / week / month / all-time period selector |
+| `src/components/UnfinishedBusinessCard.jsx` | ~208 | Routes tried but not yet sent |
+| `src/components/SessionRoutesCard.jsx` | ~194 | Routes logged in one session (collapsible) |
+| `src/components/SessionHistoryAccordion.jsx` | ~198 | Collapsible past-session list |
+| `src/components/SessionSummary.jsx` | ~348 | Session recap after Stop Session |
+| `src/components/SessionEditView.jsx` | ~886 | Edit a past session (sends, angles, times) |
+| `src/components/CommentsSection.jsx` | ~315 | Comment thread on viewRoute — fetch, post, like, flag, admin-delete |
+| `src/components/CommentItem.jsx` | ~292 | Single comment row — name/setter pill, like/flag/delete |
+| `src/components/GuidedCameraStep.jsx` | ~426 | Camera-guidance overlay for board-image capture |
+| `src/components/AuthView.jsx` | ~88 | Email/password login + signup |
+| `src/components/ModeSelector.jsx` | ~28 | Hold-selection mode buttons |
 | `src/components/TagPicker.jsx` | ~42 | Multi-select tag picker with auto-highlight |
-| `src/components/CommentsSection.jsx` | ~260 | Comments thread on viewRoute — fetch, post, like, flag, admin-delete |
-| `src/components/CommentItem.jsx` | ~165 | Single comment row — name/setter pill, body, like/flag/delete actions |
+| `src/components/Icon.jsx` | ~37 | Inline SVG icon set |
 | `src/hooks/useCustomHolds.js` | ~147 | Three-layer hold data + Supabase sync |
 | `src/hooks/useLocalStorage.js` | ~27 | localStorage-backed React state |
-| `src/hooks/useUndoRedo.js` | ~70 | Undo/redo state snapshots (max 50) |
-| `src/lib/supabase.js` | ~9 | Supabase client init |
-| `src/utils/constants.js` | ~145 | Grades, modes, colors, labels, board specs |
+| `src/hooks/useUndoRedo.js` | ~106 | Undo/redo state snapshots (max 50) |
+| `src/lib/supabase.js` | ~12 | Supabase client init + `ADMIN_EMAIL` export |
+| `src/utils/constants.js` | ~195 | Grades, grade conversion, modes, colours, hold types, board specs, YouTube helpers, default board image |
+| `src/utils/sessionStats.js` | ~701 | Pure stats engine for Sessions/Climber Card (periods, deltas, heat) |
+| `src/utils/heatMap.js` | ~157 | Pure hold-usage counting for the heat map |
 | `src/utils/polygonUtils.js` | ~272 | Polygon math — centroid, bbox, translate, rotate, hit-test |
-| `src/data/holds.json` | — | Auto-detected hold positions + polygons |
+| `src/utils/nameGenerator.js` | ~36 | Random route-name suggestions |
+| `src/utils/pendingRouteSync.js` | ~67 | localStorage offline queue for unsynced routes |
+| `src/data/holds.json` | — | Base hold positions + polygons + `boardRegion` |
 | `scripts/detect_holds.py` | — | Python hold detection from board photo |
+| `scripts/merge_holds.py` | — | ID-preserving merge of re-detected holds |
+| `scripts/publish_board_image.py` | — | Upload image variants + write `board_image_config` |
 
 ### Board Image Coordinate System
 - Hold positions (`cx`, `cy`) are **percentages within the BOARD AREA** (0-100), not the full image
@@ -121,15 +154,16 @@ board → addHold / editHold (HoldEditorView — polygon + metadata editor)
 ```
 *Only the creator (matched by `creatorId`) can edit the route.*
 
-### Per-User Route Data (per user — separate from route record)
+### Per-User Route Data (one row per user per route — `user_route_data` table)
 ```json
 {
-  "sent": false,
-  "rating": 0-5,
-  "angleGrades[].sent": true/false
+  "sent": false, "flashed": false, "attempted": false,
+  "rating": 0,
+  "angleSends": [30], "angleFlashes": [], "angleAttempts": [30],
+  "gradeSuggestions": { "headline": "V4", "angles": { "30": "V4" } }
 }
 ```
-*`sent` and `rating` are per-user. Route card shows community average rating.*
+*All per-user. Send state is a 4-state cycle (empty → tried → sent → flash), tracked both route-wide (`sent`/`flashed`/`attempted`) and per-angle (`angleSends`/`angleFlashes`/`angleAttempts`). The route card shows the **community average** rating and **community-consensus** grade (derived in App.jsx from everyone's `gradeSuggestions`, re-normalised to the viewer's grade system).*
 ```
 
 ### Hold
