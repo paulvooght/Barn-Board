@@ -77,6 +77,12 @@ board → holdSelect / addHold / editHold (HoldEditorView — polygon + metadata
 - **Offline pending-route queue** (`pendingRouteSync.js`) — localStorage-backed; a created route is queued before the network call and retried on load, tab-visibility, and the `online` event, so it can't vanish if the network blinks
 - **First login migration** — moves localStorage data to Supabase automatically
 
+### Data Access Layer (`src/lib/db.js`)
+- **All Supabase TABLE access goes through `src/lib/db.js`.** Components/hooks never call `supabase.from(...)` directly — use `db.fetchRoutes()`, `db.upsertUserRouteData(...)`, `db.fetchComments(...)`, etc. Each helper is a thin 1:1 wrapper (same columns, conflict keys, payload) returning `{ data, error }`.
+- **Why:** one home for column names + conflict keys, and the place a `board_id` filter gets added once for multi-wall (instead of ~35 call sites).
+- **Exceptions (stay on `supabase` directly):** auth (`supabase.auth.*` in AuthView/Settings/App) and the realtime channel (`supabase.channel('routes-realtime')` in App). These aren't table access.
+- **Rule:** when adding a new query, add a helper to `db.js` rather than calling `supabase.from(...)` in a component.
+
 ### Admin System
 - `VITE_ADMIN_EMAIL` env var determines the admin user
 - Only admin sees Hold Manager button in Settings
