@@ -8,7 +8,7 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       workbox: {
-        globPatterns: ['**/*.{js,css,html,jpg,png}'],
+        globPatterns: ['**/*.{js,css,html,jpg,png,woff2}'],
         globIgnores: [
           '**/Barn_Set_01_V4*.jpg',
           '**/Barn_Set_01_V5*.jpg',

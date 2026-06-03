@@ -1,6 +1,16 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App.jsx';
+// Self-hosted fonts (bundled + service-worker precached → no Google round-trip,
+// no flash-of-fallback after first load). Weights match the old Google URL.
+import '@fontsource/dm-sans/400.css';
+import '@fontsource/dm-sans/500.css';
+import '@fontsource/dm-sans/600.css';
+import '@fontsource/dm-sans/700.css';
+import '@fontsource/dm-sans/800.css';
+// Kodchasan is headings-only (grades, numbers, "BARN BOARD") → latin subset is enough.
+import '@fontsource/kodchasan/latin-600.css';
+import '@fontsource/kodchasan/latin-700.css';
 import './App.css';
 
 // iOS Safari: reset viewport zoom when any input loses focus.

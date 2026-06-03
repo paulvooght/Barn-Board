@@ -12,10 +12,9 @@
           imagesrcset="/Barn_Set_01_V5-800w.jpg 800w, /Barn_Set_01_V5-1200w.jpg 1200w, /Barn_Set_01_V5-2000w.jpg 2000w"
           imagesizes="100vw" />
     <title>Barn Board</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link rel="preload" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Kodchasan:wght@600;700&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'" />
-    <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Kodchasan:wght@600;700&display=swap" /></noscript>
+    <!-- Fonts are self-hosted (see src/main.jsx — @fontsource DM Sans + Kodchasan):
+         bundled with the app and precached by the service worker, so there's no
+         Google Fonts round-trip and no flash-of-fallback after the first load. -->
   </head>
   <body>
     <div id="root"></div>

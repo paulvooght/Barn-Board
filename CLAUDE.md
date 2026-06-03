@@ -212,7 +212,7 @@ board → holdSelect / addHold / editHold (HoldEditorView — polygon + metadata
 ## Style Guide
 - **Peach background** `#FFAB94`, white cards, dark text `#1A0A00`
 - **Accent blue** `#0047FF`
-- **Fonts:** DM Sans (body), Space Mono (headings/monospace)
+- **Fonts:** DM Sans (body), **Kodchasan** (headings) — both **self-hosted** via `@fontsource` (imported in `src/main.jsx`), bundled + service-worker precached. No Google Fonts round-trip, no flash-of-fallback after first load. Use the CSS vars `var(--font-body)` / `var(--font-heading)` (defined in `src/App.css`), not hardcoded family strings.
 - **Mobile-first** — max-width 480px, primary use on phone
 - Warm industrial aesthetic, minimal chrome, high information density
 - Hold overlays: 10px stroke width for visibility
