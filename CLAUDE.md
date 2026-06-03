@@ -64,7 +64,10 @@ board → holdSelect / addHold / editHold (HoldEditorView — polygon + metadata
 
 **board_settings keys:** `hold_overrides`, `custom_holds`, `board_image_config`, `playlists_${userId}`
 
-⚠️ **Migrations only cover `profiles`, `route_comments`, and the `user_route_data` angle-column ALTER.** `routes`, `sessions`, `board_settings`, base `user_route_data`, and `shared_playlists` were created directly in the Supabase dashboard and are **not** captured in `supabase/migrations/`. Capturing the live schema into migration files is a known gap (see CURRENT_STATE.md).
+**Schema is captured in `supabase/migrations/`:**
+- `000_core_tables.sql` (backfill) — `routes`, `sessions`, `board_settings`, `user_route_data`, `shared_playlists`. **Table structures captured exactly from the live DB** (2026-06-03, via PostgREST OpenAPI); numbered `000` so fresh rebuilds create base tables before later ALTERs. **RLS policies are reconstructed from app behaviour** — verify against prod with `scripts/dump_schema.sql`.
+- `001_profiles.sql`, `002_route_comments.sql`, `003_user_route_data_angle_states.sql` — profiles, comments, and the `user_route_data` angle columns.
+- `scripts/dump_schema.sql` — paste into the Supabase SQL editor to dump live RLS/defaults/FKs/indexes for reconciliation (the parts OpenAPI can't expose).
 
 ### Supabase Sync Pattern
 - **Immediate flush** on critical writes (save route, end session)

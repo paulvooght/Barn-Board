@@ -52,15 +52,12 @@
 
 ## Known Bugs / Issues
 
-### ⚠️ Hold-ID scramble after board-image replacement (STATUS UNCONFIRMED)
-- Historically, re-running `detect_holds.py` over `holds.json` re-sorted IDs and broke existing routes. The **safe additive merge workflow** (`merge_holds.py`) and the in-app image wizard now exist to prevent this.
-- **Needs confirmation from Paul:** do existing routes currently render holds in the correct positions? If yes, this is resolved and the entry can be removed. If routes look wrong, the repair plan is the spatial-match merge.
-
 ### Admin check fails open
 - Client-side `isAdmin` in App.jsx defaults to `true` when `VITE_ADMIN_EMAIL` is unset. RLS still gates comment-delete server-side, but Hold Manager / image wizard are client-gated. Default-to-false is the fix.
 
-### Core schema not captured in migrations
-- Only `profiles`, `route_comments`, and the `user_route_data` angle-column ALTER live in `supabase/migrations/`. `routes`, `sessions`, `board_settings`, base `user_route_data`, and `shared_playlists` were created in the dashboard — the database can't currently be rebuilt from the repo.
+### Schema now captured — RLS pending verification
+- `supabase/migrations/000_core_tables.sql` backfills the previously-undocumented tables (`routes`, `sessions`, `board_settings`, `user_route_data`, `shared_playlists`). **Table structures are exact** (read from the live DB 2026-06-03). **RLS policies are reconstructed from app behaviour and not yet verified** against production — run `scripts/dump_schema.sql` in the Supabase SQL editor and reconcile any differences. Until then, don't apply the RLS section of `000` to prod.
+- Quirk preserved: `user_route_data.angle_sends` is `jsonb` while `angle_flashes`/`angle_attempts` are `integer[]`.
 
 ### Session tracking edge cases
 - Summary may show duplicate sends if a route is toggled sent multiple times; personal-best counts can be off-by-one in dedup edge cases.
