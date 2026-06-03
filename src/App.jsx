@@ -19,6 +19,7 @@ import { useLocalStorage } from './hooks/useLocalStorage';
 import { useCustomHolds } from './hooks/useCustomHolds';
 import holdsData from './data/holds.json';
 import { supabase, ADMIN_EMAIL } from './lib/supabase';
+import * as db from './lib/db';
 import { V_GRADES, FONT_GRADES, V_GRADE_INDEX, FONT_GRADE_INDEX, SELECTION_MODES, MODE_COLORS, MODE_LABELS, BOARD_SPECS, HOLD_COLOR_DOT, HOLD_TYPE_SINGULAR_TO_PLURAL, convertGrade, displayGrade, getYouTubeId, getYouTubeThumbnail, DEFAULT_BOARD_IMAGE, DEFAULT_BOARD_SRCSET, DEFAULT_BOARD_SIZES } from './utils/constants';
 import { enqueueRoute, dequeueRoute, recordFailure, getPendingRoutes } from './utils/pendingRouteSync';
 
@@ -126,14 +127,14 @@ export default function App() {
   const loadDataFromSupabase = useCallback(async (userId, isFirstLoad) => {
     // Fire all queries in parallel — biggest startup speedup
     const [routeResult, urdResult, ratingResult, gradeResult, sessionResult, plResult, imgConfigResult, profilesResult] = await Promise.all([
-      supabase.from('routes').select('id, user_id, data').order('created_at', { ascending: false }),
-      supabase.from('user_route_data').select('route_id, sent, flashed, rating, angle_sends, angle_flashes, angle_attempts, grade_suggestions, attempted').eq('user_id', userId),
-      supabase.from('user_route_data').select('route_id, rating').gt('rating', 0),
-      supabase.from('user_route_data').select('user_id, route_id, grade_suggestions').not('grade_suggestions', 'eq', '{}'),
-      supabase.from('sessions').select('data').eq('user_id', userId).order('created_at', { ascending: false }),
-      supabase.from('board_settings').select('data').eq('key', `playlists_${userId}`).maybeSingle(),
-      supabase.from('board_settings').select('data').eq('key', 'board_image_config').maybeSingle(),
-      supabase.from('profiles').select('user_id, display_name, is_admin'),
+      db.fetchRoutes(),
+      db.fetchUserRouteData(userId),
+      db.fetchAllRatings(),
+      db.fetchAllGradeSuggestions(),
+      db.fetchSessions(userId),
+      db.getBoardSetting(`playlists_${userId}`),
+      db.getBoardSetting('board_image_config'),
+      db.fetchProfiles(),
     ]);
 
     // a) Routes
@@ -165,15 +166,13 @@ export default function App() {
       if (local.length > 0) {
         const withCreator = local.map(r => ({ ...r, creatorId: r.creatorId || userId }));
         setRoutes(withCreator);
-        await supabase.from('routes').insert(withCreator.map(r => ({ id: r.id, user_id: userId, data: stripPerUserFields(r) })));
+        await db.insertRoutes(withCreator.map(r => ({ id: r.id, user_id: userId, data: stripPerUserFields(r) })));
         for (const r of local) {
           if (r.sent || r.rating) {
             const angleSends = (r.angleGrades || []).filter(ag => ag.sent).map(ag => ag.angle);
-            await supabase.from('user_route_data').upsert({
-              user_id: userId, route_id: r.id,
+            await db.upsertUserRouteData(userId, r.id, {
               sent: !!r.sent, flashed: r.flashed || false, rating: r.rating || 0, angle_sends: angleSends, angle_flashes: [], angle_attempts: angleSends, attempted: r.attempted || false,
-            }, { onConflict: 'user_id,route_id' })
-              .then(({ error }) => { if (error) console.error('[Supabase] user_route_data sync error:', error); });
+            });
           }
         }
       }
@@ -223,7 +222,7 @@ export default function App() {
       const local = JSON.parse(localStorage.getItem('barnboard_sessions') || '[]');
       if (local.length > 0) {
         setSessions(local);
-        await supabase.from('sessions').insert(local.map(s => ({ id: s.id, user_id: userId, data: s })));
+        await db.insertSessions(local.map(s => ({ id: s.id, user_id: userId, data: s })));
       }
     }
 
@@ -235,7 +234,7 @@ export default function App() {
       const local = JSON.parse(localStorage.getItem('barnboard_playlists') || '[]');
       if (local.length > 0) {
         setPlaylists(local);
-        await supabase.from('board_settings').upsert({ key: `playlists_${userId}`, data: local });
+        await db.setBoardSetting(`playlists_${userId}`, local);
       }
     }
 
@@ -343,12 +342,10 @@ export default function App() {
     const myRoutes = r.filter(rt => rt.creatorId === user.id || !rt.creatorId);
     if (myRoutes.length === 0) return;
     clearTimeout(routesSyncTimer.current); // cancel pending debounce
-    const { error } = await supabase.from('routes').upsert(
-      myRoutes.map(rt => ({ id: rt.id, user_id: user.id, data: stripPerUserFields(rt), updated_at: new Date().toISOString() })),
-      { onConflict: 'id' }
+    const { error } = await db.upsertRoutes(
+      myRoutes.map(rt => ({ id: rt.id, user_id: user.id, data: stripPerUserFields(rt) }))
     );
     if (error) {
-      console.error('[Supabase] routes flush error:', error);
       if (pendingIds) {
         for (const id of pendingIds) recordFailure(id, error);
       }
@@ -411,11 +408,7 @@ export default function App() {
       const myRoutes = routesRef.current.filter(r => r.creatorId === user.id || !r.creatorId);
       if (myRoutes.length === 0) return;
       console.log('[Sync] Debounced upsert:', myRoutes.length, 'routes');
-      const { error } = await supabase.from('routes').upsert(
-        myRoutes.map(r => ({ id: r.id, user_id: user.id, data: stripPerUserFields(r), updated_at: new Date().toISOString() })),
-        { onConflict: 'id' }
-      );
-      if (error) console.error('[Supabase] routes sync error:', error);
+      await db.upsertRoutes(myRoutes.map(r => ({ id: r.id, user_id: user.id, data: stripPerUserFields(r) })));
     }, 1500);
     return () => clearTimeout(routesSyncTimer.current);
   }, [routes, user, dataReady]);
@@ -429,11 +422,7 @@ export default function App() {
     const s = sessionsToSync || sessionsRef.current;
     if (!user || s.length === 0) return;
     clearTimeout(sessionsSyncTimer.current);
-    const { error } = await supabase.from('sessions').upsert(
-      s.map(ss => ({ id: ss.id, user_id: user.id, data: ss, updated_at: new Date().toISOString() })),
-      { onConflict: 'id' }
-    );
-    if (error) console.error('[Supabase] sessions flush error:', error);
+    await db.upsertSessions(s.map(ss => ({ id: ss.id, user_id: user.id, data: ss })));
   }, [user]);
 
   useEffect(() => {
@@ -441,11 +430,7 @@ export default function App() {
     clearTimeout(sessionsSyncTimer.current);
     sessionsSyncTimer.current = setTimeout(async () => {
       if (sessions.length === 0) return;
-      const { error } = await supabase.from('sessions').upsert(
-        sessions.map(s => ({ id: s.id, user_id: user.id, data: s, updated_at: new Date().toISOString() })),
-        { onConflict: 'id' }
-      );
-      if (error) console.error('[Supabase] sessions sync error:', error);
+      await db.upsertSessions(sessions.map(s => ({ id: s.id, user_id: user.id, data: s })));
     }, 1500);
     return () => clearTimeout(sessionsSyncTimer.current);
   }, [sessions, user, dataReady]);
@@ -455,31 +440,21 @@ export default function App() {
   const flushPlaylistsToSupabase = useCallback(async (pl) => {
     if (!user) return;
     clearTimeout(playlistsSyncTimer.current);
-    const { error } = await supabase.from('board_settings').upsert(
-      { key: `playlists_${user.id}`, data: pl, updated_at: new Date().toISOString() },
-      { onConflict: 'key' }
-    );
-    if (error) console.error('[Supabase] playlists flush error:', error);
+    await db.setBoardSetting(`playlists_${user.id}`, pl);
   }, [user]);
 
   useEffect(() => {
     if (!user || !dataReady) return;
     clearTimeout(playlistsSyncTimer.current);
     playlistsSyncTimer.current = setTimeout(async () => {
-      const { error } = await supabase.from('board_settings').upsert(
-        { key: `playlists_${user.id}`, data: playlists, updated_at: new Date().toISOString() },
-        { onConflict: 'key' }
-      );
-      if (error) console.error('[Supabase] playlists sync error:', error);
+      await db.setBoardSetting(`playlists_${user.id}`, playlists);
       // Keep shared_playlists in sync for any shared playlists
       const sharedOnes = playlists.filter(pl => pl.shared);
       for (const pl of sharedOnes) {
-        const { error: spErr } = await supabase.from('shared_playlists').upsert({
+        await db.upsertSharedPlaylist({
           id: pl.id, user_id: user.id, name: pl.name,
-          creator_name: user.email.split('@')[0],
-          route_ids: pl.routeIds, updated_at: new Date().toISOString(),
-        }, { onConflict: 'id' });
-        if (spErr) console.error('[Supabase] shared_playlists sync error:', spErr);
+          creator_name: user.email.split('@')[0], route_ids: pl.routeIds,
+        });
       }
     }, 1500);
     return () => clearTimeout(playlistsSyncTimer.current);
@@ -487,8 +462,7 @@ export default function App() {
 
   // ─── Shared playlists callbacks ───────────────────────────────────
   const fetchSharedPlaylists = useCallback(async () => {
-    const { data } = await supabase.from('shared_playlists').select('*');
-    return data || [];
+    return db.fetchSharedPlaylists();
   }, []);
 
   const togglePlaylistShared = useCallback(async (plId, shared) => {
@@ -499,23 +473,19 @@ export default function App() {
     });
     if (!user) return;
     if (shared && targetPl) {
-      await supabase.from('shared_playlists').upsert({
+      await db.upsertSharedPlaylist({
         id: targetPl.id, user_id: user.id, name: targetPl.name,
-        creator_name: user.email.split('@')[0],
-        route_ids: targetPl.routeIds, updated_at: new Date().toISOString(),
-      }, { onConflict: 'id' });
+        creator_name: user.email.split('@')[0], route_ids: targetPl.routeIds,
+      });
     } else if (!shared) {
-      await supabase.from('shared_playlists').delete().eq('id', plId);
+      await db.deleteSharedPlaylist(plId);
     }
   }, [user]);
 
   // ─── Display Name / Profiles ──────────────────────────────────────
   const saveDisplayName = useCallback(async (newName) => {
     if (!user) return;
-    const { error } = await supabase.from('profiles').upsert(
-      { user_id: user.id, display_name: newName },
-      { onConflict: 'user_id' }
-    );
+    const { error } = await db.upsertProfile(user.id, { display_name: newName });
     if (error) throw error;
     setDisplayName(newName);
     setProfilesById(prev => ({
@@ -778,14 +748,11 @@ export default function App() {
     setUserRouteData(prev => {
       const current = prev[routeId] || { sent: false, flashed: false, rating: 0, angleSends: [], angleFlashes: [], angleAttempts: [], gradeSuggestions: {}, attempted: false };
       if (current.attempted) return prev; // already set — idempotent
-      supabase.from('user_route_data').upsert({
-        user_id: user.id, route_id: routeId,
+      db.upsertUserRouteData(user.id, routeId, {
         sent: current.sent, flashed: current.flashed || false, rating: current.rating,
         angle_sends: current.angleSends, angle_flashes: current.angleFlashes || [], angle_attempts: current.angleAttempts || [],
         grade_suggestions: current.gradeSuggestions || {}, attempted: true,
-        updated_at: new Date().toISOString(),
-      }, { onConflict: 'user_id,route_id' })
-        .then(({ error }) => { if (error) console.error('[Supabase] markAttempted error:', error); });
+      });
       return { ...prev, [routeId]: { ...current, attempted: true } };
     });
     logRouteAttempted(routeId);
@@ -1029,14 +996,11 @@ export default function App() {
     setUserRouteData(prev => {
       const current = prev[routeId] || { sent: false, flashed: false, rating: 0, angleSends: [], angleFlashes: [], angleAttempts: [], gradeSuggestions: {}, attempted: false };
       const finalRating = current.rating === newRating ? 0 : newRating;
-      supabase.from('user_route_data').upsert({
-        user_id: user.id, route_id: routeId,
+      db.upsertUserRouteData(user.id, routeId, {
         sent: current.sent, flashed: current.flashed || false, rating: finalRating,
         angle_sends: current.angleSends, angle_flashes: current.angleFlashes || [], angle_attempts: current.angleAttempts || [],
         grade_suggestions: current.gradeSuggestions || {}, attempted: current.attempted || false,
-        updated_at: new Date().toISOString(),
-      }, { onConflict: 'user_id,route_id' })
-        .then(({ error }) => { if (error) console.error('[Supabase] user_route_data sync error:', error); });
+      });
       // Optimistically update community average
       setCommunityRatings(prevR => {
         const old = prevR[routeId] || { avg: 0, count: 0 };
@@ -1072,14 +1036,11 @@ export default function App() {
       const newSent      = nextState === 'sent'  || nextState === 'flash';
       const newFlashed   = nextState === 'flash';
       const newAttempted = nextState !== 'empty';
-      supabase.from('user_route_data').upsert({
-        user_id: user.id, route_id: routeId,
+      db.upsertUserRouteData(user.id, routeId, {
         sent: newSent, flashed: newFlashed, rating: current.rating,
         angle_sends: current.angleSends, angle_flashes: current.angleFlashes || [], angle_attempts: current.angleAttempts || [],
         grade_suggestions: current.gradeSuggestions || {}, attempted: newAttempted,
-        updated_at: new Date().toISOString(),
-      }, { onConflict: 'user_id,route_id' })
-        .then(({ error }) => { if (error) console.error('[Supabase] user_route_data sync error:', error); });
+      });
       if (newSent && !current.sent) {
         // Newly marked as sent — log to session
         const route = routesRef.current.find(r => r.id === routeId);
@@ -1114,7 +1075,7 @@ export default function App() {
     setView('routes');
     // Delete from Supabase (must be explicit — upsert sync won't remove deleted rows)
     if (user) {
-      supabase.from('routes').delete().eq('id', routeId).select().then(({ data, error }) => {
+      db.deleteRoute(routeId).then(({ data, error }) => {
         if (error) console.error('[Supabase] delete route error:', error);
         else if (!data || data.length === 0) console.warn('[Supabase] delete route: 0 rows affected — RLS may have blocked deletion for route', routeId);
         else console.log('[Supabase] delete route OK:', routeId, data);
@@ -1256,14 +1217,11 @@ export default function App() {
       }
 
       const willBeAttempted = nextState !== 'empty' || current.attempted;
-      supabase.from('user_route_data').upsert({
-        user_id: user.id, route_id: routeId,
+      db.upsertUserRouteData(user.id, routeId, {
         sent: current.sent, flashed: current.flashed || false, rating: current.rating,
         angle_sends: newSends, angle_flashes: newFlashes, angle_attempts: newAttempts,
         grade_suggestions: current.gradeSuggestions || {}, attempted: willBeAttempted,
-        updated_at: new Date().toISOString(),
-      }, { onConflict: 'user_id,route_id' })
-        .then(({ error }) => { if (error) console.error('[Supabase] user_route_data sync error:', error); });
+      });
 
       // Session logging — only on transitions that increase progress.
       if (nextState !== 'empty' && !current.attempted) logRouteAttempted(routeId);
@@ -1341,14 +1299,11 @@ export default function App() {
           if (v === null || v === '') delete gradeSuggestions.angles[k];
         }
       }
-      supabase.from('user_route_data').upsert({
-        user_id: user.id, route_id: routeId,
+      db.upsertUserRouteData(user.id, routeId, {
         sent: current.sent, flashed: current.flashed || false, rating: current.rating,
         angle_sends: current.angleSends, angle_flashes: current.angleFlashes || [], angle_attempts: current.angleAttempts || [],
         grade_suggestions: gradeSuggestions, attempted: true,
-        updated_at: new Date().toISOString(),
-      }, { onConflict: 'user_id,route_id' })
-        .then(({ error }) => { if (error) console.error('[Supabase] grade suggestion error:', error); });
+      });
 
       // Optimistically update raw grade-suggestion rows. The communityGrades useMemo
       // re-derives consensus from this, so the UI updates immediately and respects
