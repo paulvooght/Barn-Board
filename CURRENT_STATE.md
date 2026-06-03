@@ -52,12 +52,15 @@
 
 ## Known Bugs / Issues
 
-### Admin check fails open
-- Client-side `isAdmin` in App.jsx defaults to `true` when `VITE_ADMIN_EMAIL` is unset. RLS still gates comment-delete server-side, but Hold Manager / image wizard are client-gated. Default-to-false is the fix.
+### Admin model is split & partly client-only (verified against live RLS 2026-06-03)
+- **Routes:** edit/delete of *others'* routes is gated server-side to a **hardcoded email** (`paul@thisisyonder.com`) in RLS — not `profiles.is_admin`.
+- **Comments:** delete uses `profiles.is_admin` (a different mechanism).
+- **`board_settings` (hold data + image config):** writable by **any authenticated user** server-side. Hold-editing is protected *only* by the **client-side `isAdmin` gate, which fails open** when `VITE_ADMIN_EMAIL` is unset.
+- **Fixes:** (1) default `isAdmin` to `false`; (2) tighten `board_settings` writes before a public 200-user wall; (3) **multi-wall must replace the hardcoded-email route policy with per-board roles** (`board_members`) — else only Paul can admin any wall.
 
-### Schema now captured — RLS pending verification
-- `supabase/migrations/000_core_tables.sql` backfills the previously-undocumented tables (`routes`, `sessions`, `board_settings`, `user_route_data`, `shared_playlists`). **Table structures are exact** (read from the live DB 2026-06-03). **RLS policies are reconstructed from app behaviour and not yet verified** against production — run `scripts/dump_schema.sql` in the Supabase SQL editor and reconcile any differences. Until then, don't apply the RLS section of `000` to prod.
-- Quirk preserved: `user_route_data.angle_sends` is `jsonb` while `angle_flashes`/`angle_attempts` are `integer[]`.
+### Schema captured & verified
+- `supabase/migrations/000_core_tables.sql` backfills the previously-undocumented tables (`routes`, `sessions`, `board_settings`, `user_route_data`, `shared_playlists`). **Verified against live prod 2026-06-03** via `scripts/dump_schema.sql` — column types/defaults/nullability **and** RLS policies mirror production exactly (same names, roles, expressions). Safe to run against prod (idempotent).
+- Prod facts faithfully reproduced: **no foreign-key constraints** (referential integrity is app-managed); **no `user_id` indexes** on routes/sessions; `user_route_data.angle_sends` is `jsonb` while `angle_flashes`/`angle_attempts` are `integer[]`.
 
 ### Session tracking edge cases
 - Summary may show duplicate sends if a route is toggled sent multiple times; personal-best counts can be off-by-one in dedup edge cases.
@@ -98,7 +101,7 @@ Goal: support multiple physical boards/walls (e.g. Yonder, Walthamstow) as **sep
 - `board_settings` keys (`hold_overrides`, `custom_holds`, `board_image_config`) are **global singletons**.
 - **Base holds ship as one static `holds.json`** — per-wall holds must move into the DB.
 - `profiles.display_name` is **globally unique** (two walls can't both have a "Dave").
-- One global `is_admin` flag (no per-wall roles).
+- Admin is split — routes use a hardcoded email (`paul@thisisyonder.com`), comments use `is_admin`; no per-wall roles. Needs `board_members` roles.
 - RLS uses a "pragmatic trust" model — fine for friends, needs real tenant isolation for paying customers.
 
 Likely shape: a `boards` table, a `board_members` (board_id, user_id, role) table, a `board_id` FK on routes/sessions, per-board hold + image config (holds move to DB), an "active board" context threaded through every query, RLS rewritten around membership, and a wall switcher in the UI. **Recommended prep before building:** data-access layer + capture live schema into migrations.

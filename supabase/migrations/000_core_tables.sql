@@ -1,5 +1,5 @@
 -- ============================================================
--- 000_core_tables.sql  —  BACKFILL MIGRATION
+-- 000_core_tables.sql  —  BACKFILL MIGRATION (verified mirror of prod)
 --
 -- Captures the tables that were originally created directly in the
 -- Supabase dashboard and never recorded as migrations:
@@ -9,87 +9,81 @@
 -- 003_user_route_data_angle_states.sql ALTERs user_route_data.
 -- Run order: 000 → 001 → 002 → 003.
 --
--- ── What's exact vs reconstructed ───────────────────────────
--- TABLE STRUCTURES (columns, types, primary keys) were read from the
---   LIVE database on 2026-06-03 via the PostgREST OpenAPI schema. They
---   match production.
--- COLUMN DEFAULTS are sensible values for a fresh rebuild; OpenAPI does
---   not reliably expose live defaults, so confirm with scripts/dump_schema.sql
---   if you need byte-for-byte parity (only matters for new rows on a
---   fresh project — existing prod rows are unaffected).
--- RLS POLICIES are RECONSTRUCTED from how src/App.jsx queries each table.
---   They express the app's INTENDED access rules but were NOT read from
---   the live DB. Verify against production with scripts/dump_schema.sql.
+-- VERIFIED against the live database on 2026-06-03 (scripts/dump_schema.sql):
+-- column types/defaults/nullability AND RLS policies below mirror production
+-- exactly (same policy names, roles, USING / WITH CHECK expressions).
 --
--- ── Safety ──────────────────────────────────────────────────
--- All CREATEs use IF NOT EXISTS, so running this against the existing
--- production DB will NOT alter table structures (it is a no-op there).
--- The RLS section uses DROP POLICY IF EXISTS + CREATE, which WOULD
--- replace live policies — only apply it to production after confirming
--- the policies below match the dump. Treat this file primarily as the
--- rebuild/record-of-truth for a fresh environment.
+-- Notes about prod that this file faithfully reproduces:
+--  • NO foreign-key constraints exist (referential integrity is app-managed).
+--  • NO user_id indexes on routes/sessions (only the PK indexes exist).
+--  • routes "admin can edit/delete any route" is gated to a HARDCODED EMAIL
+--    in RLS (paul@thisisyonder.com) — NOT profiles.is_admin. This is a
+--    single-admin model that multi-wall will need to replace with per-board
+--    roles. (Comments, by contrast, use profiles.is_admin — see 002.)
+--  • board_settings is writable by ANY authenticated user (hold data is only
+--    protected by the client-side isAdmin gate). Tighten before a public wall.
+--
+-- Safe to run against prod: tables use IF NOT EXISTS (no-op if present);
+-- policies use DROP POLICY IF EXISTS + CREATE with the exact prod names, so
+-- re-running re-asserts the identical policy (idempotent mirror).
 -- ============================================================
 
--- ─── routes (shared; everyone sees all, creator edits) ──────
+-- ─── routes (shared; everyone reads, creator or admin writes) ──────────
 create table if not exists routes (
   id          text primary key,
-  user_id     uuid not null references auth.users(id) on delete cascade,
-  data        jsonb not null,
-  created_at  timestamptz not null default now(),
-  updated_at  timestamptz not null default now()
+  user_id     uuid not null,
+  data        jsonb not null default '{}'::jsonb,
+  created_at  timestamptz default now(),
+  updated_at  timestamptz default now()
 );
-create index if not exists routes_user_id_idx on routes (user_id);
 
--- ─── sessions (private per user) ────────────────────────────
+-- ─── sessions (private per user) ───────────────────────────────────────
 create table if not exists sessions (
   id          text primary key,
-  user_id     uuid not null references auth.users(id) on delete cascade,
-  data        jsonb not null,
-  created_at  timestamptz not null default now(),
-  updated_at  timestamptz not null default now()
+  user_id     uuid not null,
+  data        jsonb not null default '{}'::jsonb,
+  created_at  timestamptz default now(),
+  updated_at  timestamptz default now()
 );
-create index if not exists sessions_user_id_idx on sessions (user_id);
 
--- ─── board_settings (shared board config; keyed JSON blobs) ──
--- keys in use: hold_overrides, custom_holds, board_image_config, playlists_<userId>
+-- ─── board_settings (shared keyed JSON: holds, image config, playlists) ─
 create table if not exists board_settings (
   key         text primary key,
-  data        jsonb not null,
-  updated_at  timestamptz not null default now()
+  data        jsonb not null default '{}'::jsonb,
+  updated_at  timestamptz default now()
 );
 
--- ─── user_route_data (one row per user per route) ───────────
--- NOTE: angle_sends is jsonb (legacy) while angle_flashes / angle_attempts
--- are integer[] (added later by 003). This asymmetry exists in production;
--- the app treats all three as arrays. Preserved here to match live.
+-- ─── user_route_data (one row per user per route) ──────────────────────
+-- angle_sends is jsonb (legacy); angle_flashes / angle_attempts are int[]
+-- (added by 003). This asymmetry is real in prod and preserved here.
 create table if not exists user_route_data (
-  user_id            uuid not null references auth.users(id) on delete cascade,
+  user_id            uuid not null,
   route_id           text not null,
-  sent               boolean   default false,
-  flashed            boolean   default false,
-  attempted          boolean   default false,
-  rating             integer   default 0,
-  angle_sends        jsonb     default '[]'::jsonb,
-  angle_flashes      integer[] default '{}'::integer[],
-  angle_attempts     integer[] default '{}'::integer[],
-  grade_suggestions  jsonb     default '{}'::jsonb,
-  updated_at         timestamptz not null default now(),
+  sent               boolean     default false,
+  flashed            boolean     default false,
+  attempted          boolean     default false,
+  rating             integer     default 0,
+  angle_sends        jsonb       default '[]'::jsonb,
+  angle_flashes      integer[]   default '{}'::integer[],
+  angle_attempts     integer[]   default '{}'::integer[],
+  grade_suggestions  jsonb       default '{}'::jsonb,
+  updated_at         timestamptz default now(),
   primary key (user_id, route_id)
 );
 
--- ─── shared_playlists (public playlists others can subscribe to) ──
+-- ─── shared_playlists (public, subscribable) ───────────────────────────
 create table if not exists shared_playlists (
   id            text primary key,
-  user_id       uuid not null references auth.users(id) on delete cascade,
+  user_id       uuid not null,
   name          text not null,
-  creator_name  text not null default '',
+  creator_name  text not null default ''::text,
   route_ids     jsonb not null default '[]'::jsonb,
-  created_at    timestamptz not null default now(),
-  updated_at    timestamptz not null default now()
+  created_at    timestamptz default now(),
+  updated_at    timestamptz default now()
 );
 
 -- ════════════════════════════════════════════════════════════
--- RLS — RECONSTRUCTED from app behaviour. VERIFY before applying to prod.
+-- RLS — verified mirror of production (2026-06-03)
 -- ════════════════════════════════════════════════════════════
 alter table routes            enable row level security;
 alter table sessions          enable row level security;
@@ -97,43 +91,43 @@ alter table board_settings    enable row level security;
 alter table user_route_data   enable row level security;
 alter table shared_playlists  enable row level security;
 
--- routes: everyone reads all (community); only the creator writes.
-drop policy if exists "routes: read all"   on routes;
-create policy "routes: read all"   on routes for select to authenticated using (true);
-drop policy if exists "routes: insert own" on routes;
-create policy "routes: insert own" on routes for insert to authenticated with check (auth.uid() = user_id);
-drop policy if exists "routes: update own" on routes;
-create policy "routes: update own" on routes for update to authenticated using (auth.uid() = user_id) with check (auth.uid() = user_id);
-drop policy if exists "routes: delete own" on routes;
-create policy "routes: delete own" on routes for delete to authenticated using (auth.uid() = user_id);
+-- routes: everyone reads; creator writes own; a hardcoded admin email may
+-- update/delete any route.
+drop policy if exists "Anyone can read routes" on routes;
+create policy "Anyone can read routes" on routes for select using (true);
+drop policy if exists "Users can insert own routes" on routes;
+create policy "Users can insert own routes" on routes for insert with check (auth.uid() = user_id);
+drop policy if exists "Users can update own routes" on routes;
+create policy "Users can update own routes" on routes for update using (auth.uid() = user_id);
+drop policy if exists "Users can delete own routes" on routes;
+create policy "Users can delete own routes" on routes for delete using (auth.uid() = user_id);
+drop policy if exists "Admin can update any route" on routes;
+create policy "Admin can update any route" on routes for update using ((auth.jwt() ->> 'email') = 'paul@thisisyonder.com');
+drop policy if exists "Admin can delete any route" on routes;
+create policy "Admin can delete any route" on routes for delete using ((auth.jwt() ->> 'email') = 'paul@thisisyonder.com');
 
 -- sessions: fully private to the owner.
-drop policy if exists "sessions: own" on sessions;
-create policy "sessions: own" on sessions for all to authenticated using (auth.uid() = user_id) with check (auth.uid() = user_id);
+drop policy if exists "Users manage own sessions" on sessions;
+create policy "Users manage own sessions" on sessions for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
--- user_route_data: everyone reads all (community ratings + grade consensus);
--- owner writes their own row.
-drop policy if exists "urd: read all"   on user_route_data;
-create policy "urd: read all"   on user_route_data for select to authenticated using (true);
-drop policy if exists "urd: insert own" on user_route_data;
-create policy "urd: insert own" on user_route_data for insert to authenticated with check (auth.uid() = user_id);
-drop policy if exists "urd: update own" on user_route_data;
-create policy "urd: update own" on user_route_data for update to authenticated using (auth.uid() = user_id) with check (auth.uid() = user_id);
-drop policy if exists "urd: delete own" on user_route_data;
-create policy "urd: delete own" on user_route_data for delete to authenticated using (auth.uid() = user_id);
+-- board_settings: any authenticated user can read AND write (pragmatic trust).
+drop policy if exists "Authenticated users read board settings" on board_settings;
+create policy "Authenticated users read board settings" on board_settings for select to authenticated using (true);
+drop policy if exists "Authenticated users write board settings" on board_settings;
+create policy "Authenticated users write board settings" on board_settings for all to authenticated using (true) with check (true);
 
--- board_settings: shared board config. Pragmatic trust — any authenticated
--- user can read/write (hold data is admin-curated in practice; playlists_<id>
--- keys are namespaced per user). MUST be tightened for multi-wall.
-drop policy if exists "board_settings: all authenticated" on board_settings;
-create policy "board_settings: all authenticated" on board_settings for all to authenticated using (true) with check (true);
+-- user_route_data: everyone reads (community ratings/grades); owner writes own.
+drop policy if exists "Anyone can read ratings" on user_route_data;
+create policy "Anyone can read ratings" on user_route_data for select using (true);
+drop policy if exists "Users manage own route data" on user_route_data;
+create policy "Users manage own route data" on user_route_data for all using (auth.uid() = user_id);
 
--- shared_playlists: everyone browses; owner writes.
-drop policy if exists "shared_pl: read all"   on shared_playlists;
-create policy "shared_pl: read all"   on shared_playlists for select to authenticated using (true);
-drop policy if exists "shared_pl: insert own" on shared_playlists;
-create policy "shared_pl: insert own" on shared_playlists for insert to authenticated with check (auth.uid() = user_id);
-drop policy if exists "shared_pl: update own" on shared_playlists;
-create policy "shared_pl: update own" on shared_playlists for update to authenticated using (auth.uid() = user_id) with check (auth.uid() = user_id);
-drop policy if exists "shared_pl: delete own" on shared_playlists;
-create policy "shared_pl: delete own" on shared_playlists for delete to authenticated using (auth.uid() = user_id);
+-- shared_playlists: everyone browses; owner writes own.
+drop policy if exists "Anyone can read shared playlists" on shared_playlists;
+create policy "Anyone can read shared playlists" on shared_playlists for select using (true);
+drop policy if exists "Users manage own shared playlists" on shared_playlists;
+create policy "Users manage own shared playlists" on shared_playlists for insert with check (auth.uid() = user_id);
+drop policy if exists "Users update own shared playlists" on shared_playlists;
+create policy "Users update own shared playlists" on shared_playlists for update using (auth.uid() = user_id);
+drop policy if exists "Users delete own shared playlists" on shared_playlists;
+create policy "Users delete own shared playlists" on shared_playlists for delete using (auth.uid() = user_id);

@@ -65,7 +65,7 @@ board → holdSelect / addHold / editHold (HoldEditorView — polygon + metadata
 **board_settings keys:** `hold_overrides`, `custom_holds`, `board_image_config`, `playlists_${userId}`
 
 **Schema is captured in `supabase/migrations/`:**
-- `000_core_tables.sql` (backfill) — `routes`, `sessions`, `board_settings`, `user_route_data`, `shared_playlists`. **Table structures captured exactly from the live DB** (2026-06-03, via PostgREST OpenAPI); numbered `000` so fresh rebuilds create base tables before later ALTERs. **RLS policies are reconstructed from app behaviour** — verify against prod with `scripts/dump_schema.sql`.
+- `000_core_tables.sql` (backfill) — `routes`, `sessions`, `board_settings`, `user_route_data`, `shared_playlists`. **Structures AND RLS verified against live prod (2026-06-03)** — `000` mirrors production exactly (column types/defaults, policy names, roles, expressions). Numbered `000` so fresh rebuilds create base tables before later ALTERs. Re-check anytime with `scripts/dump_schema.sql`. Note: prod has **no FK constraints** and **no `user_id` indexes** — `000` reproduces that faithfully.
 - `001_profiles.sql`, `002_route_comments.sql`, `003_user_route_data_angle_states.sql` — profiles, comments, and the `user_route_data` angle columns.
 - `scripts/dump_schema.sql` — paste into the Supabase SQL editor to dump live RLS/defaults/FKs/indexes for reconciliation (the parts OpenAPI can't expose).
 
@@ -88,7 +88,11 @@ board → holdSelect / addHold / editHold (HoldEditorView — polygon + metadata
 - Only admin sees Hold Manager button in Settings
 - Hold data (overrides + custom holds) is shared across all users (one physical board)
 - Admin status is now sourced from `profiles.is_admin` (set manually via SQL after first signup). `VITE_ADMIN_EMAIL` remains as a bootstrap fallback so the first admin isn't locked out before promoting their profile row.
-- ⚠️ **Fail-open:** the client-side `isAdmin` check in App.jsx defaults to `true` when `VITE_ADMIN_EMAIL` is unset. Server-side RLS still gates the genuinely destructive op (comment delete checks `profiles.is_admin`), but the Hold Manager / image wizard are client-gated. Defaulting to `false` is safer — flagged for the cleanup pass.
+- ⚠️ **Admin enforcement is split (verified against live RLS 2026-06-03):**
+  - **Routes:** editing/deleting *others'* routes is gated server-side to a **hardcoded email** (`paul@thisisyonder.com`) in RLS — not `profiles.is_admin`.
+  - **Comments:** delete uses `profiles.is_admin` (a different mechanism).
+  - **`board_settings` (hold data + image config):** writable by **any authenticated user** server-side — so Hold-Manager / image-wizard edits are protected *only* by the client-side `isAdmin` gate, which **fails open** when `VITE_ADMIN_EMAIL` is unset.
+  - **Fixes:** default `isAdmin` to `false`; tighten `board_settings` writes before a public wall; replace the hardcoded-email route policy with per-board roles (`board_members`) for multi-wall — otherwise only Paul can admin any wall.
 
 ### Key Files
 *Line counts are approximate (rounded) — kept loosely in sync, don't treat as exact.*
