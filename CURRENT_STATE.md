@@ -94,10 +94,12 @@
 - **No tests** — despite ideal pure-function targets (`sessionStats`, `heatMap`, `polygonUtils`, grade conversion).
 - **No error boundary** — a render error white-screens the app.
 
-## Multi-Wall Readiness (next big feature)
-Goal: support multiple physical boards/walls (e.g. Yonder, Walthamstow) as **separate communities**, with a wall switcher and per-wall data isolation. The app currently has **no board/tenant concept** — everything assumes one board. What's single-board today:
+## Multi-Wall Readiness (in progress — Phase 2)
+**Status (2026-06-04):** Phase 1 design **approved** — one account → many walls; each wall public or private; any member can set routes. Rollout is phased: **2a (plumbing) DONE & deployed** ✅ · 2b next (wall switcher + onboarding + holds-to-DB + add Yonder) · 2c (RLS tenant isolation + per-board admin roles) · billing later.
 
-- `routes` and `sessions` have no `board_id`.
+Goal: support multiple physical boards/walls (e.g. Yonder, Walthamstow) as **separate communities**, with a wall switcher and per-wall data isolation. Remaining single-board assumptions to clear in 2b/2c:
+
+- ~~`routes` and `sessions` have no `board_id`~~ → **done in 2a** (added, backfilled to The Barn, defaulted).
 - `board_settings` keys (`hold_overrides`, `custom_holds`, `board_image_config`) are **global singletons**.
 - **Base holds ship as one static `holds.json`** — per-wall holds must move into the DB.
 - `profiles.display_name` is **globally unique** (two walls can't both have a "Dave").
@@ -107,6 +109,7 @@ Goal: support multiple physical boards/walls (e.g. Yonder, Walthamstow) as **sep
 Likely shape: a `boards` table, a `board_members` (board_id, user_id, role) table, a `board_id` FK on routes/sessions, per-board hold + image config (holds move to DB), an "active board" context threaded through every query, RLS rewritten around membership, and a wall switcher in the UI. **Recommended prep before building:** data-access layer + capture live schema into migrations.
 
 ## Recent Changes
+- **2026-06-04** — **Multi-wall Phase 2a (plumbing) — DONE & deployed.** Migration `004_boards_multiwall.sql` applied to prod: `boards` + `board_members` tables, `board_id` added to `routes`/`sessions` and backfilled to the seed wall **"The Barn"** (also set as the column default), all existing users enrolled as members. App: `db.js` gained board/membership helpers; `resolveActiveBoard()` runs on login (uses the user's membership, auto-joins The Barn for membership-less accounts) and stores `activeBoardId` as the 2b switcher foundation. **App behaviour unchanged (single wall)** — reads aren't board-filtered yet; writes stay correct via the DB default. Rollback tag `v1.4-pre-multiwall-2a`; local data backup in `backups/` (free plan has no Supabase backups). Verified in preview (all reads 200, new-account auto-join 201, no errors). Next: 2b (switcher + onboarding + holds-to-DB + add Yonder).
 - **2026-06-03** — **Milestone + docs/housekeeping pass.** Tagged `v1.3-pre-multi-wall` (annotated, pushed) as a restore point before the multi-wall feature. Did a full codebase re-read and re-synced CLAUDE.md (Key Files table, schema, sync pattern, view map, admin note, per-user data shape) and this file with reality. Archived historical root docs into `docs/archive/` and stray board images into `public/Archive/`. No app code changed.
 - **2026-05-28** — **Hold Manager: fix pan regression, drop centroid dot, drag from body when armed** (`src/components/BoardSetupView.jsx`). Pan now works when touch/click starts on a hold (`panDragRef` initialized alongside `pendingHoldRef`). Centroid drag-dot removed entirely. `dotsVisible` renamed to `armed` with a mirrored `armedRef`. Drag from hold body activates only when `armed` (500ms after selection) and the hit hold is in the selection — otherwise movement falls through to pan. Touch tap-cancel threshold loosened 6px → 9px.
 - **2026-05-28** — **Hold Manager: fix dotsVisible for lasso/Select All** — replaced per-tap timer scheduling with a single `useEffect` watching `selectedIds.length` and `vertexEditId`. (`src/components/BoardSetupView.jsx`)

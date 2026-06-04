@@ -52,13 +52,15 @@ board → holdSelect / addHold / editHold (HoldEditorView — polygon + metadata
 ### Supabase Schema
 | Table | PK | Content |
 |-------|----------|---------|
-| `routes` | `id` (text) | `user_id` (creator), `data` (route JSON, per-user fields stripped), timestamps |
+| `routes` | `id` (text) | `user_id` (creator), `board_id` (which wall), `data` (route JSON, per-user fields stripped), timestamps |
 | `user_route_data` | (`user_id`, `route_id`) | per-user `sent`, `flashed`, `attempted`, `rating`, `angle_sends[]`, `angle_flashes[]`, `angle_attempts[]`, `grade_suggestions` (jsonb), timestamps |
-| `sessions` | `id` (text) | `user_id`, `data` (full session JSON), timestamps |
+| `sessions` | `id` (text) | `user_id`, `board_id` (which wall), `data` (full session JSON), timestamps |
 | `board_settings` | `key` (text) | `data` (JSON blob) — shared board config |
 | `profiles` | `user_id` | `display_name` (globally unique), `is_admin`, timestamps |
 | `route_comments` | `id` | `route_id`, `user_id`, `body`, `likes[]`, `flags[]`, timestamps |
 | `shared_playlists` | `id` | `user_id`, `name`, `creator_name`, `route_ids[]`, timestamps |
+| `boards` | `id` (uuid) | `name`, `slug`, `visibility` (public/private), `join_code`, `owner_id`, `specs`, timestamps — **one row per wall** (multi-wall) |
+| `board_members` | (`board_id`, `user_id`) | `role` (admin/member), `joined_at` — **wall membership** (multi-wall) |
 
 **Storage:** `board-images` bucket — full + 800w/1200w/2000w variants per board image.
 
@@ -67,6 +69,7 @@ board → holdSelect / addHold / editHold (HoldEditorView — polygon + metadata
 **Schema is captured in `supabase/migrations/`:**
 - `000_core_tables.sql` (backfill) — `routes`, `sessions`, `board_settings`, `user_route_data`, `shared_playlists`. **Structures AND RLS verified against live prod (2026-06-03)** — `000` mirrors production exactly (column types/defaults, policy names, roles, expressions). Numbered `000` so fresh rebuilds create base tables before later ALTERs. Re-check anytime with `scripts/dump_schema.sql`. Note: prod has **no FK constraints** and **no `user_id` indexes** — `000` reproduces that faithfully.
 - `001_profiles.sql`, `002_route_comments.sql`, `003_user_route_data_angle_states.sql` — profiles, comments, and the `user_route_data` angle columns.
+- `004_boards_multiwall.sql` — **multi-wall Phase 2a (applied to prod 2026-06-04):** `boards` + `board_members`, `board_id` on `routes`/`sessions` (backfilled to "The Barn" seed wall + set as column default), all existing users enrolled as members, permissive RLS on the new tables (tightened to tenant isolation in 2c).
 - `scripts/dump_schema.sql` — paste into the Supabase SQL editor to dump live RLS/defaults/FKs/indexes for reconciliation (the parts OpenAPI can't expose).
 
 ### Supabase Sync Pattern
