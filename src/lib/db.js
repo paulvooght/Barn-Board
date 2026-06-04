@@ -23,9 +23,11 @@ const now = () => new Date().toISOString();
 
 // ─── routes ──────────────────────────────────────────────────────────────────
 
-/** All routes, newest first (shared — every user sees every route). */
-export function fetchRoutes() {
-  return supabase.from('routes').select('id, user_id, data').order('created_at', { ascending: false });
+/** All routes, newest first. Pass a boardId to scope to one wall (multi-wall). */
+export function fetchRoutes(boardId) {
+  let q = supabase.from('routes').select('id, user_id, data, board_id').order('created_at', { ascending: false });
+  if (boardId) q = q.eq('board_id', boardId);
+  return q;
 }
 
 /** Bulk insert (used only by the first-login localStorage migration). */
@@ -86,8 +88,10 @@ export async function upsertUserRouteData(userId, routeId, fields) {
 
 // ─── sessions (private per user) ─────────────────────────────────────────────
 
-export function fetchSessions(userId) {
-  return supabase.from('sessions').select('data').eq('user_id', userId).order('created_at', { ascending: false });
+export function fetchSessions(userId, boardId) {
+  let q = supabase.from('sessions').select('data, board_id').eq('user_id', userId).order('created_at', { ascending: false });
+  if (boardId) q = q.eq('board_id', boardId);
+  return q;
 }
 
 /** Bulk insert (first-login migration only). */
@@ -102,6 +106,33 @@ export async function upsertSessions(rows) {
     { onConflict: 'id' }
   );
   if (error) console.error('[db] upsertSessions error:', error);
+  return { error };
+}
+
+// ─── boards & membership (multi-wall) ────────────────────────────────────────
+
+/** All boards (for the wall switcher / public list). */
+export function fetchBoards() {
+  return supabase.from('boards').select('id, name, slug, visibility').order('created_at', { ascending: true });
+}
+
+/** One board by its slug (e.g. 'the-barn'). */
+export function fetchBoardBySlug(slug) {
+  return supabase.from('boards').select('id, name, slug, visibility').eq('slug', slug).maybeSingle();
+}
+
+/** Boards this user belongs to (board_id + role). */
+export function fetchMyMemberships(userId) {
+  return supabase.from('board_members').select('board_id, role').eq('user_id', userId);
+}
+
+/** Add the current user to a board (idempotent). */
+export async function joinBoard(boardId, userId, role = 'member') {
+  const { error } = await supabase.from('board_members').upsert(
+    { board_id: boardId, user_id: userId, role },
+    { onConflict: 'board_id,user_id', ignoreDuplicates: true }
+  );
+  if (error) console.error('[db] joinBoard error:', error);
   return { error };
 }
 

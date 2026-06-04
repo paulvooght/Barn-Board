@@ -38,6 +38,15 @@ export default function App() {
   const [authLoading, setAuthLoading] = useState(true);
   const [dataReady, setDataReady] = useState(false);
 
+  // ─── Active wall (multi-wall, Phase 2a) ───────────────────────────
+  // Which board the user is on. 2a has one wall (The Barn); the switcher and
+  // additional walls land in 2b. Resolved on login by resolveActiveBoard().
+  // Not yet used to filter reads/writes (single wall + DB default handle that) —
+  // it's the foundation the 2b switcher builds on.
+  const [activeBoardId, setActiveBoardId] = useState(null);
+  const activeBoardIdRef = useRef(null);
+  activeBoardIdRef.current = activeBoardId;
+
   // ─── Profiles ─────────────────────────────────────────────────────
   const [displayName, setDisplayName]       = useState('');
   const [profilesById, setProfilesById]     = useState({}); // { [user_id]: { display_name, is_admin } }
@@ -257,13 +266,37 @@ export default function App() {
     setDataReady(true);
   }, [setRoutes, setSessions, setPlaylists, setBoardImageConfig]);
 
+  // Resolve the active wall on login. 2a: use the user's membership, falling back
+  // to (and joining) The Barn for any account that has none yet (e.g. a brand-new
+  // signup after the migration). Persists the choice so the 2b switcher can restore
+  // it. Runs alongside the data load — 2a reads aren't board-filtered yet, so order
+  // doesn't matter.
+  const resolveActiveBoard = useCallback(async (userId) => {
+    const { data: memberships } = await db.fetchMyMemberships(userId);
+    let boardId = null;
+    if (memberships && memberships.length > 0) {
+      const stored = localStorage.getItem('barnboard_active_board');
+      boardId = stored && memberships.some(m => m.board_id === stored) ? stored : memberships[0].board_id;
+    } else {
+      const { data: barn } = await db.fetchBoardBySlug('the-barn');
+      if (barn) { boardId = barn.id; await db.joinBoard(barn.id, userId); }
+    }
+    if (boardId) {
+      activeBoardIdRef.current = boardId;
+      setActiveBoardId(boardId);
+      localStorage.setItem('barnboard_active_board', boardId);
+    }
+    return boardId;
+  }, []);
+
   // Initial load on login
   useEffect(() => {
     if (!user) return;
     setDataReady(false);
     hasLoadedOnce.current = false;
+    resolveActiveBoard(user.id);
     loadDataFromSupabase(user.id, true).then(() => { hasLoadedOnce.current = true; });
-  }, [user?.id, loadDataFromSupabase]);
+  }, [user?.id, loadDataFromSupabase, resolveActiveBoard]);
 
   // Re-fetch from Supabase when tab becomes visible (switching devices/tabs)
   useEffect(() => {
