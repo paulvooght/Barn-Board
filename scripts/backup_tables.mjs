@@ -20,7 +20,7 @@ if (!url || !key) {
 }
 
 const label = process.argv[2] || 'backup';
-const TABLES = ['routes', 'sessions', 'user_route_data', 'board_settings', 'profiles', 'route_comments', 'shared_playlists'];
+const TABLES = ['routes', 'sessions', 'user_route_data', 'board_settings', 'profiles', 'route_comments', 'shared_playlists', 'boards', 'board_members'];
 
 const supabase = createClient(url, key, { auth: { persistSession: false } });
 const stamp = new Date().toISOString().replace(/[:.]/g, '-');

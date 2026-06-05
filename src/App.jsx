@@ -49,7 +49,12 @@ export default function App() {
   activeBoardIdRef.current = activeBoardId;
   // Admin OF THE ACTIVE WALL (per-wall role) — gates Hold Manager / image wizard /
   // the climber⇄admin toggle. Separate from the global `isAdmin` (comment moderation).
-  const isActiveBoardAdmin = myBoards.find(b => b.id === activeBoardId)?.role === 'admin';
+  const activeBoard = myBoards.find(b => b.id === activeBoardId);
+  const isActiveBoardAdmin = activeBoard?.role === 'admin';
+  // boardRegion (the board area inside the photo) is per-wall, stored in
+  // boards.specs (multi-wall 2b-ii). Fall back to holds.json for The Barn and
+  // before specs has loaded, so the board area is always defined.
+  const activeBoardRegion = activeBoard?.specs?.boardRegion || holdsData.boardRegion;
   // DB column helper for a route/session row: returns { board_id } for the row's
   // own wall (falling back to the active wall), or {} so the column DEFAULT applies
   // if we somehow don't know the wall yet.
@@ -111,7 +116,9 @@ export default function App() {
   }, [sessionStartTime]);
 
   // Hold management (auto-detected + custom + overrides)
-  const { allHolds, addHold, updateHold, deleteHold, replaceAllHolds } = useCustomHolds(user);
+  // Per-board holds: load the active wall's set; The Barn (slug 'the-barn') keeps
+  // a legacy-rebuild safety net if its blob is ever missing (see useCustomHolds).
+  const { allHolds, addHold, updateHold, deleteHold, saveAllHolds } = useCustomHolds(user, activeBoardId, activeBoard?.slug === 'the-barn');
 
   // ─── Auth effect — listen for login/logout ─────────────────────────
   useEffect(() => {
@@ -154,7 +161,7 @@ export default function App() {
       db.fetchAllGradeSuggestions(),
       db.fetchSessions(userId, boardId),
       db.getBoardSetting(`playlists_${userId}`),
-      db.getBoardSetting('board_image_config'),
+      db.getBoardImageConfig(boardId),
       db.fetchProfiles(),
     ]);
 
@@ -260,9 +267,16 @@ export default function App() {
       }
     }
 
-    // g) Board image config
+    // g) Board image config (per-board, multi-wall 2b-ii)
     if (imgConfigResult.data) {
       setBoardImageConfig(imgConfigResult.data.data);
+    } else if (!imgConfigResult.error) {
+      // No per-board image. Fall back to the legacy GLOBAL key as a safety net for
+      // The Barn (deploy window before the migration). A fresh wall genuinely has
+      // none → null, so the app shows the bundled default until its image is set.
+      const legacy = await db.getBoardSetting('board_image_config');
+      if (legacy.data) setBoardImageConfig(legacy.data.data);
+      else if (!legacy.error) setBoardImageConfig(null);
     }
 
     // h) Profiles — build lookup map and set own display name
@@ -1469,8 +1483,8 @@ export default function App() {
         cacheVersion: Date.now(),
       };
 
-      // Save config to board_settings
-      const { error: settingsError } = await db.setBoardSetting('board_image_config', config);
+      // Save config to board_settings (per-board, multi-wall 2b-ii)
+      const { error: settingsError } = await db.setBoardImageConfig(activeBoardIdRef.current, config);
       if (settingsError) throw settingsError;
 
       // Update local state and return to settings
@@ -1483,41 +1497,11 @@ export default function App() {
     }
   };
   const handleSetupSave = async (newHolds) => {
-    // Build a map of old hold IDs → new hold IDs so we can update routes
-    const idMap = {};
-    for (const h of newHolds) {
-      const newId = h.id.startsWith('custom_') ? h.id : `custom_${h.id}`;
-      if (newId !== h.id) {
-        idMap[h.id] = newId;
-      }
-    }
-
-    // Await hold data write to Supabase before continuing
-    await replaceAllHolds(newHolds);
-
-    // Remap hold IDs in all saved routes so highlights survive
-    let remappedRoutes = null;
-    if (Object.keys(idMap).length > 0) {
-      localRouteChange.current = true;
-      setRoutes(prev => {
-        remappedRoutes = prev.map(route => {
-          const oldHolds = route.holds || {};
-          const newHolds2 = {};
-          let changed = false;
-          for (const [holdId, selType] of Object.entries(oldHolds)) {
-            const mappedId = idMap[holdId] || holdId;
-            newHolds2[mappedId] = selType;
-            if (mappedId !== holdId) changed = true;
-          }
-          return changed ? { ...route, holds: newHolds2 } : route;
-        });
-        return remappedRoutes;
-      });
-      console.log('[handleSetupSave] Remapped hold IDs in routes:', idMap);
-      // Flush remapped routes to Supabase immediately
-      if (remappedRoutes) await flushRoutesToSupabase(remappedRoutes);
-    }
-
+    // Per-board model (multi-wall 2b-ii): hold IDs are preserved verbatim —
+    // BoardSetupView keeps existing IDs and mints custom_<ts> only for genuinely
+    // new holds — so saved routes (which reference holds by ID) stay valid with
+    // no remap. Persist the wall's hold set, awaiting the write before nav.
+    await saveAllHolds(newHolds);
     setView('board');
   };
   const handleSetupCancel = () => setView('settings');
@@ -2080,7 +2064,7 @@ export default function App() {
             userRouteData={userRouteData}
             routes={routes}
             boardImageSrc={imgSrc}
-            boardRegion={holdsData.boardRegion}
+            boardRegion={activeBoardRegion}
             allHolds={allHolds}
             profilesById={profilesById}
             onViewRoute={handleViewRouteFromSessions}
@@ -2152,7 +2136,7 @@ export default function App() {
           imgSrc={imgSrc}
           imgSrcSet={imgSrcSet}
           imgSizes={imgSizes}
-          boardRegion={holdsData.boardRegion}
+          boardRegion={activeBoardRegion}
           onHoldTap={(holdId) => {
             const h = allHolds.find(h => h.id === holdId);
             if (h) handleEditHold(h, 'holdSelect');
@@ -2189,7 +2173,7 @@ export default function App() {
           imgSrc={imgSrc}
           imgSrcSet={imgSrcSet}
           imgSizes={imgSizes}
-          boardRegion={holdsData.boardRegion}
+          boardRegion={activeBoardRegion}
           initialManagerMode={holdManagerMode}
           onManagerModeChange={setHoldManagerMode}
           onEditHold={(hold) => handleEditHold(hold, 'setupBoard')}
@@ -2206,7 +2190,7 @@ export default function App() {
           imgSrc={imgSrc}
           imgSrcSet={imgSrcSet}
           imgSizes={imgSizes}
-          boardRegion={holdsData.boardRegion}
+          boardRegion={activeBoardRegion}
           onSave={handleHoldEditorSave}
           onCancel={handleHoldEditorCancel}
           onDelete={view === 'editHold' ? () => {

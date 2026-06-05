@@ -111,9 +111,10 @@ export async function upsertSessions(rows) {
 
 // ─── boards & membership (multi-wall) ────────────────────────────────────────
 
-/** All boards (for the wall switcher / public list). */
+/** All boards (for the wall switcher / public list). `specs` carries per-wall
+ *  config like boardRegion (the board area inside the photo). */
 export function fetchBoards() {
-  return supabase.from('boards').select('id, name, slug, visibility').order('created_at', { ascending: true });
+  return supabase.from('boards').select('id, name, slug, visibility, specs').order('created_at', { ascending: true });
 }
 
 /** One board by its slug (e.g. 'the-barn'). */
@@ -157,6 +158,24 @@ export async function setBoardSetting(key, data) {
   if (error) console.error('[db] setBoardSetting error:', error);
   return { error };
 }
+
+// ─── per-board holds + image config (multi-wall 2b-ii) ───────────────────────
+// Each wall owns its full hold array + image config under a board-scoped key, so
+// the key-naming convention lives in ONE place. The legacy GLOBAL keys
+// (custom_holds / hold_overrides / board_image_config) are left untouched as a
+// revert path — see 005_holds_per_board.sql.
+
+/** This wall's full hold array (the per-board equivalent of allHolds). */
+export const getBoardHolds = (boardId) => getBoardSetting(`holds_${boardId}`);
+
+/** Persist this wall's full hold array (IDs preserved verbatim). */
+export const setBoardHolds = (boardId, holds) => setBoardSetting(`holds_${boardId}`, holds);
+
+/** This wall's board-image config ({ imageName, baseUrl, ... }). */
+export const getBoardImageConfig = (boardId) => getBoardSetting(`board_image_config_${boardId}`);
+
+/** Persist this wall's board-image config. */
+export const setBoardImageConfig = (boardId, cfg) => setBoardSetting(`board_image_config_${boardId}`, cfg);
 
 // ─── shared_playlists (public, subscribable) ─────────────────────────────────
 
