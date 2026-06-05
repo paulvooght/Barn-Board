@@ -55,6 +55,12 @@ export default function App() {
   // boards.specs (multi-wall 2b-ii). Fall back to holds.json for The Barn and
   // before specs has loaded, so the board area is always defined.
   const activeBoardRegion = activeBoard?.specs?.boardRegion || holdsData.boardRegion;
+  // Default board-image base name for a wall with no image config yet — namespaced
+  // by the wall so a fresh wall can never publish under (and clobber) another
+  // wall's bucket filename. Walls with a config use their stored (already
+  // namespaced) imageName; autoIncrementName bumps the trailing _V<n>.
+  const activeBoardImageDefault =
+    `${(activeBoard?.name || 'Board').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'Board'}_Set_01_V0`;
   // DB column helper for a route/session row: returns { board_id } for the row's
   // own wall (falling back to the active wall), or {} so the column DEFAULT applies
   // if we somehow don't know the wall yet.
@@ -2120,7 +2126,7 @@ export default function App() {
       {view === 'updateBoardImage' && (
         <BoardImageUpdateView
           currentImgSrc={imgSrc}
-          currentImageName={boardImageConfig?.imageName || 'Barn_Set_01_V7'}
+          currentImageName={boardImageConfig?.imageName || activeBoardImageDefault}
           currentImageUrl={boardImageConfig ? `${boardImageConfig.baseUrl}/${boardImageConfig.imageName}.jpg` : '/Barn_Set_01_V7.jpg'}
           holds={allHolds}
           boardRegion={activeBoardRegion}

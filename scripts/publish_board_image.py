@@ -5,15 +5,20 @@ flow through the same board_image_config as in-app-wizard updates.
 
 Run this as the final step after detect_holds.py + merge_holds.py:
 
-    python3 scripts/publish_board_image.py Barn_Set_01_V6
+    # Per-wall (multi-wall): reads board-assets/<slug>/, writes board_image_config_<id>
+    python3 scripts/publish_board_image.py Yonder_Set_01_V1 --board yonder
+
+    # Legacy global Barn flow (reads public/, writes board_image_config):
+    python3 scripts/publish_board_image.py Barn_Set_01_V8
 
 The script:
-  1. Reads public/{name}.jpg from the repo root.
+  1. Reads {src_dir}/{name}.jpg — board-assets/<slug>/ with --board, else public/.
   2. Generates the missing responsive variants (-800w, -1200w, -2000w) using
-     Pillow and saves them back into public/ so they get committed too.
+     Pillow and saves them back into {src_dir} so they get committed too.
   3. Uploads all four JPEGs to the board-images Supabase storage bucket.
-  4. Upserts board_settings key='board_image_config' with the shape the app
-     reads in App.jsx so whichever update (wizard or code) ran last wins.
+  4. Upserts board_settings under board_image_config_<id> (per-board, with --board)
+     or board_image_config (legacy global) — the shape App.jsx reads, so whichever
+     update (wizard or code) ran last wins.
 
 Requirements:
     pip install Pillow requests
@@ -28,6 +33,7 @@ Environment (in .env.local at repo root):
 
 import argparse
 import json
+import re
 import sys
 import time
 from datetime import datetime, timezone
@@ -79,22 +85,22 @@ def make_variant(source: Image.Image, target_width: int) -> Image.Image:
     return source.resize((target_width, target_h), Image.LANCZOS)
 
 
-def ensure_variants(name: str):
+def ensure_variants(name: str, src_dir: Path):
     """
-    Check for the three responsive variants in public/.
+    Check for the three responsive variants in src_dir.
     Generate any that are missing from the full-size JPEG.
     Returns a list of all four paths (full + variants) in upload order.
     """
-    full_path = PUBLIC_DIR / f"{name}.jpg"
+    full_path = src_dir / f"{name}.jpg"
     if not full_path.exists():
         print(f"Error: {full_path} not found.")
-        print(f"  Place the full-size JPEG at public/{name}.jpg before running this script.")
+        print(f"  Place the full-size JPEG at {src_dir}/{name}.jpg before running this script.")
         sys.exit(1)
 
     paths = [full_path]
     missing = []
     for w in WIDTHS:
-        p = PUBLIC_DIR / f"{name}-{w}w.jpg"
+        p = src_dir / f"{name}-{w}w.jpg"
         paths.append(p)
         if not p.exists():
             missing.append((w, p))
@@ -163,9 +169,30 @@ def upload_file(base_url: str, bucket: str, file_path: Path, headers: dict) -> s
     return public_url
 
 
-def upsert_config(base_url: str, name: str, headers: dict):
+def resolve_board(base_url: str, headers: dict, board_arg: str):
     """
-    Upsert the board_image_config row in board_settings.
+    Resolve a --board argument (slug or uuid) to (id, slug, name) via PostgREST.
+    Exits with an error if the board doesn't exist.
+    """
+    is_uuid = bool(re.match(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-", board_arg, re.I))
+    field = "id" if is_uuid else "slug"
+    url = f"{base_url}/rest/v1/boards?{field}=eq.{board_arg}&select=id,slug,name"
+    r = requests.get(url, headers={**headers, "Accept": "application/json"}, timeout=15)
+    if r.status_code != 200:
+        print(f"Error resolving board '{board_arg}': {r.status_code} {r.text}")
+        sys.exit(1)
+    rows = r.json()
+    if not rows:
+        print(f"Error: no board with {field}='{board_arg}'. Create the boards row first.")
+        sys.exit(1)
+    row = rows[0]
+    return row["id"], row["slug"], row.get("name")
+
+
+def upsert_config(base_url: str, name: str, headers: dict, config_key: str):
+    """
+    Upsert the board image config row in board_settings under config_key
+    (per-board: board_image_config_<id>; legacy global: board_image_config).
     The data shape must match what App.jsx reads.
     """
     now_ms = int(time.time() * 1000)
@@ -183,10 +210,10 @@ def upsert_config(base_url: str, name: str, headers: dict):
         "Content-Type": "application/json",
         "Prefer": "resolution=merge-duplicates,return=minimal",
     }
-    payload = {"key": "board_image_config", "data": config}
+    payload = {"key": config_key, "data": config}
     r = requests.post(url, headers=rest_headers, json=payload, timeout=15)
     if r.status_code not in (200, 201, 204):
-        print(f"Error upserting board_image_config: {r.status_code} {r.text}")
+        print(f"Error upserting {config_key}: {r.status_code} {r.text}")
         sys.exit(1)
 
     return config
@@ -205,7 +232,23 @@ def main():
     parser.add_argument(
         "image_name",
         metavar="IMAGE_NAME",
-        help="Base name of the image without extension, e.g. Barn_Set_01_V6",
+        help="Base name of the image without extension, e.g. Yonder_Set_01_V1",
+    )
+    parser.add_argument(
+        "--board",
+        default=None,
+        metavar="SLUG_OR_ID",
+        help=(
+            "Board slug (e.g. 'yonder') or uuid. Writes the per-board key "
+            "board_image_config_<id> and reads the image from board-assets/<slug>/. "
+            "Omit ONLY for the legacy global Barn flow (writes board_image_config)."
+        ),
+    )
+    parser.add_argument(
+        "--assets-dir",
+        default=None,
+        metavar="PATH",
+        help="Override the source directory for the image + variants.",
     )
     args = parser.parse_args()
     name = args.image_name
@@ -237,10 +280,24 @@ def main():
 
     bucket = "board-images"
 
-    # ── 2. Ensure responsive variants exist in public/ ───────────────────
+    # ── 1b. Resolve target board → config key + source dir ───────────────
+    if args.board:
+        board_id, board_slug, board_name = resolve_board(supabase_url, headers, args.board)
+        config_key = f"board_image_config_{board_id}"
+        src_dir = Path(args.assets_dir) if args.assets_dir else (REPO_ROOT / "board-assets" / board_slug)
+        print(f"Target board : {board_name or board_slug}  ({board_slug} / {board_id})")
+        print(f"Config key   : {config_key}")
+    else:
+        config_key = "board_image_config"
+        src_dir = Path(args.assets_dir) if args.assets_dir else PUBLIC_DIR
+        print("⚠  No --board given — writing the LEGACY GLOBAL key 'board_image_config'")
+        print("   (app fallback only). Pass --board <slug> for a per-wall publish.")
+    print(f"Source dir   : {src_dir}")
+
+    # ── 2. Ensure responsive variants exist in the source dir ────────────
     print(f"\n=== Board image publish: {name} ===\n")
     print("Step 1/3 — Checking responsive variants ...")
-    paths = ensure_variants(name)
+    paths = ensure_variants(name, src_dir)
 
     # ── 3. Check / create bucket ─────────────────────────────────────────
     print("\nStep 2/3 — Uploading to Supabase storage ...")
@@ -254,8 +311,8 @@ def main():
         print(f"  Uploaded {path.name} ({size_kb} KB)")
 
     # ── 4. Upsert config ─────────────────────────────────────────────────
-    print("\nStep 3/3 — Writing board_image_config to board_settings ...")
-    config = upsert_config(supabase_url, name, headers)
+    print(f"\nStep 3/3 — Writing {config_key} to board_settings ...")
+    config = upsert_config(supabase_url, name, headers, config_key)
 
     # ── 5. Success summary ───────────────────────────────────────────────
     print("\n=== Done ===")
@@ -266,8 +323,9 @@ def main():
     print(f"\n  Files uploaded ({len(uploaded_urls)}):")
     for u in uploaded_urls:
         print(f"    {u}")
+    print(f"  Config key  : {config_key}")
     print(
-        "\n  board_image_config written. The app will use the new image on next load "
+        f"\n  {config_key} written. The app will use the new image on next load "
         "(or tab switch on already-open devices)."
     )
 
