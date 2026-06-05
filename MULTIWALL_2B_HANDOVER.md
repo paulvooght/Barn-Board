@@ -12,8 +12,11 @@ Building **multi-wall** (multiple climbing boards as separate communities; one a
 
 - **2a — plumbing — DONE & deployed.** Migration `004_boards_multiwall.sql` applied to prod: `boards` + `board_members` tables; `board_id` on `routes`/`sessions` (backfilled + defaulted to The Barn); all users enrolled as members.
 - **2b-i — scoping + switcher + per-wall admin — DONE & deployed** (commit `cb7c89e`). Reads/writes scope to the active wall; header `WallSwitcher` (shows only when in 2+ walls); `resolveActiveBoard()`/`switchBoard()`/`myBoards`/`isActiveBoardAdmin` in App.jsx; per-wall admin gates Hold Manager / image wizard / the Climber⇄Admin toggle (Settings).
-- **2b-ii — holds & board image per wall — ← THIS IS NEXT (the sensitive one).**
-- 2b-iii — stand Yonder up for real (photo + holds). Paul has a Yonder photo (~2000px longest edge) ready to import.
+- **2b-ii — holds & board image per wall — DONE & deployed (2026-06-05, commit `48ea2b6`).** Per-board `holds_<boardId>` / `board_image_config_<boardId>` / `boards.specs.boardRegion`; migration `005_holds_per_board.sql` (+ `scripts/migrate_holds_to_board.mjs`) seeded The Barn from `custom_holds` verbatim (all base hidden → effective set == custom_holds), **every ID preserved**, 275/275 route refs resolve. `useCustomHolds(user, boardId, seedFromLegacy)` board-aware; old global keys + `holds.json` kept as revert. Backup `pre-2b-ii`, tag `v1.5-pre-multiwall-2b-ii`. Verified in preview (Barn renders identically).
+- **2b-iii — stand Yonder up for real (photo + holds). ← THIS IS NEXT.** Paul has a Yonder photo (~2000px longest edge) ready to import. **Carried-over from 2b-ii (do these here):**
+  1. **Per-board image naming** — the wizard's `imageName` isn't board-namespaced; two walls could collide on a storage filename (`board-images` bucket). Namespace by board (e.g. slug/id prefix) when publishing Yonder's image.
+  2. **New-wall `boardRegion` setup** — a fresh wall has no `specs.boardRegion` and falls back to The Barn's (holds.json) + the bundled Barn image. `BoardImageUpdateView` currently warps a new photo to match an *existing* region; new-wall setup must *establish* the region (and seed the wall's first holds, e.g. via detection → `holds_<yonderId>`).
+  3. **`scripts/publish_board_image.py`** still writes the **global** `board_image_config` (now only an app fallback). Give it a board arg → `board_image_config_<boardId>` before using it on a multi-wall setup.
 - 2b-iv — onboarding (join public list / private join-code via a `SECURITY DEFINER` fn) + a "wall members / make admin" screen.
 - 2c — RLS tenant isolation + per-board admin enforcement server-side (replaces the hardcoded-email route policy + permissive `board_settings` writes). Billing later.
 
@@ -58,5 +61,5 @@ Building **multi-wall** (multiple climbing boards as separate communities; one a
 - **Migrations:** show Paul the SQL; he runs it in the Supabase SQL editor and confirms backups. Supabase shows a generic "destructive operations" warning for any DDL/`UPDATE`/`DROP` — that's normal.
 - Schema verified against prod via `scripts/dump_schema.sql` (now a single-result query).
 
-## Definition of done for 2b-ii
-Holds + image are per-wall in the DB; The Barn migrated with all IDs preserved and rendering identically (verified by opening existing routes); `useCustomHolds`/image config board-aware; `holds.json` retained as revert; backup taken; committed + pushed; CLAUDE.md schema + CURRENT_STATE.md updated; this brief updated with 2b-ii status.
+## Definition of done for 2b-ii — ✅ MET (2026-06-05)
+Holds + image are per-wall in the DB; The Barn migrated with all IDs preserved and rendering identically (verified by opening existing routes); `useCustomHolds`/image config board-aware; `holds.json` retained as revert; backup taken; committed + pushed; CLAUDE.md schema + CURRENT_STATE.md updated; this brief updated with 2b-ii status. ✅ All done — see commit `48ea2b6`.

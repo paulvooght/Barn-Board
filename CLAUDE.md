@@ -43,11 +43,25 @@ settings → updateBoardImage (board image wizard — BoardImageUpdateView)
 board → holdSelect / addHold / editHold (HoldEditorView — polygon + metadata editor)
 ```
 
-### Three-Layer Hold Data (useCustomHolds.js)
-1. `src/data/holds.json` — base holds, auto-detected by Python script (25 holds)
-2. `hold_overrides` (Supabase `board_settings` + localStorage cache) — edits to detected holds
-3. `custom_holds` (Supabase `board_settings` + localStorage cache) — user-created holds
-4. `replaceAllHolds()` — bulk replacement from Hold Manager (hides base holds, stores all as custom)
+### Hold Data — per-board (useCustomHolds.js)
+**Current model (multi-wall 2b-ii):** each wall owns its FULL hold array in
+`board_settings['holds_<boardId>']`. `useCustomHolds(user, boardId, seedFromLegacy)`
+loads that one array — there is **no runtime base/override/custom merge any more**.
+CRUD (add/update/delete/`saveAllHolds`) mutates the array and **preserves IDs
+verbatim** (new holds get `custom_<ts>`; nothing is re-prefixed — the old
+`replaceAllHolds` custom_-prefix behaviour is gone). localStorage caches per wall
+under `barnboard_holds_<boardId>`.
+
+**Legacy three layers — now The Barn's documented revert/seed, NOT the live path:**
+1. `src/data/holds.json` — base holds, auto-detected by Python script (55 holds)
+2. `board_settings['hold_overrides']` — edits/hides to base holds (live: all 55 hidden)
+3. `board_settings['custom_holds']` — the 186 holds The Barn actually renders
+
+`holds_<barnId>` was seeded as a **verbatim copy of `custom_holds`** (== effective
+allHolds, since every base hold is hidden) by `005_holds_per_board.sql`. The legacy
+keys are left intact as a revert path; if `holds_<barnId>` is ever missing, the hook
+rebuilds the effective set from them (`seedFromLegacy`, **The Barn only** — a fresh
+wall starts empty). Per-board boardRegion lives in `boards.specs.boardRegion`.
 
 ### Supabase Schema
 | Table | PK | Content |
@@ -59,17 +73,21 @@ board → holdSelect / addHold / editHold (HoldEditorView — polygon + metadata
 | `profiles` | `user_id` | `display_name` (globally unique), `is_admin`, timestamps |
 | `route_comments` | `id` | `route_id`, `user_id`, `body`, `likes[]`, `flags[]`, timestamps |
 | `shared_playlists` | `id` | `user_id`, `name`, `creator_name`, `route_ids[]`, timestamps |
-| `boards` | `id` (uuid) | `name`, `slug`, `visibility` (public/private), `join_code`, `owner_id`, `specs`, timestamps — **one row per wall** (multi-wall) |
+| `boards` | `id` (uuid) | `name`, `slug`, `visibility` (public/private), `join_code`, `owner_id`, `specs` (jsonb — holds per-wall `boardRegion`), timestamps — **one row per wall** (multi-wall) |
 | `board_members` | (`board_id`, `user_id`) | `role` (admin/member), `joined_at` — **wall membership** (multi-wall) |
 
 **Storage:** `board-images` bucket — full + 800w/1200w/2000w variants per board image.
 
-**board_settings keys:** `hold_overrides`, `custom_holds`, `board_image_config`, `playlists_${userId}`
+**board_settings keys:**
+- **Per-board (multi-wall 2b-ii):** `holds_${boardId}` (the wall's full hold array), `board_image_config_${boardId}` (the wall's image config)
+- **Per-user:** `playlists_${userId}`
+- **Legacy global singletons (kept as The Barn's revert path):** `hold_overrides`, `custom_holds`, `board_image_config`
 
 **Schema is captured in `supabase/migrations/`:**
 - `000_core_tables.sql` (backfill) — `routes`, `sessions`, `board_settings`, `user_route_data`, `shared_playlists`. **Structures AND RLS verified against live prod (2026-06-03)** — `000` mirrors production exactly (column types/defaults, policy names, roles, expressions). Numbered `000` so fresh rebuilds create base tables before later ALTERs. Re-check anytime with `scripts/dump_schema.sql`. Note: prod has **no FK constraints** and **no `user_id` indexes** — `000` reproduces that faithfully.
 - `001_profiles.sql`, `002_route_comments.sql`, `003_user_route_data_angle_states.sql` — profiles, comments, and the `user_route_data` angle columns.
 - `004_boards_multiwall.sql` — **multi-wall Phase 2a (applied to prod 2026-06-04):** `boards` + `board_members`, `board_id` on `routes`/`sessions` (backfilled to "The Barn" seed wall + set as column default), all existing users enrolled as members, permissive RLS on the new tables (tightened to tenant isolation in 2c).
+- `005_holds_per_board.sql` — **multi-wall Phase 2b-ii (applied to prod 2026-06-05):** seeds The Barn's per-board keys (`holds_<barnId>` from `custom_holds` verbatim, `board_image_config_<barnId>`, `boards.specs.boardRegion`). Additive/non-destructive (old global keys kept as revert). Executable twin: `scripts/migrate_holds_to_board.mjs` (dry-run verifier + `--commit`).
 - `scripts/dump_schema.sql` — paste into the Supabase SQL editor to dump live RLS/defaults/FKs/indexes for reconciliation (the parts OpenAPI can't expose).
 
 ### Supabase Sync Pattern
@@ -130,7 +148,7 @@ board → holdSelect / addHold / editHold (HoldEditorView — polygon + metadata
 | `src/components/ModeSelector.jsx` | ~28 | Hold-selection mode buttons |
 | `src/components/TagPicker.jsx` | ~42 | Multi-select tag picker with auto-highlight |
 | `src/components/Icon.jsx` | ~37 | Inline SVG icon set |
-| `src/hooks/useCustomHolds.js` | ~147 | Three-layer hold data + Supabase sync |
+| `src/hooks/useCustomHolds.js` | ~120 | Per-board hold array (`holds_<boardId>`) + Supabase sync; IDs preserved; legacy-rebuild fallback for The Barn |
 | `src/hooks/useLocalStorage.js` | ~27 | localStorage-backed React state |
 | `src/hooks/useUndoRedo.js` | ~106 | Undo/redo state snapshots (max 50) |
 | `src/lib/supabase.js` | ~12 | Supabase client init + `ADMIN_EMAIL` export |
@@ -143,7 +161,8 @@ board → holdSelect / addHold / editHold (HoldEditorView — polygon + metadata
 | `src/data/holds.json` | — | Base hold positions + polygons + `boardRegion` |
 | `scripts/detect_holds.py` | — | Python hold detection from board photo |
 | `scripts/merge_holds.py` | — | ID-preserving merge of re-detected holds |
-| `scripts/publish_board_image.py` | — | Upload image variants + write `board_image_config` |
+| `scripts/publish_board_image.py` | — | Upload image variants + write `board_image_config`. ⚠️ Still writes the **global** key — now only an app fallback; needs a per-board `board_image_config_<boardId>` update before use on a multi-wall setup (2b-iii). |
+| `scripts/migrate_holds_to_board.mjs` | — | 2b-ii migration: verify (dry-run) + `--commit` seed of per-board holds/image/boardRegion. Twin of `005_holds_per_board.sql`. |
 
 ### Board Image Coordinate System
 - Hold positions (`cx`, `cy`) are **percentages within the BOARD AREA** (0-100), not the full image
