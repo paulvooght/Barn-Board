@@ -52,6 +52,9 @@
 
 ## Known Bugs / Issues
 
+### ⚠️ Hold editing blocked on laptop (reported 2026-06-05 — ACTIVE workstream, own thread)
+Paul can't edit holds in **Hold Manager on laptop**. This is the current priority: it **blocks the Yonder refine pass**, which must precede Yonder getting routes (hold IDs freeze once a route references them). **Being fixed in a dedicated thread before multi-wall 2b-iv goes live** — 2b-iv opens Yonder to joiners/route-setters, so its go-live waits on this fix + the refine pass. Exact symptom + root cause **TBD** (Paul to describe; establish whether it's long-standing or recent). Likely areas: `BoardSetupView.jsx` coordinate conversion — `getBoundingClientRect()` + manual letterbox math for `preserveAspectRatio="xMidYMin meet"`, specifically the **height-constrained (laptop) branch** (phones are width-constrained; laptop is the different path) — plus `getSvgScale()` and the mouse-vs-touch (`lastTouchTimeRef` / `isSynthesizedMouse`) handling. If the bug is recent, rule out the 2b-iii `boardRegion`-prop change (commit `7a604f4`, identical value for The Barn so unlikely). ⚠️ Coordinate/touch handling is "DO NOT CHANGE CASUALLY" (CLAUDE.md) — diagnose with evidence before editing.
+
 ### Admin model is split & partly client-only (verified against live RLS 2026-06-03)
 - **Routes:** edit/delete of *others'* routes is gated server-side to a **hardcoded email** (`paul@thisisyonder.com`) in RLS — not `profiles.is_admin`.
 - **Comments:** delete uses `profiles.is_admin` (a different mechanism).
