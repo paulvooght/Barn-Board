@@ -1,0 +1,19 @@
+# Requirements for detect_holds_v2.py (FastSAM object-first hold detector)
+#
+# ⚠️  Do NOT install into your global python3 — ultralytics pulls in ~1.5 GB of
+# PyTorch. Use an isolated venv instead:
+#
+#   python3 -m venv /tmp/holds_venv
+#   /tmp/holds_venv/bin/pip install -r scripts/requirements-detect.txt
+#
+# Then run:
+#   /tmp/holds_venv/bin/python scripts/detect_holds_v2.py \
+#       --image board-assets/yonder/Yonder_Set_01_V1.jpg
+#
+# FastSAM model weights (FastSAM-x.pt ~90 MB) are downloaded automatically
+# by ultralytics on first run into the ultralytics cache directory.
+#
+# Packages pulled in by ultralytics (you don't need to list them separately):
+#   torch, torchvision, opencv-python, numpy, Pillow, PyYAML, tqdm, ...
+
+ultralytics
