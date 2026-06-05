@@ -88,6 +88,7 @@ wall starts empty). Per-board boardRegion lives in `boards.specs.boardRegion`.
 - `001_profiles.sql`, `002_route_comments.sql`, `003_user_route_data_angle_states.sql` — profiles, comments, and the `user_route_data` angle columns.
 - `004_boards_multiwall.sql` — **multi-wall Phase 2a (applied to prod 2026-06-04):** `boards` + `board_members`, `board_id` on `routes`/`sessions` (backfilled to "The Barn" seed wall + set as column default), all existing users enrolled as members, permissive RLS on the new tables (tightened to tenant isolation in 2c).
 - `005_holds_per_board.sql` — **multi-wall Phase 2b-ii (applied to prod 2026-06-05):** seeds The Barn's per-board keys (`holds_<barnId>` from `custom_holds` verbatim, `board_image_config_<barnId>`, `boards.specs.boardRegion`). Additive/non-destructive (old global keys kept as revert). Executable twin: `scripts/migrate_holds_to_board.mjs` (dry-run verifier + `--commit`).
+- `006_yonder_board.sql` — **multi-wall Phase 2b-iii (applied to prod 2026-06-05):** stands up the **Yonder** wall — `boards` row (`275dfaa7-1df9-4fe7-8332-c2795eb9ebe7`, slug `yonder`, **public**, owner Paul) + `board_members` (Paul=admin, `claude-test`=member). Idempotent. Executable twin `scripts/seed_yonder.mjs` ALSO seeds Yonder's data (`holds_<id>` ← 103 detected holds, `boards.specs.boardRegion`); image via `publish_board_image.py --board yonder`.
 - `scripts/dump_schema.sql` — paste into the Supabase SQL editor to dump live RLS/defaults/FKs/indexes for reconciliation (the parts OpenAPI can't expose).
 
 ### Supabase Sync Pattern
@@ -159,14 +160,16 @@ wall starts empty). Per-board boardRegion lives in `boards.specs.boardRegion`.
 | `src/utils/nameGenerator.js` | ~36 | Random route-name suggestions |
 | `src/utils/pendingRouteSync.js` | ~67 | localStorage offline queue for unsynced routes |
 | `src/data/holds.json` | — | Base hold positions + polygons + `boardRegion` |
-| `scripts/detect_holds.py` | — | Python hold detection from board photo |
+| `scripts/detect_holds.py` | — | Python hold detection from board photo. Colour palette (cyan/yellow/purple/black **+ red/orange/green/blue/pink** for vivid walls) + per-component **watershed split** for touching holds. `--image` accepts a direct path (e.g. `board-assets/<slug>/x.jpg`); legacy white-bg auto-pick only when no `--image`. |
 | `scripts/merge_holds.py` | — | ID-preserving merge of re-detected holds |
-| `scripts/publish_board_image.py` | — | Upload image variants + write `board_image_config`. ⚠️ Still writes the **global** key — now only an app fallback; needs a per-board `board_image_config_<boardId>` update before use on a multi-wall setup (2b-iii). |
+| `scripts/publish_board_image.py` | — | Upload image variants + write image config. **`--board <slug\|id>`** → per-board `board_image_config_<id>`, reads `board-assets/<slug>/`. Omit `--board` for the legacy global Barn flow (reads `public/`). |
 | `scripts/migrate_holds_to_board.mjs` | — | 2b-ii migration: verify (dry-run) + `--commit` seed of per-board holds/image/boardRegion. Twin of `005_holds_per_board.sql`. |
+| `scripts/seed_yonder.mjs` | — | 2b-iii: dry-run + `--commit` executor that stood Yonder up (board + members + `holds_<id>` + `boards.specs.boardRegion`). Twin of `006_yonder_board.sql`. |
+| `board-assets/<slug>/` | — | **Per-wall source assets** (Yonder onward): raw + cropped photo, `holds_detected.json`, README. Outside `public/` (not bundled; images served from Supabase). The Barn's assets stay in `public/` + `holds.json`. |
 
 ### Board Image Coordinate System
 - Hold positions (`cx`, `cy`) are **percentages within the BOARD AREA** (0-100), not the full image
-- Board region within the photo defined in `holds.json`: `boardRegion: { left, top, width, height }` — single source of truth. The image-update wizard perspective-warps any new photo so the physical board fits this region exactly.
+- Board region within the photo: `boardRegion: { left, top, width, height }`. **Per-wall** (multi-wall 2b-ii+): lives in `boards.specs.boardRegion`, threaded by App.jsx as `activeBoardRegion` and **consumed as a `boardRegion` prop** by `BoardView`/`BoardSetupView`/`HoldEditorView`/`BoardImageUpdateView` (default `holds.json` for The Barn / pre-load). `holds.json.boardRegion` is the fallback only. ⚠️ `GuidedCameraStep` is NOT yet board-aware (region **and** `PHOTO_W/H` Barn-hardcoded — capture aid only). The image-update wizard perspective-warps a new photo to match the active wall's existing region.
 - Conversion: `SVG_x = boardRegion.left% × imgW + (hold.cx / 100) × boardRegion.width% × imgW`
 - SVG overlays use `viewBox="0 0 naturalWidth naturalHeight"`
 - **BoardView** uses `preserveAspectRatio="none"` (image fills width)
