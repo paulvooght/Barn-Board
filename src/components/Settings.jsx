@@ -297,8 +297,8 @@ export default function Settings({ settings, updateSettings, allHolds, onSetupBo
         )}
       </div>
 
-      {/* ── Hold Manager (admin only) ── */}
-      {isAdmin && (
+      {/* ── Hold Manager (active-wall admin, in admin mode) ── */}
+      {isAdmin && (settings.adminMode ?? 'climber') === 'admin' && (
         <div style={{ marginBottom: '12px' }}>
           <button
             onClick={onSetupBoard}
@@ -317,8 +317,8 @@ export default function Settings({ settings, updateSettings, allHolds, onSetupBo
         </div>
       )}
 
-      {/* ── Update Board Image (admin only) ── */}
-      {isAdmin && onUpdateBoardImage && (
+      {/* ── Update Board Image (active-wall admin, in admin mode) ── */}
+      {isAdmin && (settings.adminMode ?? 'climber') === 'admin' && onUpdateBoardImage && (
         <div style={{ marginBottom: '12px' }}>
           <button
             onClick={onUpdateBoardImage}

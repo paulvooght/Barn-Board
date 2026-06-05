@@ -25,7 +25,7 @@ import { enqueueRoute, dequeueRoute, recordFailure, getPendingRoutes } from './u
 
 // Strip per-user fields before writing to the shared routes table
 function stripPerUserFields(route) {
-  const { sent, rating, ...clean } = route;
+  const { sent, rating, boardId, ...clean } = route;
   if (clean.angleGrades) {
     clean.angleGrades = clean.angleGrades.map(({ sent: _s, ...ag }) => ag);
   }
@@ -44,8 +44,19 @@ export default function App() {
   // Not yet used to filter reads/writes (single wall + DB default handle that) —
   // it's the foundation the 2b switcher builds on.
   const [activeBoardId, setActiveBoardId] = useState(null);
+  const [myBoards, setMyBoards] = useState([]); // [{ id, name, slug, visibility, role }]
   const activeBoardIdRef = useRef(null);
   activeBoardIdRef.current = activeBoardId;
+  // Admin OF THE ACTIVE WALL (per-wall role) — gates Hold Manager / image wizard /
+  // the climber⇄admin toggle. Separate from the global `isAdmin` (comment moderation).
+  const isActiveBoardAdmin = myBoards.find(b => b.id === activeBoardId)?.role === 'admin';
+  // DB column helper for a route/session row: returns { board_id } for the row's
+  // own wall (falling back to the active wall), or {} so the column DEFAULT applies
+  // if we somehow don't know the wall yet.
+  const boardCol = (item) => {
+    const b = item?.boardId || activeBoardIdRef.current;
+    return b ? { board_id: b } : {};
+  };
 
   // ─── Profiles ─────────────────────────────────────────────────────
   const [displayName, setDisplayName]       = useState('');
@@ -133,14 +144,15 @@ export default function App() {
   // ─── Data load — fetch routes + sessions + playlists from Supabase ──
   const hasLoadedOnce = useRef(false);
 
-  const loadDataFromSupabase = useCallback(async (userId, isFirstLoad) => {
-    // Fire all queries in parallel — biggest startup speedup
+  const loadDataFromSupabase = useCallback(async (userId, isFirstLoad, boardId) => {
+    // Fire all queries in parallel — biggest startup speedup.
+    // Routes + sessions are scoped to the active wall (boardId); the rest are user/global.
     const [routeResult, urdResult, ratingResult, gradeResult, sessionResult, plResult, imgConfigResult, profilesResult] = await Promise.all([
-      db.fetchRoutes(),
+      db.fetchRoutes(boardId),
       db.fetchUserRouteData(userId),
       db.fetchAllRatings(),
       db.fetchAllGradeSuggestions(),
-      db.fetchSessions(userId),
+      db.fetchSessions(userId, boardId),
       db.getBoardSetting(`playlists_${userId}`),
       db.getBoardSetting('board_image_config'),
       db.fetchProfiles(),
@@ -152,6 +164,7 @@ export default function App() {
       const cloudRoutes = routeRows.map(r => ({
         ...r.data,
         creatorId: r.data.creatorId || r.user_id,
+        boardId: r.board_id,
       }));
       // Merge in any locally-pending routes the cloud doesn't know about yet.
       // Without this, a refetch (e.g. tab-visibility on flaky cellular) would wipe
@@ -226,7 +239,7 @@ export default function App() {
     // e) Sessions
     const sessionRows = sessionResult.data;
     if (sessionRows && sessionRows.length > 0) {
-      setSessions(sessionRows.map(r => r.data));
+      setSessions(sessionRows.map(r => ({ ...r.data, boardId: r.board_id })));
     } else if (isFirstLoad) {
       const local = JSON.parse(localStorage.getItem('barnboard_sessions') || '[]');
       if (local.length > 0) {
@@ -272,14 +285,23 @@ export default function App() {
   // it. Runs alongside the data load — 2a reads aren't board-filtered yet, so order
   // doesn't matter.
   const resolveActiveBoard = useCallback(async (userId) => {
-    const { data: memberships } = await db.fetchMyMemberships(userId);
+    const [{ data: memberships }, { data: allBoards }] = await Promise.all([
+      db.fetchMyMemberships(userId),
+      db.fetchBoards(),
+    ]);
+    const roleByBoard = {};
+    (memberships || []).forEach(m => { roleByBoard[m.board_id] = m.role; });
+    let mine = (allBoards || []).filter(b => roleByBoard[b.id]).map(b => ({ ...b, role: roleByBoard[b.id] }));
+    // Brand-new account with no membership yet → join The Barn (the 2a default wall).
+    if (mine.length === 0) {
+      const barn = (allBoards || []).find(b => b.slug === 'the-barn');
+      if (barn) { await db.joinBoard(barn.id, userId); mine = [{ ...barn, role: 'member' }]; }
+    }
+    setMyBoards(mine);
     let boardId = null;
-    if (memberships && memberships.length > 0) {
+    if (mine.length > 0) {
       const stored = localStorage.getItem('barnboard_active_board');
-      boardId = stored && memberships.some(m => m.board_id === stored) ? stored : memberships[0].board_id;
-    } else {
-      const { data: barn } = await db.fetchBoardBySlug('the-barn');
-      if (barn) { boardId = barn.id; await db.joinBoard(barn.id, userId); }
+      boardId = stored && mine.some(b => b.id === stored) ? stored : mine[0].id;
     }
     if (boardId) {
       activeBoardIdRef.current = boardId;
@@ -289,13 +311,28 @@ export default function App() {
     return boardId;
   }, []);
 
-  // Initial load on login
+  // Switch the active wall: persist, return to the board view, reload that wall's data.
+  const switchBoard = useCallback((boardId) => {
+    if (!user || boardId === activeBoardIdRef.current) return;
+    activeBoardIdRef.current = boardId;
+    setActiveBoardId(boardId);
+    localStorage.setItem('barnboard_active_board', boardId);
+    setViewingRoute(null);
+    setHoldSelection({});
+    setView('board');
+    loadDataFromSupabase(user.id, false, boardId);
+  }, [user, loadDataFromSupabase]);
+
+  // Initial load on login — resolve the active wall first, then load its data.
   useEffect(() => {
     if (!user) return;
     setDataReady(false);
     hasLoadedOnce.current = false;
-    resolveActiveBoard(user.id);
-    loadDataFromSupabase(user.id, true).then(() => { hasLoadedOnce.current = true; });
+    (async () => {
+      const boardId = await resolveActiveBoard(user.id);
+      await loadDataFromSupabase(user.id, true, boardId);
+      hasLoadedOnce.current = true;
+    })();
   }, [user?.id, loadDataFromSupabase, resolveActiveBoard]);
 
   // Re-fetch from Supabase when tab becomes visible (switching devices/tabs)
@@ -304,7 +341,7 @@ export default function App() {
     const handleVisibility = () => {
       if (document.visibilityState === 'visible' && hasLoadedOnce.current) {
         console.log('[Sync] Tab visible — refreshing from Supabase');
-        loadDataFromSupabase(user.id, false);
+        loadDataFromSupabase(user.id, false, activeBoardIdRef.current);
       }
     };
     document.addEventListener('visibilitychange', handleVisibility);
@@ -320,6 +357,9 @@ export default function App() {
         { event: '*', schema: 'public', table: 'routes' },
         (payload) => {
           console.log('[Realtime] routes change:', payload.eventType, payload.new?.id || payload.old?.id);
+          // Ignore realtime events for other walls.
+          const evtBoard = payload.new?.board_id ?? payload.old?.board_id;
+          if (evtBoard && activeBoardIdRef.current && evtBoard !== activeBoardIdRef.current) return;
 
           if (payload.eventType === 'INSERT') {
             const newRoute = {
@@ -376,7 +416,7 @@ export default function App() {
     if (myRoutes.length === 0) return;
     clearTimeout(routesSyncTimer.current); // cancel pending debounce
     const { error } = await db.upsertRoutes(
-      myRoutes.map(rt => ({ id: rt.id, user_id: user.id, data: stripPerUserFields(rt) }))
+      myRoutes.map(rt => ({ id: rt.id, user_id: user.id, data: stripPerUserFields(rt), ...boardCol(rt) }))
     );
     if (error) {
       if (pendingIds) {
@@ -441,7 +481,7 @@ export default function App() {
       const myRoutes = routesRef.current.filter(r => r.creatorId === user.id || !r.creatorId);
       if (myRoutes.length === 0) return;
       console.log('[Sync] Debounced upsert:', myRoutes.length, 'routes');
-      await db.upsertRoutes(myRoutes.map(r => ({ id: r.id, user_id: user.id, data: stripPerUserFields(r) })));
+      await db.upsertRoutes(myRoutes.map(r => ({ id: r.id, user_id: user.id, data: stripPerUserFields(r), ...boardCol(r) })));
     }, 1500);
     return () => clearTimeout(routesSyncTimer.current);
   }, [routes, user, dataReady]);
@@ -455,7 +495,7 @@ export default function App() {
     const s = sessionsToSync || sessionsRef.current;
     if (!user || s.length === 0) return;
     clearTimeout(sessionsSyncTimer.current);
-    await db.upsertSessions(s.map(ss => ({ id: ss.id, user_id: user.id, data: ss })));
+    await db.upsertSessions(s.map(ss => ({ id: ss.id, user_id: user.id, data: ss, ...boardCol(ss) })));
   }, [user]);
 
   useEffect(() => {
@@ -463,7 +503,7 @@ export default function App() {
     clearTimeout(sessionsSyncTimer.current);
     sessionsSyncTimer.current = setTimeout(async () => {
       if (sessions.length === 0) return;
-      await db.upsertSessions(sessions.map(s => ({ id: s.id, user_id: user.id, data: s })));
+      await db.upsertSessions(sessions.map(s => ({ id: s.id, user_id: user.id, data: s, ...boardCol(s) })));
     }, 1500);
     return () => clearTimeout(sessionsSyncTimer.current);
   }, [sessions, user, dataReady]);
@@ -701,6 +741,7 @@ export default function App() {
       routesCreated: [],
       boardAngle: 30,
       anglesClimbed: [],
+      boardId: activeBoardIdRef.current,
     };
     setActiveSession(s);
   }, [setActiveSession]);
@@ -871,6 +912,7 @@ export default function App() {
         setter: setter.trim(),
         description: description.trim() || undefined,
         creatorId: user?.id,
+        boardId: activeBoardIdRef.current,
         youtubeUrl: youtubeUrl.trim() || undefined,
         holds: currentHolds,
         holdSnapshots,
@@ -1669,7 +1711,7 @@ export default function App() {
                 : view === 'sessionSummary' ? 'Session Summary'
                 : 'Route Logger'}
             </span>
-            {isAdmin && (settings.adminMode ?? 'climber') === 'admin' && (
+            {isActiveBoardAdmin && (settings.adminMode ?? 'climber') === 'admin' && (
               <Icon name="shield" size={isHome ? 14 : 11} style={{ color: 'var(--accent)', opacity: 0.7, flexShrink: 0 }} />
             )}
           </div>
@@ -1714,7 +1756,8 @@ export default function App() {
             </div>
           )}
         </div>
-        <nav style={{ display: 'flex', gap: '6px' }}>
+        <nav style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+          <WallSwitcher boards={myBoards} activeId={activeBoardId} onSwitch={switchBoard} />
           <NavButton
             active={view === 'routes'}
             onClick={() => { setHoldSelection({}); setViewingRoute(null); setShowRouteTags(false); setView('routes'); }}
@@ -2057,7 +2100,7 @@ export default function App() {
           onSetupBoard={handleSetupBoard}
           sessions={sessions}
           routes={routes}
-          isAdmin={isAdmin}
+          isAdmin={isActiveBoardAdmin}
           userEmail={user?.email}
           onSignOut={() => supabase.auth.signOut()}
           onViewSession={(session) => { setCompletedSession(session); setView('sessionSummary'); }}
@@ -3000,6 +3043,64 @@ const agCell = {
   padding: '6px 8px', borderBottom: '1px solid rgba(26,10,0,0.04)',
   display: 'flex', alignItems: 'center',
 };
+
+// Wall switcher — only renders when you belong to 2+ walls (single-wall users see
+// nothing change). Self-contained so it's easy to remove if multi-wall is dropped.
+function WallSwitcher({ boards, activeId, onSwitch }) {
+  const [open, setOpen] = useState(false);
+  if (!boards || boards.length < 2) return null;
+  const active = boards.find(b => b.id === activeId);
+  return (
+    <div style={{ position: 'relative', marginRight: '2px' }}>
+      <button
+        data-testid="wall-switcher"
+        onClick={() => setOpen(o => !o)}
+        style={{
+          display: 'flex', alignItems: 'center', gap: '4px', maxWidth: '120px',
+          padding: '6px 10px', borderRadius: '10px', border: '1px solid var(--border)',
+          background: 'var(--bg-card)', color: 'var(--text-secondary)', fontSize: '12px',
+          fontWeight: 700, cursor: 'pointer', fontFamily: 'var(--font-heading)',
+        }}
+      >
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {active?.name || 'Wall'}
+        </span>
+        <span style={{ fontSize: '9px', opacity: 0.7 }}>▾</span>
+      </button>
+      {open && (
+        <>
+          <div onClick={() => setOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 200 }} />
+          <div style={{
+            position: 'absolute', top: '100%', right: 0, marginTop: '4px', zIndex: 201,
+            background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '10px',
+            boxShadow: '0 6px 20px rgba(26,10,0,0.18)', overflow: 'hidden', minWidth: '160px',
+          }}>
+            {boards.map(b => {
+              const isActive = b.id === activeId;
+              return (
+                <button
+                  key={b.id}
+                  data-testid={`wall-opt-${b.slug}`}
+                  onClick={() => { onSwitch(b.id); setOpen(false); }}
+                  style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px',
+                    width: '100%', padding: '10px 12px', border: 'none', cursor: 'pointer', textAlign: 'left',
+                    background: isActive ? 'var(--accent-dim)' : 'transparent',
+                    color: isActive ? 'var(--accent)' : 'var(--text-secondary)',
+                    fontSize: '13px', fontWeight: isActive ? 800 : 600,
+                  }}
+                >
+                  <span>{b.name}</span>
+                  {b.role === 'admin' && <span style={{ fontSize: '9px', opacity: 0.7, fontWeight: 700 }}>ADMIN</span>}
+                </button>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
 
 function NavButton({ active, onClick, label }) {
   return (
