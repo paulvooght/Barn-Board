@@ -74,16 +74,19 @@ DEFAULT_BOARD_REGION = "0,0,100,100"  # full image (already-cropped published im
 # FastSAM model — try x first (better recall), fall back to s
 FASTSAM_MODELS = ["FastSAM-x.pt", "FastSAM-s.pt"]
 
-# FastSAM inference settings (recall-first)
-FASTSAM_IMGSZ = 1024
-FASTSAM_CONF = 0.15
+# FastSAM inference settings (recall-first). These defaults are the recall-tuned
+# values validated on Yonder (193 holds vs ~220 true, ~88%). imgsz=1536 is the
+# key small-hold lever; CPU cost is fine for a one-time batch. Override via CLI.
+FASTSAM_IMGSZ = 1536
+FASTSAM_CONF = 0.10
 FASTSAM_IOU = 0.7
 FASTSAM_MAX_DET = 1000
 
 # ─── Size & Shape Filters ─────────────────────────────────────────────────────
 
-# Area as fraction of board area: 0.035% – 2% (in pixels, ~0.00035–0.02 × bw×bh)
-MIN_AREA_FRAC = 0.00035   # below this → chip/bolt-hole / noise
+# Area as fraction of board area. MIN tuned down to ~0.018% (~345px) to keep
+# small foot-chips; plywood-reject + bolt-grid filters guard against grain noise.
+MIN_AREA_FRAC = 0.00018   # below this → bolt-hole / noise
 MAX_AREA_FRAC = 0.020     # above this → panel / plywood section
 
 # Span: reject any mask wider or taller than 50% of board dimension
@@ -106,8 +109,9 @@ BOLT_MAX_DIM_PX = 18
 # Aspect check for bolt-holes (near-square)
 BOLT_ASPECT_MAX = 1.8
 
-# Nested-mask dedup: drop a mask if this fraction sits inside a larger kept mask
-NESTED_OVERLAP_THRESH = 0.60
+# Nested-mask dedup: drop a mask if this fraction sits inside a larger kept mask.
+# 0.75 (not 0.60) so a small hold resting ON a big hold survives dedup.
+NESTED_OVERLAP_THRESH = 0.75
 
 # Plywood Lab model reject: mask is plywood if interior median is within
 # this many normalised-spread units of the plywood Lab cluster
@@ -614,6 +618,8 @@ def print_report(data: dict) -> None:
 # ─── Entry Point ──────────────────────────────────────────────────────────────
 
 def main():
+    global FASTSAM_IMGSZ, FASTSAM_CONF, FASTSAM_MAX_DET, MIN_AREA_FRAC, MAX_AREA_FRAC, NESTED_OVERLAP_THRESH, FASTSAM_MODELS
+
     script_dir = Path(__file__).parent
     project_root = script_dir.parent
 
@@ -640,7 +646,34 @@ def main():
         "--force", action="store_true",
         help="Overwrite src/data/holds.json even if it already has holds (DANGEROUS)"
     )
+    # ── Recall / quality knobs (override the module defaults) ──────────────────
+    parser.add_argument("--imgsz", type=int, default=FASTSAM_IMGSZ,
+                        help=f"FastSAM inference size; raise for small-hold recall (default {FASTSAM_IMGSZ})")
+    parser.add_argument("--conf", type=float, default=FASTSAM_CONF,
+                        help=f"FastSAM confidence; lower = more proposals (default {FASTSAM_CONF})")
+    parser.add_argument("--max-det", type=int, default=FASTSAM_MAX_DET, dest="max_det",
+                        help=f"FastSAM max detections (default {FASTSAM_MAX_DET})")
+    parser.add_argument("--min-area-frac", type=float, default=MIN_AREA_FRAC, dest="min_area_frac",
+                        help=f"Min hold area as fraction of board area; lower keeps small chips (default {MIN_AREA_FRAC})")
+    parser.add_argument("--max-area-frac", type=float, default=MAX_AREA_FRAC, dest="max_area_frac",
+                        help=f"Max hold area as fraction of board area (default {MAX_AREA_FRAC})")
+    parser.add_argument("--nested-overlap", type=float, default=NESTED_OVERLAP_THRESH, dest="nested_overlap",
+                        help=f"Drop a mask if this fraction sits inside a larger kept mask; raise to keep small holds overlapping big ones (default {NESTED_OVERLAP_THRESH})")
+    parser.add_argument("--model", default=None,
+                        help="Force a specific FastSAM weight (e.g. FastSAM-x.pt or FastSAM-s.pt); default tries x then s")
     args = parser.parse_args()
+
+    # Apply knob overrides to the module-level constants the pipeline reads.
+    FASTSAM_IMGSZ = args.imgsz
+    FASTSAM_CONF = args.conf
+    FASTSAM_MAX_DET = args.max_det
+    MIN_AREA_FRAC = args.min_area_frac
+    MAX_AREA_FRAC = args.max_area_frac
+    NESTED_OVERLAP_THRESH = args.nested_overlap
+    if args.model:
+        FASTSAM_MODELS = [args.model]
+    print(f"Knobs: imgsz={FASTSAM_IMGSZ} conf={FASTSAM_CONF} max_det={FASTSAM_MAX_DET} "
+          f"min_area_frac={MIN_AREA_FRAC} nested_overlap={NESTED_OVERLAP_THRESH} models={FASTSAM_MODELS}")
 
     # Resolve image path
     image_path = Path(args.image)
