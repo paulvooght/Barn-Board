@@ -503,7 +503,7 @@ function computePerspectiveCSS(w, h, dst) {
 //   onDone(warpedCanvas, pins) — called with warped canvas + pin snapshot
 //   onBack()
 
-function AlignStep({ croppedCanvas, currentImgSrc, initialPins, holds, onDone, onBack }) {
+function AlignStep({ croppedCanvas, currentImgSrc, initialPins, holds, boardRegion, onDone, onBack }) {
   const containerRef = useRef(null);
   const lastTouchTimeRef = useRef(0);
 
@@ -809,7 +809,7 @@ function AlignStep({ croppedCanvas, currentImgSrc, initialPins, holds, onDone, o
     { idx: 3, label: 'BR' },
   ];
 
-  const br = holdsData.boardRegion;
+  const br = boardRegion;
 
   return (
     <div>
@@ -1225,14 +1225,14 @@ function AlignStep({ croppedCanvas, currentImgSrc, initialPins, holds, onDone, o
 // ─── Confirm step component ───────────────────────────────────────────────────
 // Shows the warped canvas (already at old-image dimensions) with hold overlay.
 
-function ConfirmStep({ warpedCanvas, holds, imageName, nameError, saving, saveError, onNameChange, onSave, onAdjust }) {
+function ConfirmStep({ warpedCanvas, holds, boardRegion, imageName, nameError, saving, saveError, onNameChange, onSave, onAdjust }) {
   // Memoize data URL to avoid re-calling toDataURL on every render
   const warpedSrc = useMemo(
     () => warpedCanvas ? warpedCanvas.toDataURL('image/jpeg', JPEG_QUALITY) : null,
     [warpedCanvas]
   );
 
-  const br = holdsData.boardRegion;
+  const br = boardRegion;
 
   return (
     <div>
@@ -1442,7 +1442,7 @@ const secondaryBtnStyle = {
 
 // ─── Main wizard component ────────────────────────────────────────────────────
 
-export default function BoardImageUpdateView({ currentImgSrc, currentImageName, currentImageUrl, holds, onSave, onCancel }) {
+export default function BoardImageUpdateView({ currentImgSrc, currentImageName, currentImageUrl, holds, boardRegion = holdsData.boardRegion, onSave, onCancel }) {
   const [step, setStep] = useState('upload'); // 'upload' | 'crop' | 'align' | 'confirm'
 
   // Upload step state
@@ -1760,6 +1760,7 @@ export default function BoardImageUpdateView({ currentImgSrc, currentImageName, 
           currentImgSrc={alignImgSrc}
           initialPins={pendingPins}
           holds={holds}
+          boardRegion={boardRegion}
           onDone={(warpedCanvas, pins) => {
             setPendingWarp(warpedCanvas);
             setPendingPins(pins);
@@ -1774,6 +1775,7 @@ export default function BoardImageUpdateView({ currentImgSrc, currentImageName, 
         <ConfirmStep
           warpedCanvas={pendingWarp}
           holds={holds}
+          boardRegion={boardRegion}
           imageName={imageName}
           nameError={nameError}
           saving={saving}

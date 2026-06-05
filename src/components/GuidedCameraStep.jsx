@@ -39,6 +39,11 @@ function selectAnchorHolds(holds) {
   return cells.filter(Boolean);
 }
 
+// NOTE (multi-wall): the guided-camera framing overlay is still Barn-calibrated —
+// both BOARD_REGION and PHOTO_W/PHOTO_H above are hardcoded to The Barn's photo.
+// It's only a capture aid (the wizard's AlignStep does the real warp with the
+// per-wall region), and isn't used standing up a new wall, so it's deferred.
+// To make it board-aware, thread the active wall's boardRegion AND photo dims in.
 const BOARD_REGION = holdsData.boardRegion; // { left, top, width, height } as %
 
 // ─── Board outline + hold overlay (SVG) ──────────────────────────────────────

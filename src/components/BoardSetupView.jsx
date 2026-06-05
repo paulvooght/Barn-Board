@@ -9,8 +9,6 @@ import { HOLD_COLOR_DOT, HOLD_TYPES, TECHNIQUES, STYLES } from '../utils/constan
 import { computeHoldCounts, computePercentiles, colorForPercentile, availableAngles, countPassingRoutes } from '../utils/heatMap';
 import holdsData from '../data/holds.json';
 
-const { boardRegion } = holdsData;
-
 const TOOLS = {
   SELECT: 'select',
   DRAW: 'draw',
@@ -70,7 +68,7 @@ function positivityLabel(val) {
   return 'Very juggy';
 }
 
-export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc, imgSrcSet, imgSizes, initialManagerMode, onManagerModeChange, onEditHold, routes }) {
+export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc, imgSrcSet, imgSizes, initialManagerMode, onManagerModeChange, onEditHold, routes, boardRegion = holdsData.boardRegion }) {
   const { state: holds, setState: setHolds, undo, redo, canUndo, canRedo, beginCoalesce, endCoalesce } = useUndoRedo(initialHolds);
 
   const [managerMode, setManagerMode] = useState(initialManagerMode || 'boundaries'); // 'boundaries' | 'metadata' | 'heatmap'

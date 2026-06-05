@@ -2123,6 +2123,7 @@ export default function App() {
           currentImageName={boardImageConfig?.imageName || 'Barn_Set_01_V7'}
           currentImageUrl={boardImageConfig ? `${boardImageConfig.baseUrl}/${boardImageConfig.imageName}.jpg` : '/Barn_Set_01_V7.jpg'}
           holds={allHolds}
+          boardRegion={activeBoardRegion}
           onSave={handleBoardImageSave}
           onCancel={() => setView('settings')}
         />
