@@ -14,3 +14,11 @@ board-assets/**/_*
 board-assets/**/*-800w.jpg
 board-assets/**/*-1200w.jpg
 board-assets/**/*-2000w.jpg
+
+# Hold-detection (detect_holds_v2.py): model weights auto-download into cwd, and
+# the FastSAM venv is local-only. Never commit these (weights are ~100+ MB).
+*.pt
+FastSAM-*.pt
+sam*.pt
+mobile_sam*.pt
+.venv-detect/
