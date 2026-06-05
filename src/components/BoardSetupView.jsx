@@ -783,6 +783,11 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
     if (pendingHoldRef.current) {
       const hitId = pendingHoldRef.current.hitId;
       pendingHoldRef.current = null;
+      // handleMouseDown armed panDragRef when the press landed on a hold; this early
+      // return must disarm it (mirrors the touch tap branch). Otherwise pan stays armed
+      // and the next bare mousemove pans the board — the laptop "stuck pan, can't edit
+      // vertices after double-click" bug. (mouse events fire mousemove with no button held.)
+      panDragRef.current.active = false;
       handleHoldTap(hitId);
       return;
     }
