@@ -116,6 +116,46 @@ def is_plywood_coloured(h, s, v, ply_hsv, ply_std):
 
 # ─── Pass 1: Colour-based Detection ──────────────────────────────────
 
+def split_touching(mask_u8, min_area):
+    """
+    Split touching same-colour holds (merged into one blob by the colour
+    threshold + morphology on a dense spray wall) into per-hold masks, using a
+    per-connected-component distance-transform watershed. A component with a
+    single distance peak is returned whole; multi-peak components are split at
+    their watershed ridges. Returns a list of binary uint8 masks.
+
+    Added for multi-wall (Yonder). On the sparser Barn most components have a
+    single peak, so this is effectively a no-op there.
+    """
+    out = []
+    n, labels, stats, _ = cv2.connectedComponentsWithStats(mask_u8, connectivity=8)
+    for lbl in range(1, n):  # 0 is background
+        if stats[lbl, cv2.CC_STAT_AREA] < min_area:
+            continue
+        comp = np.where(labels == lbl, 255, 0).astype(np.uint8)
+        dist = cv2.distanceTransform(comp, cv2.DIST_L2, 5)
+        dmax = float(dist.max())
+        if dmax <= 0:
+            continue
+        # Seed markers at the distance peaks (hold cores). 0.55*peak keeps two
+        # touching holds apart while not over-splitting a single knobbly hold.
+        _, peaks = cv2.threshold(dist, 0.55 * dmax, 255, cv2.THRESH_BINARY)
+        peaks = peaks.astype(np.uint8)
+        nseed, seeds = cv2.connectedComponents(peaks)
+        if nseed <= 2:
+            out.append(comp)  # single core → keep whole
+            continue
+        markers = (seeds + 1).astype(np.int32)        # bg→1, cores→2..nseed
+        unknown = cv2.subtract(comp, peaks)
+        markers[unknown == 255] = 0                    # to be flooded by watershed
+        cv2.watershed(cv2.cvtColor(comp, cv2.COLOR_GRAY2BGR), markers)
+        for seg in range(2, nseed + 1):
+            seg_mask = np.where(markers == seg, 255, 0).astype(np.uint8)
+            if cv2.countNonZero(seg_mask) >= min_area:
+                out.append(seg_mask)
+    return out
+
+
 def detect_by_colour(bgr_board, hsv_board, ply_hsv, ply_std):
     """
     Detect holds that have strong colour contrast against plywood.
@@ -124,23 +164,44 @@ def detect_by_colour(bgr_board, hsv_board, ply_hsv, ply_std):
     h, s, v = hsv_board[:, :, 0], hsv_board[:, :, 1], hsv_board[:, :, 2]
     rows, cols = hsv_board.shape[:2]
 
-    # CYAN/BLUE: hue 85-130, strong saturation
-    is_cyan = (h > 85) & (h < 130) & (s > 80) & (v > 100)
+    # CYAN: hue 85-100 (blue 100-128 is its own family below — disjoint, so the
+    # same hold isn't double-detected then merged away).
+    is_cyan = (h > 85) & (h < 100) & (s > 80) & (v > 100)
 
     # YELLOW: hue 18-35, strong saturation, bright
     is_yellow = (h > 18) & (h < 35) & (s > 100) & (v > 150)
 
-    # PURPLE: hue 125-165, decent saturation
-    is_purple = (h > 125) & (h < 165) & (s > 50) & (v > 60)
+    # PURPLE: hue 128-150 (pink 150-170 is its own family below — disjoint).
+    is_purple = (h > 128) & (h < 150) & (s > 50) & (v > 60)
 
     # BLACK: very dark — must be genuinely dark, not just shadow
     is_black = (v < 60) & (s < 80)
+
+    # ── Extra families for vivid spray walls (multi-wall: Yonder) ──────────────
+    # The original 4 families are tuned for The Barn (cyan/yellow/purple/black).
+    # Yonder is far more colourful; without these it misses most holds. Overlaps
+    # with the bands above are fine — deduplicate() collapses them downstream.
+    # RED wraps the hue circle (low + high H).
+    is_red = ((h < 8) | (h > 170)) & (s > 90) & (v > 70)
+    # ORANGE sits between red and yellow; high S so tan plywood is excluded.
+    is_orange = (h >= 8) & (h < 18) & (s > 120) & (v > 120)
+    # GREEN: broad band, moderate saturation.
+    is_green = (h >= 35) & (h < 82) & (s > 55) & (v > 55)
+    # BLUE: overlaps cyan's upper end (dedup handles the overlap).
+    is_blue = (h >= 100) & (h < 128) & (s > 80) & (v > 70)
+    # PINK / MAGENTA: above purple, toward the red wrap.
+    is_pink = (h >= 150) & (h < 170) & (s > 45) & (v > 90)
 
     colour_masks = {
         'cyan': is_cyan,
         'yellow': is_yellow,
         'purple': is_purple,
         'black': is_black,
+        'red': is_red,
+        'orange': is_orange,
+        'green': is_green,
+        'blue': is_blue,
+        'pink': is_pink,
     }
 
     all_components = []
@@ -150,7 +211,12 @@ def detect_by_colour(bgr_board, hsv_board, ply_hsv, ply_std):
         mask_u8 = cv2.morphologyEx(mask_u8, cv2.MORPH_CLOSE, kernel, iterations=2)
         mask_u8 = cv2.morphologyEx(mask_u8, cv2.MORPH_OPEN, kernel, iterations=1)
 
-        contours, _ = cv2.findContours(mask_u8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        # Split touching same-colour holds the morphology merged into one blob,
+        # then contour each piece separately.
+        contours = []
+        for sub in split_touching(mask_u8, MIN_HOLD_AREA):
+            cs, _ = cv2.findContours(sub, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            contours.extend(cs)
 
         for cnt in contours:
             area = cv2.contourArea(cnt)
@@ -335,14 +401,25 @@ def classify_contour_colour(hsv_board, mask):
 
     if med_v < 60:
         return 'black'
-    if med_s > 80 and 85 < med_h < 130:
-        return 'cyan'
-    if med_s > 80 and 18 < med_h < 35 and med_v > 140:
-        return 'yellow'
-    if med_s > 50 and 125 < med_h < 165:
-        return 'purple'
     if med_s < 30 and med_v > 70:
         return 'grey'
+    if med_s > 55:
+        # Saturated colour — classify by hue band (OpenCV H 0-179).
+        if med_h < 8 or med_h > 170:
+            return 'red'
+        if med_h < 18:
+            return 'orange'
+        if med_h < 35 and med_v > 140:
+            return 'yellow'
+        if med_h < 82:
+            return 'green'
+        if med_h < 100:
+            return 'cyan'
+        if med_h < 128:
+            return 'blue'
+        if med_h < 150:
+            return 'purple'
+        return 'pink'
     return 'wood'
 
 
@@ -381,7 +458,11 @@ def deduplicate(components, board_w, board_h):
         for existing in deduped:
             dist = math.hypot(cx - existing['cx'], cy - existing['cy'])
             min_dim = min(comp['w'], comp['h'], existing['w'], existing['h'])
-            threshold = max(min_dim * 0.6, board_w * 0.025)
+            # Lower floor than the original Barn tuning (0.025): a dense spray wall
+            # has distinct holds closer together. True concentric duplicates (e.g. a
+            # hue-boundary hold caught by two adjacent masks) still merge via dist~0
+            # and the bbox-overlap check below.
+            threshold = max(min_dim * 0.55, board_w * 0.015)
 
             if dist < threshold:
                 is_dupe = True
@@ -637,17 +718,32 @@ def main():
             except (json.JSONDecodeError, KeyError):
                 pass  # Corrupted file — allow overwrite
 
-    white_bg_path = project_root / 'public' / WHITE_BG_IMAGE
-    display_path = project_root / 'public' / display_image
+    # Resolve the image to detect from. An explicit --image that is an existing
+    # path (e.g. board-assets/<slug>/Yonder_Set_01_V1.jpg) is used as-is — this is
+    # the multi-wall path. The legacy white-bg auto-pick only kicks in when NO
+    # --image was given, so it can never silently hijack a per-wall detection.
+    explicit = args.image is not None
+    explicit_path = Path(display_image)
+    if not explicit_path.is_absolute():
+        explicit_path = Path.cwd() / explicit_path
 
-    if white_bg_path.exists():
+    white_bg_path = project_root / 'public' / WHITE_BG_IMAGE
+    public_path = project_root / 'public' / display_image
+
+    if explicit and explicit_path.exists():
+        detect_path = explicit_path
+        print(f"Using image: {detect_path}")
+    elif explicit and public_path.exists():
+        detect_path = public_path
+        print(f"Using image from public/: {detect_path}")
+    elif not explicit and white_bg_path.exists():
         detect_path = white_bg_path
         print(f"Using white-background image: {detect_path}")
-    elif display_path.exists():
-        detect_path = display_path
+    elif public_path.exists():
+        detect_path = public_path
         print(f"Using display image (plywood): {detect_path}")
     else:
-        print(f"Error: No image found at {display_path} or {white_bg_path}")
+        print(f"Error: No image found for '{display_image}' (looked at {explicit_path} and {public_path})")
         sys.exit(1)
 
     print(f"Output: {output_path}\n")
