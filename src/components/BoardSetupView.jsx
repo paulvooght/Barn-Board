@@ -12,6 +12,7 @@ import holdsData from '../data/holds.json';
 const TOOLS = {
   SELECT: 'select',
   DRAW: 'draw',
+  TAP: 'tap',     // tap a hold → auto-outline from the per-board candidate library
   COPY: 'copy',   // internal state for paste placement
 };
 
@@ -24,6 +25,11 @@ const IconSelect = () => (
 const IconDraw = () => (
   <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
     <polygon points="8,2 13,6 11,12 5,12 3,6" />
+  </svg>
+);
+const IconTap = () => (
+  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="8" cy="8" r="2.5" /><path d="M8 1v2M8 13v2M1 8h2M13 8h2" />
   </svg>
 );
 const IconUndo = () => (
@@ -49,6 +55,7 @@ const IconZoomReset = () => (
 
 const TOOL_LABELS = {
   [TOOLS.SELECT]: { icon: <IconSelect />, label: 'Select', tip: 'Click holds to select · drag to move' },
+  [TOOLS.TAP]:    { icon: <IconTap />, label: 'Tap', tip: 'Tap a hold to auto-outline it · then drag its dots to fix the shape' },
   [TOOLS.DRAW]:   { icon: <IconDraw />, label: 'Draw', tip: 'Click to place vertices, click first vertex to close' },
 };
 
@@ -68,7 +75,7 @@ function positivityLabel(val) {
   return 'Very juggy';
 }
 
-export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc, imgSrcSet, imgSizes, initialManagerMode, onManagerModeChange, onEditHold, routes, boardRegion = holdsData.boardRegion }) {
+export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc, imgSrcSet, imgSizes, initialManagerMode, onManagerModeChange, onEditHold, routes, boardRegion = holdsData.boardRegion, tapCandidates = [] }) {
   const { state: holds, setState: setHolds, undo, redo, canUndo, canRedo, beginCoalesce, endCoalesce } = useUndoRedo(initialHolds);
 
   const [managerMode, setManagerMode] = useState(initialManagerMode || 'boundaries'); // 'boundaries' | 'metadata' | 'heatmap'
@@ -859,6 +866,26 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
       } else {
         setDrawPoints(prev => [...prev, [r1(pct.x), r1(pct.y)]]);
       }
+    } else if (activeTool === TOOLS.TAP) {
+      // Tap a hold → drop in the best-matching candidate outline as an editable hold.
+      // `tapCandidates` is the ACTIVE wall's precomputed library (board-generic; passed
+      // by App). Smallest containing candidate = most specific. Then drag the vertices
+      // to fix it (existing vertex-edit). Purely additive: new custom_ id, no existing
+      // hold/route touched. No candidate under the tap → user falls back to Draw.
+      const containing = (tapCandidates || []).filter(
+        c => Array.isArray(c.polygon) && c.polygon.length >= 3 && pointInPolygon(pct.x, pct.y, c.polygon));
+      if (containing.length) {
+        containing.sort((a, b) => (a.area || 0) - (b.area || 0));
+        const cand = containing[0];
+        const id = `custom_${Date.now()}`;
+        const newHold = holdFromPolygon(cand.polygon.map(([x, y]) => [x, y]), id, cand.color || 'black');
+        newHold.confidence = 'high';
+        newHold.tapped = true;
+        newHold._candidatePolygon = cand.polygon; // flywheel: SAM outline before user edits
+        setHolds(prev => [...prev, newHold]);
+        setSelectedIds([id]);
+        setVertexEditId(id); // show draggable vertices immediately so the shape can be fixed
+      }
     }
   }
 
@@ -1151,7 +1178,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
   // ─── Derived values ─────────────────────────────────────────────────
   const isZoomed = scale > 1;
   const cursorStyle = managerMode === 'metadata' ? (isZoomed ? 'grab' : 'pointer')
-    : activeTool === TOOLS.DRAW ? 'crosshair'
+    : (activeTool === TOOLS.DRAW || activeTool === TOOLS.TAP) ? 'crosshair'
     : activeTool === TOOLS.COPY ? 'copy'
     : isZoomed ? 'grab' : 'default';
 
