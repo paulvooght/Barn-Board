@@ -93,13 +93,15 @@ MERGE_CONTAIN = 0.80         # one mask ≥80% inside another → duplicate
 MERGE_ADJ_LAB = 9.0          # adjacent + Lab colour within this → same hold split in two
 MERGE_ADJ_GAP_PX = 4         # masks within this gap count as "adjacent"
 
-# Stage 5 — foot-chip recovery:
-FOOT_REGION_TOP_FRAC = 0.58  # only hunt below this board fraction (the bare lower board)
-FOOT_RELIEF_MIN = 0.060      # protrusion well above noise floor (real raised object)
-FOOT_MIN_AREA_FRAC = 0.00012 # min chip area (frac of board area)
+# Stage 5 — foot-chip recovery (APPEARANCE-FIRST: chips stand off plywood in COLOUR
+# even when too low-relief for the depth model; depth is only a soft bonus).
+FOOT_REGION_TOP_FRAC = 0.50  # hunt below this board fraction (the sparse lower board)
+FOOT_PLY_DIST = 9.0          # per-pixel Lab distance from plywood above which = not-wood
+FOOT_MIN_AREA_FRAC = 0.00012 # min chip area (frac of board area) — above tiny T-nut dots
 FOOT_MAX_AREA_FRAC = 0.0030  # max chip area
-FOOT_MIN_CHROMA = 7.0        # OR dark/bright object — coloured chip stands off plywood
-FOOT_MIN_SOLIDITY = 0.55
+FOOT_MIN_CHROMA = 7.0        # coloured chip stands off plywood
+FOOT_MIN_SOLIDITY = 0.55     # chips are compact blobs (rejects diffuse scuffs/shadows)
+FOOT_MAX_ASPECT = 3.5
 
 # Stage 6 — split arbiter (SPLIT only if colour AND geometry/depth agree):
 SPLIT_MIN_AREA_FRAC = 0.0016 # only consider splitting reasonably large masks
@@ -416,54 +418,66 @@ def assign_to_seeds(mask: np.ndarray, seeds: list) -> list:
 def recover_foot_chips(existing_masks: list, bgr_board: np.ndarray,
                        lab: np.ndarray, depth_board: np.ndarray,
                        ply_mean, ply_std, board_area: int) -> list:
-    """Find PROTRUDING small blobs in the lower bare board not already covered by a
-    hold, with plausible plastic colour/size. Distinguish protruding chips from flush
-    or recessed T-nut holes via depth (chips are NEARER → higher depth than surround)."""
-    bh, bw = depth_board.shape[:2]
+    """Recover small foot-chip holds detection missed — APPEARANCE-FIRST.
+
+    Foot chips (white half-moons, black squares, coloured chips) are low-relief
+    screw-ons the depth model can't resolve, but they stand clearly off the warm-tan
+    plywood in COLOUR (white = neutral; black = dark). So we find not-plywood blobs of
+    chip size/shape in the lower board, away from existing holds. NO pattern/grid
+    assumptions (generalises to chips placed anywhere). Tiny T-nut dots are excluded by
+    minimum area; plywood and its grain by the colour-distance threshold; diffuse
+    scuffs/shadows by solidity. Depth is a soft confirmation only, never a hard gate."""
+    bh, bw = lab.shape[:2]
     covered = np.zeros((bh, bw), np.uint8)
     for m in existing_masks:
         covered = cv2.bitwise_or(covered, m)
     covered_d = cv2.dilate(covered, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9)))
 
-    # Local relief map across the whole board (interior vs a blurred large neighbourhood).
-    big = cv2.GaussianBlur(depth_board, (0, 0), 31)
-    relief_map = depth_board - big  # >0 where nearer than surround (protruding)
+    # Per-pixel Lab distance from plywood. Plywood a/b are very tight, so any non-tan
+    # object (white OR dark OR coloured) has a large distance; plywood grain stays low.
+    pL, pa, pb = ply_mean
+    sL, sa, sb = ply_std
+    L = lab[:, :, 0].astype(np.float32)
+    A = lab[:, :, 1].astype(np.float32)
+    B = lab[:, :, 2].astype(np.float32)
+    dist = np.sqrt(((L - pL) / sL) ** 2 + ((A - pa) / sa) ** 2 + ((B - pb) / sb) ** 2)
 
-    # Restrict to the lower bare board, away from existing holds.
     region = np.zeros((bh, bw), np.uint8)
     region[int(bh * FOOT_REGION_TOP_FRAC):, :] = 255
     region = cv2.bitwise_and(region, cv2.bitwise_not(covered_d))
 
-    prot = ((relief_map > FOOT_RELIEF_MIN) & (region > 0)).astype(np.uint8) * 255
-    prot = cv2.morphologyEx(prot, cv2.MORPH_OPEN,
-                            cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3)))
-    prot = cv2.morphologyEx(prot, cv2.MORPH_CLOSE,
-                            cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5)))
+    fg = ((dist > FOOT_PLY_DIST) & (region > 0)).astype(np.uint8) * 255
+    fg = cv2.morphologyEx(fg, cv2.MORPH_OPEN,
+                          cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3)))
+    fg = cv2.morphologyEx(fg, cv2.MORPH_CLOSE,
+                          cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5)))
+    fg = fill_mask_holes(fg)
 
     new = []
-    n, lbl, stats, cent = cv2.connectedComponentsWithStats(prot, 8)
+    n, lblmap, stats, _ = cv2.connectedComponentsWithStats(fg, 8)
     for i in range(1, n):
         area = stats[i, cv2.CC_STAT_AREA]
         if area < board_area * FOOT_MIN_AREA_FRAC or area > board_area * FOOT_MAX_AREA_FRAC:
             continue
         w = stats[i, cv2.CC_STAT_WIDTH]
         h = stats[i, cv2.CC_STAT_HEIGHT]
-        if max(w, h) / max(min(w, h), 1) > 4.0:
+        if max(w, h) / max(min(w, h), 1) > FOOT_MAX_ASPECT:
             continue
-        comp = np.where(lbl == i, 255, 0).astype(np.uint8)
+        comp = np.where(lblmap == i, 255, 0).astype(np.uint8)
         comp = fill_mask_holes(comp)
         if solidity_of(comp) < FOOT_MIN_SOLIDITY:
             continue
-        # Confirm true protrusion with the ring-based relief (rejects flush T-nuts).
-        r = local_relief(comp, depth_board, ksize=25)
-        if r is None or r < FOOT_RELIEF_MIN:
-            continue
-        # Plausible plastic object: coloured (chroma) OR clearly dark/bright vs plywood.
-        chroma = chroma_distance(comp, lab, ply_mean, ply_std)
+        # Confirm it's genuinely chip-coloured (not a faint tan scuff that grazed the
+        # threshold): neutral-bright (white chip), dark (black chip), or clearly coloured.
         sel = comp > 0
-        Lmed = float(np.median(lab[:, :, 0][sel]))
-        is_objectish = (chroma > FOOT_MIN_CHROMA or Lmed < 80 or Lmed > 225)
-        if not is_objectish:
+        Lmed = float(np.median(L[sel]))
+        Amed = float(np.median(A[sel]))
+        Bmed = float(np.median(B[sel]))
+        white_chip = (Lmed > 165 and abs(Amed - 128) < 16 and abs(Bmed - 128) < 20)
+        dark_chip = (Lmed < 95)
+        coloured = (chroma_distance(comp, lab, ply_mean, ply_std) > FOOT_MIN_CHROMA
+                    and abs(Bmed - pb) > 6)
+        if not (white_chip or dark_chip or coloured):
             continue
         new.append(comp)
     return new
