@@ -437,6 +437,64 @@ def dedup_nested(candidates: list) -> list:
     return kept
 
 
+# ─── Candidate-mask exposure (for refine_holds.py) ──────────────────────────────
+
+def get_candidate_masks(image_path: str, board_region: dict) -> dict:
+    """Run FastSAM + filters + nested dedup and return the KEPT candidate masks.
+
+    This is the same front half of detect_holds_v2() but stops BEFORE polygon
+    conversion / colour labelling, so a refinement pass (scripts/refine_holds.py)
+    can operate on the real binary masks rather than the simplified polygons.
+
+    Returns a dict:
+        {
+          "candidates": [ {mask_board (uint8 H×W, 0/255), contour, area,
+                           cx, cy, x, y, w, h}, ... ],   # board-crop coords
+          "bgr_board":  np.ndarray (H×W×3 BGR, board crop),
+          "lab_board":  np.ndarray (H×W×3 Lab, board crop),
+          "ply_mean":   (pL, pa, pb),
+          "ply_std":    (sL, sa, sb),
+          "crop":       {"bl", "bt", "bw", "bh"},  # board crop offsets in px
+          "img_size":   (img_w, img_h),
+          "board_region": board_region,
+        }
+
+    Does NOT touch the CLI or any output files — pure in-memory.
+    """
+    bgr_full = cv2.imread(image_path)
+    if bgr_full is None:
+        raise FileNotFoundError(f"cannot load image {image_path}")
+
+    img_h, img_w = bgr_full.shape[:2]
+
+    bl = int(img_w * board_region["left"] / 100)
+    bt = int(img_h * board_region["top"] / 100)
+    bw = int(img_w * board_region["width"] / 100)
+    bh = int(img_h * board_region["height"] / 100)
+
+    bgr_board = bgr_full[bt:bt + bh, bl:bl + bw]
+    lab_board = cv2.cvtColor(bgr_board, cv2.COLOR_BGR2LAB)
+    ply_mean, ply_std = build_plywood_model(lab_board)
+
+    model = load_fastsam()
+    masks_full = run_fastsam(model, image_path)
+
+    candidates = filter_masks(masks_full, bgr_board, bl, bt, bw, bh,
+                              img_w, img_h, ply_mean, ply_std)
+    candidates = dedup_nested(candidates)
+
+    return {
+        "candidates": candidates,
+        "bgr_board": bgr_board,
+        "lab_board": lab_board,
+        "ply_mean": ply_mean,
+        "ply_std": ply_std,
+        "crop": {"bl": bl, "bt": bt, "bw": bw, "bh": bh},
+        "img_size": (img_w, img_h),
+        "board_region": board_region,
+    }
+
+
 # ─── Main Detection ────────────────────────────────────────────────────────────
 
 def detect_holds_v2(image_path: str, board_region: dict) -> dict:
