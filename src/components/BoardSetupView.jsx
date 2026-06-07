@@ -111,6 +111,11 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
 
   // Copy/paste state — copy selected, click to place
   const [clipboard, setClipboard] = useState(null);     // source hold shape
+  const [pasteMode, setPasteMode] = useState('single'); // 'single' (one stamp → Select) | 'multi' (stamp until Done)
+  const pasteModeRef = useRef('single');                // handlers read the ref — React closures go stale
+  const [placedCount, setPlacedCount] = useState(0);    // # stamped in the current multi run (for the counter)
+  const shiftHeldRef = useRef(false);                   // Shift = keep stamping (laptop); independent of pasteMode
+  const [pastePreviewPct, setPastePreviewPct] = useState(null); // ghost-preview cursor pos in board-% (mouse only)
 
   // Vertex drag state
   const [draggingVertex, setDraggingVertex] = useState(null);
@@ -143,6 +148,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
   useEffect(() => { selectedIdsRef.current = selectedIds; }, [selectedIds]);
   useEffect(() => { vertexEditIdRef.current = vertexEditId; }, [vertexEditId]);
   useEffect(() => { armedRef.current = armed; }, [armed]);
+  useEffect(() => { pasteModeRef.current = pasteMode; }, [pasteMode]);
 
   // Image / zoom / pan
   const [imageLoaded, setImageLoaded] = useState(false);
@@ -386,7 +392,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
         return;
       }
       if (e.key === 'Escape') {
-        if (clipboard) { setClipboard(null); setActiveTool(TOOLS.SELECT); return; }
+        if (clipboard) { exitPaste(); return; }
         if (drawPoints.length > 0) { setDrawPoints([]); setDrawClosed(false); return; }
         if (selectedId) { clearSelection(); return; }
       }
@@ -394,6 +400,24 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [selectedId, selectedIds, clipboard, drawPoints, undo, redo]);
+
+  // Track Shift independently of the buttons — held Shift keeps stamping while pasting (laptop only).
+  useEffect(() => {
+    const down = (e) => { if (e.key === 'Shift') shiftHeldRef.current = true; };
+    const up = (e) => { if (e.key === 'Shift') shiftHeldRef.current = false; };
+    window.addEventListener('keydown', down);
+    window.addEventListener('keyup', up);
+    return () => { window.removeEventListener('keydown', down); window.removeEventListener('keyup', up); };
+  }, []);
+
+  // Single exit point for Copy mode → back to Select (pure setters, safe to call from any handler).
+  function exitPaste() {
+    setClipboard(null);
+    setPastePreviewPct(null);
+    setPasteMode('single');
+    setPlacedCount(0);
+    setActiveTool(TOOLS.SELECT);
+  }
 
   // Store original polygons for rotation from base position
   const selectOrigPolysRef = useRef({});
@@ -425,6 +449,8 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
     const hold = holds.find(h => h.id === selectedIds[0]);
     if (!hold?.polygon) return;
     setClipboard({ ...hold });
+    setPasteMode('single');
+    setPlacedCount(0);
     setActiveTool(TOOLS.COPY);
     clearSelection();
   }
@@ -443,9 +469,15 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
     newHold.positivity = clipboard.positivity || 0;
     newHold.confidence = 'high';
     setHolds(prev => [...prev, newHold]);
-    // Select the new hold and return to Select tool — user can rotate/scale/move from toolbar
-    setClipboard(null);
-    setActiveTool(TOOLS.SELECT);
+    // Multi mode OR Shift held → keep the clipboard and stay in Copy mode for repeated stamping.
+    // (Shift and pasteMode are independent — Shift never flips the mode.)
+    const stay = pasteModeRef.current === 'multi' || shiftHeldRef.current;
+    if (stay) {
+      setPlacedCount((c) => c + 1);
+      return;
+    }
+    // Single placement → back to Select with the new hold selected (its transform handles show).
+    exitPaste();
     setSelectedIds([id]);
   }
 
@@ -710,6 +742,11 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
   function handleMouseMove(e) {
     if (isSynthesizedMouse()) return;
     const pct = clientToBoardPct(e.clientX, e.clientY);
+    // Ghost paste preview (mouse only) — track the cursor while in Copy mode so placement is visible
+    // before clicking. Doesn't return: pan-when-zoomed still works below. Touch has no hover → no ghost.
+    if (activeTool === TOOLS.COPY && clipboard) {
+      setPastePreviewPct(pct);
+    }
     // Lasso draw — collect freehand points
     if (lassoActiveRef.current && pct) {
       setDrawPoints(prev => [...prev, [r1(pct.x), r1(pct.y)]]);
@@ -1140,6 +1177,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
     setVertexEditId(null);
     if (tool !== TOOLS.COPY) {
       setClipboard(null);
+      setPastePreviewPct(null);
     }
     setActiveTool(tool);
     // Reset armed state on tool switch
@@ -1291,6 +1329,28 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
           );
         })}
       </g>
+    );
+  }
+
+  // Ghost paste preview — translucent dashed copy of the clipboard hold, centred at the cursor (mouse only).
+  // Uses the SAME translate logic as doPaste() → WYSIWYG. Non-interactive (pointerEvents: none).
+  function renderPastePreview() {
+    if (activeTool !== TOOLS.COPY || !clipboard?.polygon || !pastePreviewPct) return null;
+    const srcPoly = clipboard.polygon;
+    const [ocx, ocy] = centroid(srcPoly);
+    const ghost = translatePolygon(srcPoly, pastePreviewPct.x - ocx, pastePreviewPct.y - ocy);
+    const pts = ghost.map(([x, y]) => `${toSvgX(x)},${toSvgY(y)}`).join(' ');
+    const zPx = pxScale / scale;
+    return (
+      <polygon
+        points={pts}
+        fill="rgba(0,71,255,0.12)"
+        stroke="#0047FF"
+        strokeWidth={Math.max(Math.round(1.5 * zPx), 1)}
+        strokeDasharray={`${Math.round(5 * zPx)} ${Math.round(4 * zPx)}`}
+        strokeLinejoin="round"
+        style={{ pointerEvents: 'none' }}
+      />
     );
   }
 
@@ -1615,12 +1675,36 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
             )}
           </>)}
 
-          {/* Copy mode actions */}
+          {/* Copy mode actions — Single (one stamp → Select) · Multi/Done (stamp until Done) · Cancel.
+              Shift+click keeps stamping regardless of mode (laptop). Ghost preview follows the cursor. */}
           {activeTool === TOOLS.COPY && clipboard && (
-            <>
-              <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 700 }}>Click board to place copy</span>
-              <button onClick={() => { setClipboard(null); switchTool(TOOLS.SELECT); }} style={secBtnStyle}>Cancel</button>
-            </>
+            <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 700 }}>
+                {pasteMode === 'multi' ? 'Click to stamp · Done to finish' : 'Click to place · Shift-click to keep stamping'}
+              </span>
+              <button
+                onClick={() => setPasteMode('single')}
+                style={{
+                  ...secBtnStyle,
+                  background: pasteMode === 'single' ? 'var(--accent)' : secBtnStyle.background,
+                  color: pasteMode === 'single' ? '#fff' : secBtnStyle.color,
+                  borderColor: pasteMode === 'single' ? 'var(--accent)' : secBtnStyle.borderColor,
+                }}
+              >Single</button>
+              <button
+                onClick={() => { if (pasteMode === 'single') setPasteMode('multi'); else exitPaste(); }}
+                style={{
+                  ...secBtnStyle,
+                  background: pasteMode === 'multi' ? 'var(--accent)' : secBtnStyle.background,
+                  color: pasteMode === 'multi' ? '#fff' : secBtnStyle.color,
+                  borderColor: pasteMode === 'multi' ? 'var(--accent)' : secBtnStyle.borderColor,
+                }}
+              >{pasteMode === 'multi' ? 'Done' : 'Multi'}</button>
+              {pasteMode === 'multi' && placedCount > 0 && (
+                <span style={{ fontSize: '11px', color: 'var(--text-primary)', fontWeight: 700 }}>Placed {placedCount}</span>
+              )}
+              <button onClick={exitPaste} style={secBtnStyle}>Cancel</button>
+            </div>
           )}
 
           {/* Select tool actions — three rows (full) or minimal stub when nothing selected:
@@ -1748,7 +1832,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
           onMouseDown={handleMouseDown}
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
-          onMouseLeave={handleMouseUp}
+          onMouseLeave={(e) => { setPastePreviewPct(null); handleMouseUp(e); }}
           onDoubleClick={handleDoubleClick}
           onContextMenu={(e) => e.preventDefault()}
           style={{
@@ -1836,6 +1920,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
                 {(showAllOutlines || managerMode === 'heatmap') && holds.map(hold => renderHoldOutline(hold))}
                 {!showAllOutlines && managerMode !== 'heatmap' && selectedIds.length > 0 && holds.filter(h => selectedIds.includes(h.id)).map(h => renderHoldOutline(h))}
                 {renderDrawingState()}
+                {renderPastePreview()}
               </svg>
             )}
           </div>
