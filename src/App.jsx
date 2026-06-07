@@ -343,6 +343,26 @@ export default function App() {
     loadDataFromSupabase(user.id, false, boardId);
   }, [user, loadDataFromSupabase]);
 
+  // ── Membership changes (2b-iv) ──────────────────────────────────────
+  // Join/leave re-resolve myBoards then land on a wall (with its data loaded);
+  // role/visibility changes refresh myBoards silently so the user stays in Settings.
+  const onWallJoined = useCallback(async (boardId) => {
+    if (!user) return;
+    await resolveActiveBoard(user.id);   // myBoards now includes the joined wall
+    switchBoard(boardId);                // auto-switch: nav to board + load that wall
+  }, [user, resolveActiveBoard, switchBoard]);
+
+  const onWallLeft = useCallback(async () => {
+    if (!user) return;
+    await resolveActiveBoard(user.id);   // drops the left wall; activeBoardId → a remaining one
+    const next = activeBoardIdRef.current;
+    if (next) { setView('board'); loadDataFromSupabase(user.id, false, next); }
+  }, [user, resolveActiveBoard, loadDataFromSupabase]);
+
+  const refreshMyBoards = useCallback(async () => {
+    if (user) await resolveActiveBoard(user.id);   // refresh roles/visibility; no nav
+  }, [user, resolveActiveBoard]);
+
   // Initial load on login — resolve the active wall first, then load its data.
   useEffect(() => {
     if (!user) return;
@@ -1747,7 +1767,6 @@ export default function App() {
           )}
         </div>
         <nav style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-          <WallSwitcher boards={myBoards} activeId={activeBoardId} onSwitch={switchBoard} />
           <NavButton
             active={view === 'routes'}
             onClick={() => { setHoldSelection({}); setViewingRoute(null); setShowRouteTags(false); setView('routes'); }}
@@ -2091,6 +2110,13 @@ export default function App() {
           sessions={sessions}
           routes={routes}
           isAdmin={isActiveBoardAdmin}
+          user={user}
+          myBoards={myBoards}
+          activeBoardId={activeBoardId}
+          onSwitchBoard={switchBoard}
+          onWallJoined={onWallJoined}
+          onWallLeft={onWallLeft}
+          onRolesChanged={refreshMyBoards}
           userEmail={user?.email}
           onSignOut={() => supabase.auth.signOut()}
           onViewSession={(session) => { setCompletedSession(session); setView('sessionSummary'); }}
@@ -3037,61 +3063,6 @@ const agCell = {
 
 // Wall switcher — only renders when you belong to 2+ walls (single-wall users see
 // nothing change). Self-contained so it's easy to remove if multi-wall is dropped.
-function WallSwitcher({ boards, activeId, onSwitch }) {
-  const [open, setOpen] = useState(false);
-  if (!boards || boards.length < 2) return null;
-  const active = boards.find(b => b.id === activeId);
-  return (
-    <div style={{ position: 'relative', marginRight: '2px' }}>
-      <button
-        data-testid="wall-switcher"
-        onClick={() => setOpen(o => !o)}
-        style={{
-          display: 'flex', alignItems: 'center', gap: '4px', maxWidth: '120px',
-          padding: '6px 10px', borderRadius: '10px', border: '1px solid var(--border)',
-          background: 'var(--bg-card)', color: 'var(--text-secondary)', fontSize: '12px',
-          fontWeight: 700, cursor: 'pointer', fontFamily: 'var(--font-heading)',
-        }}
-      >
-        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {active?.name || 'Wall'}
-        </span>
-        <span style={{ fontSize: '9px', opacity: 0.7 }}>▾</span>
-      </button>
-      {open && (
-        <>
-          <div onClick={() => setOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 200 }} />
-          <div style={{
-            position: 'absolute', top: '100%', right: 0, marginTop: '4px', zIndex: 201,
-            background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '10px',
-            boxShadow: '0 6px 20px rgba(26,10,0,0.18)', overflow: 'hidden', minWidth: '160px',
-          }}>
-            {boards.map(b => {
-              const isActive = b.id === activeId;
-              return (
-                <button
-                  key={b.id}
-                  data-testid={`wall-opt-${b.slug}`}
-                  onClick={() => { onSwitch(b.id); setOpen(false); }}
-                  style={{
-                    display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px',
-                    width: '100%', padding: '10px 12px', border: 'none', cursor: 'pointer', textAlign: 'left',
-                    background: isActive ? 'var(--accent-dim)' : 'transparent',
-                    color: isActive ? 'var(--accent)' : 'var(--text-secondary)',
-                    fontSize: '13px', fontWeight: isActive ? 800 : 600,
-                  }}
-                >
-                  <span>{b.name}</span>
-                  {b.role === 'admin' && <span style={{ fontSize: '9px', opacity: 0.7, fontWeight: 700 }}>ADMIN</span>}
-                </button>
-              );
-            })}
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
 
 function NavButton({ active, onClick, label }) {
   return (

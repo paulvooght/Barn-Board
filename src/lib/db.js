@@ -137,6 +137,40 @@ export async function joinBoard(boardId, userId, role = 'member') {
   return { error };
 }
 
+// ─── membership management (multi-wall 2b-iv) — all via SECURITY DEFINER RPCs
+//     (migration 007). Each RPC re-checks permissions server-side; the privilege
+//     is scoped to these vetted operations and survives the 2c RLS lockdown. ──
+
+/** Join a PRIVATE wall by its code (works for walls you can't see in the list). */
+export async function joinBoardByCode(code) {
+  const { data, error } = await supabase.rpc('join_board_by_code', { p_code: code });
+  return { board: (data && data[0]) || null, error };
+}
+
+/** A wall's members with display names + roles (any member may view the roster). */
+export async function fetchBoardMembers(boardId) {
+  const { data, error } = await supabase.rpc('get_board_members', { p_board: boardId });
+  return { members: data || [], error };
+}
+
+/** Promote/demote a member (admin only; server guards the last admin). */
+export async function setMemberRole(boardId, userId, role) {
+  const { error } = await supabase.rpc('set_member_role', { p_board: boardId, p_user: userId, p_role: role });
+  return { error };
+}
+
+/** Leave a wall (server blocks the last admin from abandoning it). */
+export async function leaveBoard(boardId) {
+  const { error } = await supabase.rpc('leave_board', { p_board: boardId });
+  return { error };
+}
+
+/** Set a wall public/private (admin only). */
+export async function setBoardVisibility(boardId, visibility) {
+  const { error } = await supabase.rpc('set_board_visibility', { p_board: boardId, p_vis: visibility });
+  return { error };
+}
+
 // ─── board_settings (shared keyed JSON: holds, image config, playlists_<id>) ──
 
 /** Read one settings blob by key. Returns the query (maybeSingle). */

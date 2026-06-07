@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { BOARD_SPECS, GRADE_CHART_ROWS } from '../utils/constants';
 import holdsData from '../data/holds.json';
 import { supabase } from '../lib/supabase';
+import WallsSettings from './WallsSettings';
 
 /**
  * Props:
@@ -11,7 +12,7 @@ import { supabase } from '../lib/supabase';
  *   displayName              — current user display name (string)
  *   onSaveDisplayName(name)  — async fn, throws on failure (e.g. duplicate name)
  */
-export default function Settings({ settings, updateSettings, allHolds, onSetupBoard, sessions = [], routes = [], isAdmin = true, userEmail, onSignOut, onViewSession, onEditSession, onUpdateBoardImage, currentImageName, displayName = '', onSaveDisplayName }) {
+export default function Settings({ settings, updateSettings, allHolds, onSetupBoard, sessions = [], routes = [], isAdmin = true, user, myBoards = [], activeBoardId, onSwitchBoard, onWallJoined, onWallLeft, onRolesChanged, userEmail, onSignOut, onViewSession, onEditSession, onUpdateBoardImage, currentImageName, displayName = '', onSaveDisplayName }) {
   const totalHolds = allHolds.length;
   const [showChart, setShowChart] = useState(false);
   const [showSessions, setShowSessions] = useState(false);
@@ -208,6 +209,18 @@ export default function Settings({ settings, updateSettings, allHolds, onSetupBo
           )}
         </div>
       )}
+
+      {/* ── Walls: switch / join / manage members (multi-wall 2b-iv) ── */}
+      <WallsSettings
+        user={user}
+        myBoards={myBoards}
+        activeBoardId={activeBoardId}
+        isAdmin={isAdmin}
+        onSwitchBoard={onSwitchBoard}
+        onWallJoined={onWallJoined}
+        onWallLeft={onWallLeft}
+        onRolesChanged={onRolesChanged}
+      />
 
       {/* ── Grading System ── */}
       <div style={{ marginBottom: '24px' }}>
