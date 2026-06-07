@@ -138,6 +138,16 @@ DECODER runs in-browser via `onnxruntime-web` (WASM, **not** WebGPU → iPhone-S
 - **Model choice & perf:** MobileSAM (TinyViT encoder); decoder fp32 16.5 MB (quantization hit an
   onnx 1.19 bug — fp32 shipped; revisit if download size matters). Embedding 4 MB fp32 (could be fp16).
   Cold load ~0.7–2.5 s (decoder+wasm+embedding, then cached), warm tap ~140 ms.
+- **Dedupe (2026-06-07):** Tap never adds an overlapping copy of an existing hold — pre-check
+  `findHoldAtPoint(tap)` + post-check `findHoldAtPoint(centroid(traced))`; if either hits an outlined
+  hold, select it + show "Already outlined — no duplicate added" (new `tapMsg`). Tap stays additive
+  (new `custom_` ids; never renames existing → can't scramble IDs/routes). `handleSetupCancel` only
+  discards; only "Save & Exit" persists.
+- **Priority (owner, 2026-06-07):** board setup is **laptop-first**; phone Hold-Manager is for tweaks
+  at the board. Phone/iOS-Safari is a *welcome bonus* of the encode/decode split, **not a goal** — don't
+  let phone robustness/testing block or complicate the laptop flow. (Memory: `feedback-laptop-first-setup`.)
+- **Live-data note:** owner tried Tap on the deployed app and saved 9 non-duplicate missed-hold adds →
+  Yonder is at **210 holds** (was 201); left untouched pending owner confirmation.
 
 ---
 
