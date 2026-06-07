@@ -12,15 +12,17 @@ and the auto-memory note `project_hold_detection_redesign.md`. Everything below 
   Yonder went from **108 → 201 holds live in the app** (best detected set, seeded to the DB).
 - New scripts: `detect_holds_v2.py`, `refine_holds.py`, `build_candidates.py`,
   `upload_board_setting.py`, `hold_tagger.py` (+ `requirements-detect.txt`).
-- In-app **"Tap a hold"** tool added to the Hold Manager (v1 = pick from a precomputed
-  library). Owner wants to upgrade it to **tap-anything (live SAM)** — **DECISION PENDING**
-  (built-in ONNX vs hosted; see below).
-- **Flywheel** (learn-from-edits) = designed, not built.
+- **Tap-anything (live in-browser SAM) SHIPPED (2026-06-07)** — the Hold-Manager Tap tool
+  traces whatever's under your finger live (incl. holds the detector missed). Approach A
+  (in-browser ONNX MobileSAM: encoder server-side → embedding; ~16 MB decoder in-browser via
+  `onnxruntime-web`, WASM not WebGPU → iPhone-safe). Replaced the pick-from-list tool and
+  removed the candidate library. See "TAP-ANYTHING (SHIPPED)" below.
+- **Flywheel** (learn-from-edits) = designed, not built — **this is next.**
 
 ## Where to resume (ordered next steps)
-1. **Owner decision on tap-anything**: built-in in-browser ONNX SAM (recommended) vs hosted API. Then build it (replaces the current pick-from-list TAP tool).
-2. **Flywheel edit-logging** (Phase C) — owner wants this done before returning to multi-wall 2b-iv.
-3. (Optional) Seed **The Barn** with an improved set — but it HAS routes → must go via `merge_holds.py` (never overwrite).
+1. ✅ **Tap-anything (live SAM) — DONE (2026-06-07).** Approach A shipped (see "TAP-ANYTHING (SHIPPED)" below). Yonder encoded + live.
+2. **Flywheel edit-logging** (Phase C) — **NEXT.** Tap-added holds already carry `_candidatePolygon` (the pre-edit SAM outline); log add/reshape (before/after polygons) per board → a table or `board_settings`.
+3. (Optional) Enable Tap on **The Barn**: run `encode_board_embedding.py` on its photo (additive — embedding only, does NOT touch its holds/routes). For an improved hold *set* The Barn HAS routes → must go via `merge_holds.py` (never overwrite).
 4. Resume **multi-wall 2b-iv** (wall onboarding/join + admin), which is where the RESET-vs-TWEAK image-update flow belongs.
 
 ---
@@ -53,7 +55,8 @@ experiments used `transformers`; it's listed in `requirements-detect.txt`.
 |---|---|
 | `detect_holds_v2.py` | **FastSAM object-first detector.** Colour-agnostic; colour = post-hoc label. Recall-tuned defaults (imgsz 1536, conf 0.10, min-area-frac 0.00018, nested-overlap 0.75; all CLI-overridable). `--image`, `--board-region "L,T,W,H"`, `--output`. Exposes `get_candidate_masks()` (used by refine/candidates). Board-generic. |
 | `refine_holds.py` | **Post-detection refine.** Hole-fill, capped de-shard, colour-aware merge (+plywood-gap guard), depth flatness-gate, **appearance-first foot-chip recovery**, colour+depth-valley+concavity split. Uses cached depth (`/tmp/_depth_d.npy`). Same JSON schema as v2 (→ `merge_holds.py`-compatible). |
-| `build_candidates.py` | **Generous per-board tap-candidate library** (permissive FastSAM ∪ appearance foot-chips). For the in-app Tap tool. Output JSON. |
+| `export_sam_decoder.py` | **One-time** export of the MobileSAM mask decoder → `public/models/mobile_sam_decoder.onnx` (the small model the browser runs for live Tap). |
+| `encode_board_embedding.py` | **Per-wall** SAM embedding: runs the encoder over a wall's photo → uploads ~4 MB embedding to Supabase storage + writes the `sam_embedding_<id>` pointer. Powers live Tap. (Replaces `build_candidates.py`, removed.) |
 | `upload_board_setting.py` | **Board-generic uploader** — upsert any local JSON into `board_settings[<key>]` via the service-role key in `.env.local`. Used for `hold_candidates_<id>` and for re-seeding `holds_<id>`. |
 | `hold_tagger.py` | Standalone **local cv2 GUI** tap-to-segment tool (SAM point-prompt) with edit-logging. Superseded by the in-app tool for the owner (non-technical), kept as a dev tool. `--selftest` verifies the SAM core headlessly. |
 | `merge_holds.py` *(existing)* | **ID-preserving merge.** MANDATORY for any wall that HAS routes. |
@@ -94,7 +97,7 @@ resolution=merge-duplicates`). The app reads that array via `db.getBoardHolds` �
 
 ---
 
-## In-app feature: Hold Manager "Tap" tool (v1, shipped)
+## In-app feature: Hold Manager "Tap" tool (v1 — SUPERSEDED 2026-06-07 by live SAM; see "TAP-ANYTHING (SHIPPED)" below — kept for history)
 - **Files:** `src/components/BoardSetupView.jsx` (`TOOLS.TAP` + `IconTap` + `TOOL_LABELS`
   entry + `handleClick` TAP branch + cursor), `src/App.jsx` (loads
   `hold_candidates_<activeBoardId>` into `tapCandidates`, passes it down),
@@ -112,23 +115,29 @@ resolution=merge-duplicates`). The app reads that array via `db.getBoardHolds` �
 
 ---
 
-## NEXT BUILD: tap-anything (live SAM) — **DECISION PENDING**
-Replace the pick-from-list TAP with **live segmentation**: look at the photo at the tapped
-point and trace whatever's there (including never-detected holds). Two architectures:
+## TAP-ANYTHING (live SAM) — **SHIPPED 2026-06-07 (approach A)**
+The Hold-Manager Tap tool now segments LIVE at the tap point (no precomputed library).
+**Split MobileSAM:** the heavy ENCODER runs server-side once per wall; the small (~16 MB)
+DECODER runs in-browser via `onnxruntime-web` (WASM, **not** WebGPU → iPhone-Safari-safe).
 
-- **(A) In-browser ONNX SAM — RECOMMENDED.** Encode each board image **server-side** once
-  (Python) → store the embedding in Supabase storage (per board). Ship a small (~15 MB) SAM
-  **decoder** ONNX + `onnxruntime-web` in the app; on tap, run the decoder on the cached
-  embedding → mask → polygon → add editable hold. **Self-contained: no accounts, no cost,
-  no secrets, works offline-ish.** Bigger build (ONNX wrangling + coordinate transforms),
-  slightly heavier app. Best fit for the owner's "no friction, just works" preference.
-- **(B) Hosted SAM via a Vercel serverless proxy.** A serverless function holds a Replicate
-  (or HF) token (Vercel secret) and calls hosted SAM with the **public board-image URL** +
-  the click point → mask. Easier app code, but needs a paid account/token, per-tap latency
-  (~2–4 s) and tiny per-tap cost, ongoing.
-
-Once tap-anything ships, the **candidate library + the pick-from-list TAP become obsolete**
-(remove them).
+- **Server-side:** `scripts/export_sam_decoder.py` (one-time → `public/models/mobile_sam_decoder.onnx`)
+  + `scripts/encode_board_embedding.py <IMAGE_NAME> --board <slug>` (per wall → ~4 MB embedding at
+  Supabase `board-images/embeddings/<id>.bin` + pointer `board_settings['sam_embedding_<id>']`).
+  Both run in the detection venv (`requirements-detect.txt` + `samexporter segment-anything onnx onnxruntime timm`).
+- **App:** `src/lib/samSegment.js` lazy-loads ort + decoder + the wall's embedding; a board-% tap →
+  SAM → board-% polygon (flood the tapped component, Moore-trace, RDP-simplify; **area-guard rejects
+  plywood/background taps → null**). ort wasm self-hosted at `public/ort/` with `wasmPaths='/ort/'`
+  (ort requests the UNHASHED name but Vite emits a HASHED asset, so the default path 404s in prod —
+  pinning it is required; same-origin → offline-capable). `BoardSetupView` TAP branch calls it
+  (**additive**; keeps `_candidatePolygon`); `App.jsx` → `samEmbedding` prop; `db.getBoardEmbedding`.
+- **Removed (obsolete):** `scripts/build_candidates.py`, `db.getBoardCandidates`, the pick-from-list
+  TAP. Stale `board_settings['hold_candidates_<id>']` rows are harmless (nothing reads them).
+- **Verified:** core pipeline + integrated Tap UI (Yonder **201→202** via a temp dev admin-bypass,
+  reverted), ~140 ms warm tap, build green, zero console errors, prod wasm path confirmed. **The Barn
+  has no embedding yet → its Tap is dimmed/inert** until `encode_board_embedding.py` is run on its photo.
+- **Model choice & perf:** MobileSAM (TinyViT encoder); decoder fp32 16.5 MB (quantization hit an
+  onnx 1.19 bug — fp32 shipped; revisit if download size matters). Embedding 4 MB fp32 (could be fp16).
+  Cold load ~0.7–2.5 s (decoder+wasm+embedding, then cached), warm tap ~140 ms.
 
 ---
 

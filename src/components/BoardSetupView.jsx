@@ -8,11 +8,12 @@ import {
 import { HOLD_COLOR_DOT, HOLD_TYPES, TECHNIQUES, STYLES } from '../utils/constants';
 import { computeHoldCounts, computePercentiles, colorForPercentile, availableAngles, countPassingRoutes } from '../utils/heatMap';
 import holdsData from '../data/holds.json';
+import { segmentAtBoardPct, prewarm as prewarmSam } from '../lib/samSegment';
 
 const TOOLS = {
   SELECT: 'select',
   DRAW: 'draw',
-  TAP: 'tap',     // tap a hold → auto-outline from the per-board candidate library
+  TAP: 'tap',     // tap a hold → trace it LIVE with in-browser SAM (per-wall embedding)
   COPY: 'copy',   // internal state for paste placement
 };
 
@@ -55,7 +56,7 @@ const IconZoomReset = () => (
 
 const TOOL_LABELS = {
   [TOOLS.SELECT]: { icon: <IconSelect />, label: 'Select', tip: 'Click holds to select · drag to move' },
-  [TOOLS.TAP]:    { icon: <IconTap />, label: 'Tap', tip: 'Tap a hold to auto-outline it · then drag its dots to fix the shape' },
+  [TOOLS.TAP]:    { icon: <IconTap />, label: 'Tap', tip: 'Tap any hold to trace it live · then drag its dots to fix the shape' },
   [TOOLS.DRAW]:   { icon: <IconDraw />, label: 'Draw', tip: 'Click to place vertices, click first vertex to close' },
 };
 
@@ -75,7 +76,7 @@ function positivityLabel(val) {
   return 'Very juggy';
 }
 
-export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc, imgSrcSet, imgSizes, initialManagerMode, onManagerModeChange, onEditHold, routes, boardRegion = holdsData.boardRegion, tapCandidates = [] }) {
+export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc, imgSrcSet, imgSizes, initialManagerMode, onManagerModeChange, onEditHold, routes, boardRegion = holdsData.boardRegion, samEmbedding = null }) {
   const { state: holds, setState: setHolds, undo, redo, canUndo, canRedo, beginCoalesce, endCoalesce } = useUndoRedo(initialHolds);
 
   const [managerMode, setManagerMode] = useState(initialManagerMode || 'boundaries'); // 'boundaries' | 'metadata' | 'heatmap'
@@ -100,6 +101,8 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
   };
 
   const [activeTool, setActiveTool] = useState(TOOLS.SELECT);
+  const [tapBusy, setTapBusy] = useState(false);  // live-SAM trace in flight (Tap tool)
+  const tapBusyRef = useRef(false);               // re-entry guard (ref survives async)
   const [selectedIds, setSelectedIds] = useState([]);       // multi-select: array of hold IDs
   const [vertexEditId, setVertexEditId] = useState(null);   // hold currently showing vertex handles
   const [showAllOutlines, setShowAllOutlines] = useState(true);
@@ -867,25 +870,29 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
         setDrawPoints(prev => [...prev, [r1(pct.x), r1(pct.y)]]);
       }
     } else if (activeTool === TOOLS.TAP) {
-      // Tap a hold → drop in the best-matching candidate outline as an editable hold.
-      // `tapCandidates` is the ACTIVE wall's precomputed library (board-generic; passed
-      // by App). Smallest containing candidate = most specific. Then drag the vertices
-      // to fix it (existing vertex-edit). Purely additive: new custom_ id, no existing
-      // hold/route touched. No candidate under the tap → user falls back to Draw.
-      const containing = (tapCandidates || []).filter(
-        c => Array.isArray(c.polygon) && c.polygon.length >= 3 && pointInPolygon(pct.x, pct.y, c.polygon));
-      if (containing.length) {
-        containing.sort((a, b) => (a.area || 0) - (b.area || 0));
-        const cand = containing[0];
-        const id = `custom_${Date.now()}`;
-        const newHold = holdFromPolygon(cand.polygon.map(([x, y]) => [x, y]), id, cand.color || 'black');
-        newHold.confidence = 'high';
-        newHold.tapped = true;
-        newHold._candidatePolygon = cand.polygon; // flywheel: SAM outline before user edits
-        setHolds(prev => [...prev, newHold]);
-        setSelectedIds([id]);
-        setVertexEditId(id); // show draggable vertices immediately so the shape can be fixed
-      }
+      // Tap a hold → trace whatever is under the finger LIVE with in-browser SAM
+      // (incl. holds the detector missed, e.g. white foot chips). `pct` is board-%;
+      // segmentAtBoardPct returns a board-% polygon, so this is resolution-independent.
+      // Purely additive: new custom_ id, no existing hold/route touched. Async (~200 ms)
+      // with a re-entry guard; no embedding for this wall → no-op (status bar explains).
+      if (!samEmbedding?.url || tapBusyRef.current) return;
+      tapBusyRef.current = true;
+      setTapBusy(true);
+      segmentAtBoardPct(pct.x, pct.y, boardRegion, samEmbedding)
+        .then(poly => {
+          if (poly && poly.length >= 3) {
+            const id = `custom_${Date.now()}`;
+            const newHold = holdFromPolygon(poly, id);
+            newHold.confidence = 'high';
+            newHold.tapped = true;
+            newHold._candidatePolygon = poly; // flywheel: SAM outline before user edits
+            setHolds(prev => [...prev, newHold]);
+            setSelectedIds([id]);
+            setVertexEditId(id); // draggable vertices immediately so the shape can be fixed
+          }
+        })
+        .catch(err => console.warn('[tap] live segment failed:', err?.message || err))
+        .finally(() => { tapBusyRef.current = false; setTapBusy(false); });
     }
   }
 
@@ -1169,6 +1176,8 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
       setClipboard(null);
     }
     setActiveTool(tool);
+    // Warm the SAM decoder + this wall's embedding so the first trace is snappy.
+    if (tool === TOOLS.TAP && samEmbedding?.url) prewarmSam(samEmbedding);
     // Reset armed state on tool switch
     if (armedTimerRef.current) { clearTimeout(armedTimerRef.current); armedTimerRef.current = null; }
     setArmed(false);
@@ -1420,7 +1429,10 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
             HOLD MANAGER
           </h2>
           <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '2px' }}>
-            {holds.length} holds · {TOOL_LABELS[activeTool]?.tip}
+            {holds.length} holds · {
+              activeTool === TOOLS.TAP && tapBusy ? 'Tracing…'
+              : activeTool === TOOLS.TAP && !samEmbedding?.url ? 'Tap unavailable for this wall yet — use Draw'
+              : TOOL_LABELS[activeTool]?.tip}
           </div>
         </div>
         <div style={{ display: 'flex', gap: '6px' }}>
@@ -1474,7 +1486,9 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
               background: activeTool === tool ? 'rgba(0,71,255,0.1)' : 'rgba(26,10,0,0.05)',
               color: activeTool === tool ? 'var(--accent)' : 'var(--text-secondary)',
               fontWeight: activeTool === tool ? 700 : 400,
+              opacity: tool === TOOLS.TAP && !samEmbedding?.url ? 0.45 : 1,
             }}
+            title={tool === TOOLS.TAP && !samEmbedding?.url ? 'This wall has no Tap fingerprint yet — use Draw' : TOOL_LABELS[tool]?.tip}
           >
             <span style={{ fontSize: '14px' }}>{icon}</span>
             {label}
