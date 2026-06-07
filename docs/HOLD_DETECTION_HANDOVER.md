@@ -12,18 +12,18 @@ and the auto-memory note `project_hold_detection_redesign.md`. Everything below 
   Yonder went from **108 → 201 holds live in the app** (best detected set, seeded to the DB).
 - New scripts: `detect_holds_v2.py`, `refine_holds.py`, `build_candidates.py`,
   `upload_board_setting.py`, `hold_tagger.py` (+ `requirements-detect.txt`).
-- **Tap-anything (live in-browser SAM) SHIPPED (2026-06-07)** — the Hold-Manager Tap tool
-  traces whatever's under your finger live (incl. holds the detector missed). Approach A
-  (in-browser ONNX MobileSAM: encoder server-side → embedding; ~16 MB decoder in-browser via
-  `onnxruntime-web`, WASM not WebGPU → iPhone-safe). Replaced the pick-from-list tool and
-  removed the candidate library. See "TAP-ANYTHING (SHIPPED)" below.
+- **Tap-anything (live in-browser SAM) — BUILT then REMOVED (2026-06-07).** Shipped, then
+  removed after honest A/B testing on the owner's real holds: best-of-3 ≈ single-guess on the
+  26 kept tap-adds (sometimes worse), and small black foot chips ≈ T-nut bolt-holes → can't
+  trace accurately. On a **repeated-hold** wall, copy/paste is the better tool. App code +
+  `onnxruntime-web` + model assets removed; encode/decode SCRIPTS kept parked. See
+  "TAP-ANYTHING (REMOVED)" below.
 - **Flywheel** (learn-from-edits) = designed, not built — **this is next.**
 
 ## Where to resume (ordered next steps)
-1. ✅ **Tap-anything (live SAM) — DONE (2026-06-07).** Approach A shipped (see "TAP-ANYTHING (SHIPPED)" below). Yonder encoded + live.
-2. **Flywheel edit-logging** (Phase C) — **NEXT.** Tap-added holds already carry `_candidatePolygon` (the pre-edit SAM outline); log add/reshape (before/after polygons) per board → a table or `board_settings`.
-3. (Optional) Enable Tap on **The Barn**: run `encode_board_embedding.py` on its photo (additive — embedding only, does NOT touch its holds/routes). For an improved hold *set* The Barn HAS routes → must go via `merge_holds.py` (never overwrite).
-4. Resume **multi-wall 2b-iv** (wall onboarding/join + admin), which is where the RESET-vs-TWEAK image-update flow belongs.
+1. ❌ **Tap-anything (live SAM) — built then REMOVED (2026-06-07)** after A/B testing (see "TAP-ANYTHING (REMOVED)" below). Scripts parked.
+2. **Resume multi-wall 2b-iv** (wall onboarding/join + admin) — **NEXT.** This is where the RESET-vs-TWEAK image-update flow belongs.
+3. (Parked) **Copy/paste polish for repeated holds** + the hold-**CATALOGUE** idea (recognise a hold we've outlined before) — the better fit for this fixed-inventory wall than per-tap SAM. The flywheel (learn-from-edits) folds into this.
 
 ---
 
@@ -115,8 +115,17 @@ resolution=merge-duplicates`). The app reads that array via `db.getBoardHolds` �
 
 ---
 
-## TAP-ANYTHING (live SAM) — **SHIPPED 2026-06-07 (approach A)**
-The Hold-Manager Tap tool now segments LIVE at the tap point (no precomputed library).
+## TAP-ANYTHING (live SAM) — **BUILT then REMOVED 2026-06-07** (kept for reference)
+**REMOVED after honest A/B testing on the owner's real holds:** best-of-3 (multimask) came out
+≈ the shipped single-guess on the 26 kept tap-adds (occasionally worse), and small **black** foot
+chips are too low-contrast (≈ T-nut bolt-holes) to trace accurately. On a **repeated-hold** wall,
+copy/paste is the better tool. Removed from the app (Tap branch/button, `samSegment.js`,
+`db.getBoardEmbedding`, `samEmbedding` wiring, `onnxruntime-web` dep, `public/models/` + `public/ort/`
+~27 MB). **KEPT parked:** `scripts/export_sam_decoder.py` + `scripts/encode_board_embedding.py`
+(+ the orphaned Yonder `sam_embedding_<id>` board_setting/blob — harmless). **No holds were removed.**
+The description below is how it worked, retained in case we revisit (e.g. a hold-catalogue).
+
+The Hold-Manager Tap tool segmented LIVE at the tap point (no precomputed library).
 **Split MobileSAM:** the heavy ENCODER runs server-side once per wall; the small (~16 MB)
 DECODER runs in-browser via `onnxruntime-web` (WASM, **not** WebGPU → iPhone-Safari-safe).
 

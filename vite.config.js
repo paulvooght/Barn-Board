@@ -39,12 +39,6 @@ export default defineConfig({
       },
     }),
   ],
-  // onnxruntime-web ships Node-specific entry points + large wasm; don't let
-  // esbuild pre-bundle it. samSegment.js lazy-imports it (browser ESM) only when
-  // the Hold-Manager Tap tool is used.
-  optimizeDeps: {
-    exclude: ['onnxruntime-web'],
-  },
   server: {
     host: true,
     port: parseInt(process.env.PORT || '5173'),

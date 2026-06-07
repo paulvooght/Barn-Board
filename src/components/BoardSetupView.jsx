@@ -8,12 +8,10 @@ import {
 import { HOLD_COLOR_DOT, HOLD_TYPES, TECHNIQUES, STYLES } from '../utils/constants';
 import { computeHoldCounts, computePercentiles, colorForPercentile, availableAngles, countPassingRoutes } from '../utils/heatMap';
 import holdsData from '../data/holds.json';
-import { segmentAtBoardPct, prewarm as prewarmSam } from '../lib/samSegment';
 
 const TOOLS = {
   SELECT: 'select',
   DRAW: 'draw',
-  TAP: 'tap',     // tap a hold → trace it LIVE with in-browser SAM (per-wall embedding)
   COPY: 'copy',   // internal state for paste placement
 };
 
@@ -26,11 +24,6 @@ const IconSelect = () => (
 const IconDraw = () => (
   <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
     <polygon points="8,2 13,6 11,12 5,12 3,6" />
-  </svg>
-);
-const IconTap = () => (
-  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-    <circle cx="8" cy="8" r="2.5" /><path d="M8 1v2M8 13v2M1 8h2M13 8h2" />
   </svg>
 );
 const IconUndo = () => (
@@ -56,7 +49,6 @@ const IconZoomReset = () => (
 
 const TOOL_LABELS = {
   [TOOLS.SELECT]: { icon: <IconSelect />, label: 'Select', tip: 'Click holds to select · drag to move' },
-  [TOOLS.TAP]:    { icon: <IconTap />, label: 'Tap', tip: 'Tap any hold to trace it live · then drag its dots to fix the shape' },
   [TOOLS.DRAW]:   { icon: <IconDraw />, label: 'Draw', tip: 'Click to place vertices, click first vertex to close' },
 };
 
@@ -76,7 +68,7 @@ function positivityLabel(val) {
   return 'Very juggy';
 }
 
-export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc, imgSrcSet, imgSizes, initialManagerMode, onManagerModeChange, onEditHold, routes, boardRegion = holdsData.boardRegion, samEmbedding = null }) {
+export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc, imgSrcSet, imgSizes, initialManagerMode, onManagerModeChange, onEditHold, routes, boardRegion = holdsData.boardRegion }) {
   const { state: holds, setState: setHolds, undo, redo, canUndo, canRedo, beginCoalesce, endCoalesce } = useUndoRedo(initialHolds);
 
   const [managerMode, setManagerMode] = useState(initialManagerMode || 'boundaries'); // 'boundaries' | 'metadata' | 'heatmap'
@@ -101,9 +93,6 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
   };
 
   const [activeTool, setActiveTool] = useState(TOOLS.SELECT);
-  const [tapBusy, setTapBusy] = useState(false);  // live-SAM trace in flight (Tap tool)
-  const tapBusyRef = useRef(false);               // re-entry guard (ref survives async)
-  const [tapMsg, setTapMsg] = useState('');       // transient Tap-tool note (e.g. "already outlined")
   const [selectedIds, setSelectedIds] = useState([]);       // multi-select: array of hold IDs
   const [vertexEditId, setVertexEditId] = useState(null);   // hold currently showing vertex handles
   const [showAllOutlines, setShowAllOutlines] = useState(true);
@@ -870,47 +859,6 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
       } else {
         setDrawPoints(prev => [...prev, [r1(pct.x), r1(pct.y)]]);
       }
-    } else if (activeTool === TOOLS.TAP) {
-      // Tap → trace whatever is under the finger LIVE with in-browser SAM (incl. holds the
-      // detector missed). `pct` is board-%; segmentAtBoardPct returns a board-% polygon
-      // (resolution-independent). Tap is for ADDING missed holds — it mints a NEW custom_ id
-      // and never touches existing ids/routes, but an overlapping COPY of an existing hold is
-      // confusing once routes exist, so we never duplicate: if the tap (or the traced shape)
-      // lands on a hold that's already outlined, select it instead of adding a copy.
-      if (!samEmbedding?.url || tapBusyRef.current) return;
-      setTapMsg('');
-      const onExisting = findHoldAtPoint(pct.x, pct.y, holds, 1);
-      if (onExisting) {
-        setSelectedIds([onExisting]);
-        setTapMsg('Already outlined — no duplicate added (use Select to edit it).');
-        return;
-      }
-      tapBusyRef.current = true;
-      setTapBusy(true);
-      segmentAtBoardPct(pct.x, pct.y, boardRegion, samEmbedding)
-        .then(poly => {
-          if (!poly || poly.length < 3) return;
-          // Post-trace dedupe: SAM may grab an adjacent already-outlined hold even when the
-          // tap fell in a gap. If the traced shape's centre sits inside an existing hold,
-          // select that one rather than adding an overlapping duplicate.
-          const [ncx, ncy] = centroid(poly);
-          const dup = findHoldAtPoint(ncx, ncy, holds, 1);
-          if (dup) {
-            setSelectedIds([dup]);
-            setTapMsg('Already outlined — no duplicate added (use Select to edit it).');
-            return;
-          }
-          const id = `custom_${Date.now()}`;
-          const newHold = holdFromPolygon(poly, id);
-          newHold.confidence = 'high';
-          newHold.tapped = true;
-          newHold._candidatePolygon = poly; // flywheel: SAM outline before user edits
-          setHolds(prev => [...prev, newHold]);
-          setSelectedIds([id]);
-          setVertexEditId(id); // draggable vertices immediately so the shape can be fixed
-        })
-        .catch(err => console.warn('[tap] live segment failed:', err?.message || err))
-        .finally(() => { tapBusyRef.current = false; setTapBusy(false); });
     }
   }
 
@@ -1194,9 +1142,6 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
       setClipboard(null);
     }
     setActiveTool(tool);
-    setTapMsg('');
-    // Warm the SAM decoder + this wall's embedding so the first trace is snappy.
-    if (tool === TOOLS.TAP && samEmbedding?.url) prewarmSam(samEmbedding);
     // Reset armed state on tool switch
     if (armedTimerRef.current) { clearTimeout(armedTimerRef.current); armedTimerRef.current = null; }
     setArmed(false);
@@ -1206,7 +1151,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
   // ─── Derived values ─────────────────────────────────────────────────
   const isZoomed = scale > 1;
   const cursorStyle = managerMode === 'metadata' ? (isZoomed ? 'grab' : 'pointer')
-    : (activeTool === TOOLS.DRAW || activeTool === TOOLS.TAP) ? 'crosshair'
+    : activeTool === TOOLS.DRAW ? 'crosshair'
     : activeTool === TOOLS.COPY ? 'copy'
     : isZoomed ? 'grab' : 'default';
 
@@ -1448,11 +1393,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
             HOLD MANAGER
           </h2>
           <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '2px' }}>
-            {holds.length} holds · {
-              activeTool === TOOLS.TAP && tapBusy ? 'Tracing…'
-              : activeTool === TOOLS.TAP && tapMsg ? tapMsg
-              : activeTool === TOOLS.TAP && !samEmbedding?.url ? 'Tap unavailable for this wall yet — use Draw'
-              : TOOL_LABELS[activeTool]?.tip}
+            {holds.length} holds · {TOOL_LABELS[activeTool]?.tip}
           </div>
         </div>
         <div style={{ display: 'flex', gap: '6px' }}>
@@ -1506,9 +1447,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
               background: activeTool === tool ? 'rgba(0,71,255,0.1)' : 'rgba(26,10,0,0.05)',
               color: activeTool === tool ? 'var(--accent)' : 'var(--text-secondary)',
               fontWeight: activeTool === tool ? 700 : 400,
-              opacity: tool === TOOLS.TAP && !samEmbedding?.url ? 0.45 : 1,
             }}
-            title={tool === TOOLS.TAP && !samEmbedding?.url ? 'This wall has no Tap fingerprint yet — use Draw' : TOOL_LABELS[tool]?.tip}
           >
             <span style={{ fontSize: '14px' }}>{icon}</span>
             {label}

@@ -171,11 +171,6 @@ export const getBoardHolds = (boardId) => getBoardSetting(`holds_${boardId}`);
 /** Persist this wall's full hold array (IDs preserved verbatim). */
 export const setBoardHolds = (boardId, holds) => setBoardSetting(`holds_${boardId}`, holds);
 
-/** This wall's SAM embedding pointer ({ url, shape, orig_w, orig_h, ... }) for the
- *  Hold Manager's live "Tap" tool, written by scripts/encode_board_embedding.py.
- *  Per-board. Returns null data when a wall hasn't been encoded yet (Tap inert). */
-export const getBoardEmbedding = (boardId) => getBoardSetting(`sam_embedding_${boardId}`);
-
 /** This wall's board-image config ({ imageName, baseUrl, ... }). */
 export const getBoardImageConfig = (boardId) => getBoardSetting(`board_image_config_${boardId}`);
 

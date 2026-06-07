@@ -126,20 +126,6 @@ export default function App() {
   // a legacy-rebuild safety net if its blob is ever missing (see useCustomHolds).
   const { allHolds, addHold, updateHold, deleteHold, saveAllHolds } = useCustomHolds(user, activeBoardId, activeBoard?.slug === 'the-barn');
 
-  // Live "Tap a hold" SAM embedding pointer for the ACTIVE wall (Hold Manager Tap tool).
-  // Per-board (board-generic): produced by scripts/encode_board_embedding.py and stored in
-  // board_settings['sam_embedding_<boardId>'] = { url, shape, orig_w, orig_h, ... }.
-  // null for walls that haven't been encoded yet → the Tap tool stays inert there.
-  const [samEmbedding, setSamEmbedding] = useState(null);
-  useEffect(() => {
-    if (!activeBoardId) { setSamEmbedding(null); return; }
-    let cancelled = false;
-    db.getBoardEmbedding(activeBoardId)
-      .then(({ data }) => { if (!cancelled) setSamEmbedding(data?.data || null); })
-      .catch(() => { if (!cancelled) setSamEmbedding(null); });
-    return () => { cancelled = true; };
-  }, [activeBoardId]);
-
   // ─── Auth effect — listen for login/logout ─────────────────────────
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
@@ -2199,7 +2185,6 @@ export default function App() {
           onManagerModeChange={setHoldManagerMode}
           onEditHold={(hold) => handleEditHold(hold, 'setupBoard')}
           routes={routes}
-          samEmbedding={samEmbedding}
         />
       )}
 
