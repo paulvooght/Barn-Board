@@ -210,18 +210,6 @@ export default function Settings({ settings, updateSettings, allHolds, onSetupBo
         </div>
       )}
 
-      {/* ── Walls: switch / join / manage members (multi-wall 2b-iv) ── */}
-      <WallsSettings
-        user={user}
-        myBoards={myBoards}
-        activeBoardId={activeBoardId}
-        isAdmin={isAdmin}
-        onSwitchBoard={onSwitchBoard}
-        onWallJoined={onWallJoined}
-        onWallLeft={onWallLeft}
-        onRolesChanged={onRolesChanged}
-      />
-
       {/* ── Grading System ── */}
       <div style={{ marginBottom: '24px' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
@@ -557,6 +545,18 @@ export default function Settings({ settings, updateSettings, allHolds, onSetupBo
           <SpecRow label="Holds (total)"    value={totalHolds} />
         </div>
       </div>
+
+      {/* ── Walls: switch / join / manage members (multi-wall 2b-iv) ── */}
+      <WallsSettings
+        user={user}
+        myBoards={myBoards}
+        activeBoardId={activeBoardId}
+        isAdmin={isAdmin}
+        onSwitchBoard={onSwitchBoard}
+        onWallJoined={onWallJoined}
+        onWallLeft={onWallLeft}
+        onRolesChanged={onRolesChanged}
+      />
 
       {/* ── Beta Features ── */}
       <div style={{ marginTop: '16px', marginBottom: '16px' }}>
