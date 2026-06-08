@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
+import * as db from '../lib/db';
 import PeriodPicker from './PeriodPicker';
+import BoardFilter from './BoardFilter';
 import ClimberCard from './ClimberCard';
 import HoldHeatMap from './HoldHeatMap';
 import UnfinishedBusinessCard from './UnfinishedBusinessCard';
@@ -13,6 +15,13 @@ import {
   computeHoldHeat,
 } from '../utils/sessionStats';
 
+// Build a fresh default period for a given session set: most recent session, else all-time.
+function freshDefaultPeriod(sess) {
+  if (!sess || sess.length === 0) return makePeriod('all', null, []);
+  const sorted = [...sess].sort((a, b) => new Date(b.startTime) - new Date(a.startTime));
+  return makePeriod('session', sorted[0].id, sess);
+}
+
 export default function SessionsView({
   activeSession,
   onStartSession,
@@ -24,6 +33,9 @@ export default function SessionsView({
   displayName,
   userRouteData,
   routes,
+  allRoutes,
+  myBoards = [],
+  activeBoardId,
   boardImageSrc,
   boardRegion,
   allHolds,
@@ -34,19 +46,31 @@ export default function SessionsView({
   period,
   onChangePeriod,
 }) {
-  const safeSessions = sessions || [];
-  const safeRoutes = routes || [];
+  const allSess = sessions || [];
+  // Route metadata is resolved across ALL walls (the Sessions tab is cross-board);
+  // fall back to the board-scoped list if allRoutes hasn't loaded yet.
+  const safeRoutes = (allRoutes && allRoutes.length ? allRoutes : routes) || [];
   const safeURD = userRouteData || {};
   const gradeSystem = settings?.gradeSystem || 'V';
 
+  // ── Board filter (cross-board: 'all' or a specific wall id) ────────────────
+  const [boardFilter, setBoardFilter] = useState('all');
+  const boardsById = useMemo(() => {
+    const m = {};
+    myBoards.forEach(b => { m[b.id] = b; });
+    return m;
+  }, [myBoards]);
+  const boardName = (id) => boardsById[id]?.name || 'Unknown wall';
+  const showBoardTags = boardFilter === 'all';
+
+  // Sessions in view = all, or just the selected wall's.
+  const safeSessions = useMemo(
+    () => boardFilter === 'all' ? allSess : allSess.filter(s => s.boardId === boardFilter),
+    [allSess, boardFilter]
+  );
+
   // ── Default period: most recent session, or all-time if none exist ────────
-  const defaultPeriod = useMemo(() => {
-    if (safeSessions.length === 0) return makePeriod('all', null, []);
-    const sorted = [...safeSessions].sort(
-      (a, b) => new Date(b.startTime) - new Date(a.startTime)
-    );
-    return makePeriod('session', sorted[0].id, safeSessions);
-  }, []); // intentionally stable — only computed once
+  const defaultPeriod = useMemo(() => freshDefaultPeriod(allSess), []); // stable — computed once
 
   // Initialise parent period on first render (when it is null)
   useEffect(() => {
@@ -58,6 +82,14 @@ export default function SessionsView({
   // Use a safe local fallback so the rest of the component never sees null
   const safePeriod = period ?? defaultPeriod;
   const setPeriod = onChangePeriod ?? (() => {});
+
+  // Switching walls re-anchors the period to that wall's most recent session
+  // (the previously-selected session may not belong to the new filter).
+  const onChangeBoard = (val) => {
+    setBoardFilter(val);
+    const fs = val === 'all' ? allSess : allSess.filter(s => s.boardId === val);
+    setPeriod(freshDefaultPeriod(fs));
+  };
 
   // ── Stats computation (memoised) ──────────────────────────────────────────
   const stats = useMemo(
@@ -80,12 +112,47 @@ export default function SessionsView({
     [stats, previousStats]
   );
 
-  // ── Hold heat map data (memoised) ─────────────────────────────────────────
-  // 'sent' = holds from sent routes only; 'sentAndTried' = adds tried routes too.
+  // ── Hold heat map (per-wall) ───────────────────────────────────────────────
+  // The heat map is inherently one wall's holds+image. It tracks the selected wall
+  // ('all' → the active wall, whose holds/image are already loaded). For any other
+  // wall we lazily fetch that wall's holds + image config.
   const [heatMode, setHeatMode] = useState('sent');
+  const heatBoardId = boardFilter === 'all' ? activeBoardId : boardFilter;
+  const [extraHeat, setExtraHeat] = useState(null); // { holds, imgSrc, region } for a non-active wall
+  const [heatLoading, setHeatLoading] = useState(false);
+
+  useEffect(() => {
+    if (!heatBoardId || heatBoardId === activeBoardId) { setExtraHeat(null); return; }
+    let cancelled = false;
+    setHeatLoading(true);
+    (async () => {
+      const [holdsRes, imgRes] = await Promise.all([
+        db.getBoardHolds(heatBoardId),
+        db.getBoardImageConfig(heatBoardId),
+      ]);
+      if (cancelled) return;
+      const cfg = imgRes?.data?.data;
+      setExtraHeat({
+        holds: holdsRes?.data?.data || [],
+        imgSrc: cfg ? `${cfg.baseUrl}/${cfg.imageName}.jpg` : null,
+        region: boardsById[heatBoardId]?.specs?.boardRegion || null,
+      });
+      setHeatLoading(false);
+    })();
+    return () => { cancelled = true; };
+  }, [heatBoardId, activeBoardId, boardsById]);
+
+  const useActiveHeat = heatBoardId === activeBoardId;
+  const heatHolds  = useActiveHeat ? allHolds : (extraHeat?.holds || []);
+  const heatImgSrc = useActiveHeat ? boardImageSrc : extraHeat?.imgSrc;
+  const heatRegion = useActiveHeat ? boardRegion : extraHeat?.region;
+  const heatSessions = useMemo(
+    () => allSess.filter(s => s.boardId === heatBoardId),
+    [allSess, heatBoardId]
+  );
   const heat = useMemo(
-    () => computeHoldHeat(safeSessions, safeRoutes, safeURD, safePeriod, heatMode),
-    [safeSessions, safeRoutes, safeURD, safePeriod, heatMode]
+    () => computeHoldHeat(heatSessions, safeRoutes, safeURD, safePeriod, heatMode),
+    [heatSessions, safeRoutes, safeURD, safePeriod, heatMode]
   );
 
   // ── Styles ────────────────────────────────────────────────────────────────
@@ -253,6 +320,15 @@ export default function SessionsView({
         </div>
       )}
 
+      {/* Board filter — All Boards or a specific wall (cross-board sessions) */}
+      {myBoards.length > 1 && (
+        <BoardFilter
+          boards={myBoards}
+          value={boardFilter}
+          onChange={onChangeBoard}
+        />
+      )}
+
       {/* Period Picker */}
       <PeriodPicker
         sessions={safeSessions}
@@ -273,6 +349,12 @@ export default function SessionsView({
             gradeSystem={gradeSystem}
             displayName={displayName}
             period={safePeriod}
+            boardLabel={
+              showBoardTags ? 'All Boards'
+                : boardFilter !== 'all' ? boardName(boardFilter)
+                : null
+            }
+            sessionBoardName={selectedSession ? boardName(selectedSession.boardId) : null}
             onEditSession={
               selectedSession && onEditSession
                 ? () => onEditSession(selectedSession)
@@ -290,22 +372,32 @@ export default function SessionsView({
             session={selectedSession}
             routes={safeRoutes}
             onViewRoute={onViewRoute}
+            boardName={showBoardTags ? boardName(selectedSession.boardId) : null}
           />
         ) : null;
       })()}
 
-      {/* Hold Heat Map */}
-      {boardImageSrc && boardRegion && allHolds && (
-        <HoldHeatMap
-          boardImageSrc={boardImageSrc}
-          boardRegion={boardRegion}
-          allHolds={allHolds}
-          heat={heat}
-          periodLabel={safePeriod.label}
-          mode={heatMode}
-          onChangeMode={setHeatMode}
-        />
-      )}
+      {/* Hold Heat Map — per-wall (tracks the selected wall) */}
+      {heatLoading ? (
+        <div style={{ ...cardStyle, textAlign: 'center', color: 'var(--text-dim)', fontSize: 12, padding: '24px 16px' }}>
+          Loading {boardName(heatBoardId)} heat map…
+        </div>
+      ) : (heatImgSrc && heatRegion && heatHolds?.length) ? (
+        <div>
+          <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-dim)', letterSpacing: '0.5px', margin: '0 0 6px 2px' }}>
+            Heat map · {boardName(heatBoardId)}
+          </div>
+          <HoldHeatMap
+            boardImageSrc={heatImgSrc}
+            boardRegion={heatRegion}
+            allHolds={heatHolds}
+            heat={heat}
+            periodLabel={safePeriod.label}
+            mode={heatMode}
+            onChangeMode={setHeatMode}
+          />
+        </div>
+      ) : null}
 
       {/* Unfinished Business — routes tried but not yet sent (all-time) */}
       <UnfinishedBusinessCard
@@ -321,6 +413,7 @@ export default function SessionsView({
         sessions={safeSessions}
         routes={safeRoutes}
         gradeSystem={gradeSystem}
+        boardNameFor={showBoardTags ? (id => boardName(id)) : null}
         selectedSessionId={safePeriod?.type === 'session' ? safePeriod.sessionId : null}
         onSelectSession={(sessionId) => {
           const p = makePeriod('session', sessionId, safeSessions);

@@ -86,6 +86,10 @@ export default function App() {
 
   // ─── Persistent state ─────────────────────────────────────────────
   const [routes, setRoutes]       = useState([]);
+  // All routes across every wall the user can read — used only by the Sessions tab
+  // to resolve route metadata for cross-board stats (board-scoped `routes` stays
+  // the source for the board view + routes list).
+  const [allRoutes, setAllRoutes] = useState([]);
   const [sessions, setSessions]   = useState([]);
   const [playlists, setPlaylists] = useState([]);
   const [userRouteData, setUserRouteData] = useState({}); // { [routeId]: { sent, flashed, rating, angleSends, gradeSuggestions, attempted } }
@@ -167,15 +171,20 @@ export default function App() {
   const loadDataFromSupabase = useCallback(async (userId, isFirstLoad, boardId) => {
     // Fire all queries in parallel — biggest startup speedup.
     // Routes + sessions are scoped to the active wall (boardId); the rest are user/global.
-    const [routeResult, urdResult, ratingResult, gradeResult, sessionResult, plResult, imgConfigResult, profilesResult] = await Promise.all([
+    const [routeResult, urdResult, ratingResult, gradeResult, sessionResult, plResult, imgConfigResult, profilesResult, allRouteResult] = await Promise.all([
       db.fetchRoutes(boardId),
       db.fetchUserRouteData(userId),
       db.fetchAllRatings(),
       db.fetchAllGradeSuggestions(),
-      db.fetchSessions(userId, boardId),
+      // Sessions are a personal, cross-board log — fetch ALL walls (each row carries
+      // board_id so the Sessions tab can filter/tag by wall). Not scoped to boardId.
+      db.fetchSessions(userId),
       db.getBoardSetting(`playlists_${userId}`),
       db.getBoardImageConfig(boardId),
       db.fetchProfiles(),
+      // All routes the user can read (across every wall) — the Sessions tab resolves
+      // route metadata (grade/holdTypes/styles/holds) from this for cross-board stats.
+      db.fetchRoutes(),
     ]);
 
     // a) Routes
@@ -255,6 +264,16 @@ export default function App() {
       }
     }
     setGradeRowsByRoute(rowsByRoute);
+
+    // e0) All routes across walls (for cross-board Sessions stats)
+    const allRouteRows = allRouteResult.data;
+    if (allRouteRows) {
+      setAllRoutes(allRouteRows.map(r => ({
+        ...r.data,
+        creatorId: r.data.creatorId || r.user_id,
+        boardId: r.board_id,
+      })));
+    }
 
     // e) Sessions
     const sessionRows = sessionResult.data;
@@ -2151,6 +2170,9 @@ export default function App() {
             displayName={displayName}
             userRouteData={userRouteData}
             routes={routes}
+            allRoutes={allRoutes}
+            myBoards={myBoards}
+            activeBoardId={activeBoardId}
             boardImageSrc={imgSrc}
             boardRegion={activeBoardRegion}
             allHolds={allHolds}

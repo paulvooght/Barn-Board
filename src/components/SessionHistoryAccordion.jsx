@@ -21,6 +21,9 @@ export default function SessionHistoryAccordion({
   gradeSystem,
   onSelectSession,
   selectedSessionId,
+  // When set (cross-board "All Boards" view), returns a wall name for a session's
+  // boardId so each row shows which wall it happened on.
+  boardNameFor,
 }) {
   const [open, setOpen] = useState(false);
 
@@ -174,6 +177,15 @@ export default function SessionHistoryAccordion({
                           color: 'var(--text-dim)',
                         }}>
                           {anglesClimbed.map(a => `${a}°`).join(', ')}
+                        </span>
+                      )}
+                      {boardNameFor && (
+                        <span style={{
+                          fontSize: '9px', fontWeight: 800, letterSpacing: '0.3px',
+                          color: 'var(--accent)', background: 'var(--accent-dim)',
+                          padding: '2px 7px', borderRadius: '6px', marginLeft: 'auto',
+                        }}>
+                          {boardNameFor(s.boardId)}
                         </span>
                       )}
                     </div>

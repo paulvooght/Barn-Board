@@ -249,7 +249,9 @@
       "Bash(node --env-file=.env.local scripts/verify_2c_rls.mjs)",
       "Bash(grep -n \"Admin enforcement is split\\\\|writable by \\\\*\\\\*any authenticated\\\\|hardcoded.email route policy\\\\|hardcoded email\\\\|006_yonder_board.sql\\\\` —\\\\|board_settings\\\\` \\(hold data\" CLAUDE.md)",
       "Bash(grep -n \"Settings$\\\\|<Settings\\\\|view === 'settings'\\\\|onSwitchBoard\\\\|onWallJoined\\\\|onWallLeft\\\\|onRolesChanged\" src/App.jsx)",
-      "Bash(awk 'NR>=2700 && NR<=2845 && /function |const .*=.*\\\\\\(.*\\\\\\).*=>|=> \\\\{/' src/App.jsx)"
+      "Bash(awk 'NR>=2700 && NR<=2845 && /function |const .*=.*\\\\\\(.*\\\\\\).*=>|=> \\\\{/' src/App.jsx)",
+      "Bash(sed -n '196,240p' src/lib/db.js)",
+      "Bash(sed -n '26,40p' src/lib/db.js)"
     ]
   }
 }

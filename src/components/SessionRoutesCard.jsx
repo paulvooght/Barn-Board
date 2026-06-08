@@ -9,7 +9,7 @@ import { useState } from 'react';
  *   routes      — all routes array
  *   onViewRoute — (routeId) => void
  */
-export default function SessionRoutesCard({ session, routes, onViewRoute }) {
+export default function SessionRoutesCard({ session, routes, onViewRoute, boardName }) {
   const [open, setOpen] = useState(false);
 
   if (!session) return null;
@@ -105,6 +105,16 @@ export default function SessionRoutesCard({ session, routes, onViewRoute }) {
       <div style={headerStyle} onClick={() => setOpen(o => !o)}>
         <span style={titleStyle}>
           Routes this session · {count}
+          {boardName && (
+            <span style={{
+              fontSize: '9px', fontWeight: 800, letterSpacing: '0.3px',
+              color: 'var(--accent)', background: 'var(--accent-dim)',
+              padding: '2px 7px', borderRadius: '6px', marginLeft: '8px',
+              textTransform: 'none',
+            }}>
+              {boardName}
+            </span>
+          )}
         </span>
         <span style={chevronStyle}>▾</span>
       </div>

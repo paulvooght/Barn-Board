@@ -43,7 +43,7 @@ function formatMinutes(mins) {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export default function ClimberCard({ stats, delta, gradeSystem, displayName, period, onEditSession }) {
+export default function ClimberCard({ stats, delta, gradeSystem, displayName, period, onEditSession, boardLabel, sessionBoardName }) {
   if (!stats) return null;
 
   const cardStyle = {
@@ -101,22 +101,38 @@ export default function ClimberCard({ stats, delta, gradeSystem, displayName, pe
     );
   }
 
-  // ── 1. Header row ────────────────────────────────────────────────────────
-  const headerRow = displayName ? (
+  // ── 1. Header row — board context (left) + climber name (right) ───────────
+  // sessionBoardName wins for a single-session view (shows that session's wall);
+  // otherwise boardLabel shows the active filter ('All Boards' or a wall name).
+  const contextTag = sessionBoardName || boardLabel;
+  const hasPencil = period?.type === 'session' && onEditSession;
+  const headerRow = (contextTag || displayName) ? (
     <div style={{
       display: 'flex',
-      alignItems: 'flex-start',
-      justifyContent: 'flex-end',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: '8px',
       marginBottom: '14px',
+      paddingRight: hasPencil ? '40px' : 0,
     }}>
-      <span style={{
-        fontSize: '11px',
-        fontWeight: 700,
-        color: 'var(--text-dim)',
-        textAlign: 'right',
-      }}>
-        {displayName}
-      </span>
+      {contextTag ? (
+        <span style={{
+          fontSize: '10px', fontWeight: 800, letterSpacing: '0.4px',
+          color: 'var(--accent)', background: 'var(--accent-dim)',
+          padding: '3px 9px', borderRadius: '7px',
+          display: 'inline-flex', alignItems: 'center', gap: '5px',
+        }}>
+          <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+          {contextTag}
+        </span>
+      ) : <span />}
+      {displayName && (
+        <span style={{
+          fontSize: '11px', fontWeight: 700, color: 'var(--text-dim)', textAlign: 'right',
+        }}>
+          {displayName}
+        </span>
+      )}
     </div>
   ) : null;
 
@@ -166,48 +182,36 @@ export default function ClimberCard({ stats, delta, gradeSystem, displayName, pe
     </div>
   ) : null;
 
-  // ── 3. Grade row (2-column) ──────────────────────────────────────────────
-  const gradeRow = (
-    <div style={{
-      display: 'grid',
-      gridTemplateColumns: '1fr 1fr',
-      gap: '8px',
-      marginBottom: '14px',
-    }}>
-      <div style={{ textAlign: 'center' }}>
-        <span style={labelStyle}>Top Grade</span>
-        <div style={valueStyle}>{stats.topGrade || '—'}</div>
-        {delta && <GradeDeltaBadge value={delta.topGradeIndex} />}
-      </div>
-      <div style={{ textAlign: 'center' }}>
-        <span style={labelStyle}>Avg Grade</span>
-        <div style={valueStyle}>{stats.avgGrade || '—'}</div>
-        {stats.avgGrade && stats.avgGradeSampleSize > 0 && (
-          <div style={{ fontSize: '9px', color: 'var(--text-dim)', marginTop: '2px' }}>
-            across {stats.avgGradeSampleSize} send{stats.avgGradeSampleSize !== 1 ? 's' : ''}
-          </div>
-        )}
-      </div>
+  // ── 3. Hero stat strip — Top Grade · Avg Grade · Sends · Created ──────────
+  const statCell = (label, value, extra, accent) => (
+    <div style={{ flex: 1, textAlign: 'center', padding: '0 4px', minWidth: 0 }}>
+      <span style={labelStyle}>{label}</span>
+      <div style={{ ...valueStyle, color: accent ? 'var(--accent)' : valueStyle.color }}>{value}</div>
+      {extra}
     </div>
   );
-
-  // ── 4. Activity row (2-column) ───────────────────────────────────────────
-  const activityRow = (
+  const statDivider = (
+    <div style={{ width: '1px', alignSelf: 'stretch', margin: '2px 0', background: 'var(--border)' }} />
+  );
+  const statStrip = (
     <div style={{
-      display: 'grid',
-      gridTemplateColumns: '1fr 1fr',
-      gap: '8px',
-      marginBottom: '14px',
+      display: 'flex', alignItems: 'stretch',
+      background: 'rgba(255,255,255,0.5)',
+      border: '1px solid var(--border)', borderRadius: '12px',
+      padding: '12px 2px', marginBottom: '14px',
     }}>
-      <div style={{ textAlign: 'center' }}>
-        <span style={labelStyle}>Sends</span>
-        <div style={valueStyle}>{stats.sendCount}</div>
-        {delta && <DeltaBadge value={delta.sendCount} />}
-      </div>
-      <div style={{ textAlign: 'center' }}>
-        <span style={labelStyle}>Created</span>
-        <div style={valueStyle}>{stats.createdCount}</div>
-      </div>
+      {statCell('Top Grade', stats.topGrade || '—', delta && <GradeDeltaBadge value={delta.topGradeIndex} />, true)}
+      {statDivider}
+      {statCell('Avg Grade', stats.avgGrade || '—',
+        stats.avgGrade && stats.avgGradeSampleSize > 0 ? (
+          <div style={{ fontSize: '9px', color: 'var(--text-dim)', marginTop: '2px' }}>
+            {stats.avgGradeSampleSize} send{stats.avgGradeSampleSize !== 1 ? 's' : ''}
+          </div>
+        ) : null)}
+      {statDivider}
+      {statCell('Sends', stats.sendCount, delta && <DeltaBadge value={delta.sendCount} />)}
+      {statDivider}
+      {statCell('Created', stats.createdCount)}
     </div>
   );
 
@@ -370,8 +374,7 @@ export default function ClimberCard({ stats, delta, gradeSystem, displayName, pe
       {pencilButton}
       {headerRow}
       {timeBlock}
-      {gradeRow}
-      {activityRow}
+      {statStrip}
       {hardestSendSection}
       {topGradeSection}
       {compositionSection}
