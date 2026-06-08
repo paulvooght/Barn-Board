@@ -131,6 +131,13 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
   const [draggingHold, setDraggingHold] = useState(null); // { holdId, isMulti, offsetX, offsetY }
   const holdDragClientRef = useRef(null);   // { clientX, clientY } during single-hold touch drag — for loupe
 
+  // Transform-handle drag — on-image rotate/scale of a SINGLE selected hold (replaces the sliders).
+  // Mirrors the vertex-drag pattern: the handle's own pointer-down sets this ref, which the global
+  // move-handlers check before pan/select. Rotate/scale are applied from a snapshot → no drift.
+  const draggingHandleRef = useRef(null);   // { kind:'rotate'|'scale', cx, cy, grabAngle, grabDist } (cx/cy board-%)
+  const handleCursorRef = useRef(null);     // { x, y } board-% of cursor during the drag (rotate handle follows it)
+  const [handleActive, setHandleActive] = useState(null); // 'rotate'|'scale'|null — re-render trigger + cursor styling
+
   // Pending hold interaction (both touch and mouse) — cleared when drag activates or gesture ends
   // Stores: { hitId, startClientX, startClientY, offsetX, offsetY }
   const pendingHoldRef = useRef(null);
@@ -573,6 +580,59 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
     setSelectScale(100);
   }
 
+  // ─── Transform handles (single-select rotate/scale via on-image drag) ───
+  // Grab: snapshot the polygon (begins undo-coalesce), record the cursor's angle/distance from the
+  // hold centroid. Move: re-derive rotation/scale from the snapshot (no drift) via the existing engine.
+  function startHandleDrag(kind, e) {
+    e.stopPropagation();
+    e.preventDefault();
+    if (selectedIdsRef.current.length !== 1) return;
+    const hold = holds.find(h => h.id === selectedIdsRef.current[0]);
+    if (!hold?.polygon) return;
+    let clientX, clientY;
+    if (e.type === 'touchstart') {
+      lastTouchTimeRef.current = Date.now();
+      const t = e.touches?.[0] || e.changedTouches?.[0];
+      if (!t) return;
+      clientX = t.clientX; clientY = t.clientY;
+    } else {
+      clientX = e.clientX; clientY = e.clientY;
+    }
+    const pct = clientToBoardPct(clientX, clientY);
+    if (!pct) return;
+    const [cx, cy] = centroid(hold.polygon);
+    snapshotOrigPolys(); // begins coalesce + snapshots selected polys (rotate/scale apply from these)
+    draggingHandleRef.current = {
+      kind, cx, cy,
+      grabAngle: Math.atan2(pct.y - cy, pct.x - cx) * 180 / Math.PI,
+      grabDist: Math.max(Math.hypot(pct.x - cx, pct.y - cy), 0.0001),
+    };
+    handleCursorRef.current = { x: pct.x, y: pct.y };
+    setHandleActive(kind);
+  }
+
+  function applyHandleDrag(pct) {
+    const dh = draggingHandleRef.current;
+    if (!dh) return;
+    handleCursorRef.current = { x: pct.x, y: pct.y };
+    if (dh.kind === 'rotate') {
+      const ang = Math.atan2(pct.y - dh.cy, pct.x - dh.cx) * 180 / Math.PI;
+      applyRotationToSelected(ang - dh.grabAngle); // delta from grab → rotate snapshot around own centroid
+    } else {
+      const factor = clamp(Math.hypot(pct.x - dh.cx, pct.y - dh.cy) / dh.grabDist, 0.2, 6);
+      applyScaleToSelected(factor * 100); // scale snapshot around own centroid
+    }
+  }
+
+  function endHandleDrag() {
+    endCoalesce();
+    draggingHandleRef.current = null;
+    handleCursorRef.current = null;
+    setHandleActive(null);
+    pinchRef.current.active = false;
+    panDragRef.current.active = false;
+  }
+
   function finishDraw() {
     if (drawPoints.length < 3) return;
     const newHold = holdFromPolygon(drawPoints, `custom_${Date.now()}`);
@@ -747,6 +807,8 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
     if (activeTool === TOOLS.COPY && clipboard) {
       setPastePreviewPct(pct);
     }
+    // Transform-handle drag (rotate/scale) — checked before pan/select so it can't leak into pan.
+    if (draggingHandleRef.current && pct) { applyHandleDrag(pct); return; }
     // Lasso draw — collect freehand points
     if (lassoActiveRef.current && pct) {
       setDrawPoints(prev => [...prev, [r1(pct.x), r1(pct.y)]]);
@@ -807,6 +869,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
 
   function handleMouseUp(e) {
     if (isSynthesizedMouse()) { panDragRef.current.active = false; pendingHoldRef.current = null; return; }
+    if (draggingHandleRef.current) { endHandleDrag(); return; }
     if (lassoActiveRef.current) {
       lassoActiveRef.current = false;
       if (activeTool === TOOLS.SELECT && lassoSelectActive) {
@@ -1008,6 +1071,8 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
         setLassoLoupeUpdate(prev => prev + 1);
         return;
       }
+      // Transform-handle drag (rotate/scale) — before pan/select
+      if (draggingHandleRef.current && pct) { e.preventDefault(); applyHandleDrag(pct); return; }
       // Pending hold: if finger moves beyond threshold, decide between hold-drag (armed) or pan
       if (pendingHoldRef.current && !draggingHold) {
         const p = pendingHoldRef.current;
@@ -1081,6 +1146,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
   function handleTouchEnd(e) {
     // Cancel long-press timer on lift
     if (longPressTimerRef.current) { clearTimeout(longPressTimerRef.current); longPressTimerRef.current = null; }
+    if (draggingHandleRef.current) { endHandleDrag(); return; }
     if (lassoActiveRef.current) {
       lassoActiveRef.current = false;
       lassoPosRef.current = null;
@@ -1351,6 +1417,64 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
         strokeLinejoin="round"
         style={{ pointerEvents: 'none' }}
       />
+    );
+  }
+
+  // On-image rotate + scale handles for a SINGLE selected hold (boundaries mode, Select tool, not
+  // vertex-editing). Rotate = dot on a stalk that orbits the centroid (follows the cursor while
+  // dragging); Scale = square at the bbox corner. Sizes are screen-constant (÷ svgScale).
+  function renderTransformHandles() {
+    if (managerMode !== 'boundaries' || activeTool !== TOOLS.SELECT) return null;
+    if (selectedIds.length !== 1 || vertexEditId) return null;
+    const hold = holds.find(h => h.id === selectedIds[0]);
+    if (!hold?.polygon || hold.polygon.length < 3) return null;
+
+    const [cx, cy] = centroid(hold.polygon);
+    const bb = boundingBox(hold.polygon);
+    const cxSvg = toSvgX(cx), cySvg = toSvgY(cy);
+    const x0 = toSvgX(bb.minX), y0 = toSvgY(bb.minY);
+    const x1 = toSvgX(bb.maxX), y1 = toSvgY(bb.maxY);
+    const svgScale = getSvgScale() || 1;
+    const px = (n) => n / svgScale;                 // n screen px → SVG units at current zoom
+    const R = 0.5 * Math.hypot(x1 - x0, y1 - y0) + px(24); // orbit radius clears the shape
+
+    // Rotate handle: due north at rest; follows the cursor (projected onto the orbit) while dragging.
+    let rhx = cxSvg, rhy = cySvg - R;
+    if (handleActive === 'rotate' && handleCursorRef.current) {
+      const vx = toSvgX(handleCursorRef.current.x) - cxSvg;
+      const vy = toSvgY(handleCursorRef.current.y) - cySvg;
+      const len = Math.hypot(vx, vy) || 1;
+      rhx = cxSvg + (vx / len) * R;
+      rhy = cySvg + (vy / len) * R;
+    }
+    // Scale handle: bottom-right bbox corner, nudged out along the diagonal.
+    const shx = x1 + px(6), shy = y1 + px(6);
+
+    const dotR = Math.max(px(7), 3);
+    const hitR = px(26);                             // generous, screen-constant touch target
+    const lineW = Math.max(px(1.5), 1);
+    const accent = '#0047FF';
+
+    return (
+      <g>
+        <line x1={cxSvg} y1={cySvg} x2={rhx} y2={rhy} stroke={accent} strokeWidth={lineW}
+          strokeDasharray={`${px(4)} ${px(3)}`} style={{ pointerEvents: 'none' }} />
+        {/* Rotate */}
+        <g style={{ cursor: 'grab' }}
+          onMouseDown={(e) => { if (!isSynthesizedMouse()) startHandleDrag('rotate', e); }}
+          onTouchStart={(e) => startHandleDrag('rotate', e)}>
+          <circle cx={rhx} cy={rhy} r={hitR} fill="transparent" style={{ pointerEvents: 'all' }} />
+          <circle cx={rhx} cy={rhy} r={dotR} fill="#fff" stroke={accent} strokeWidth={lineW} style={{ pointerEvents: 'none' }} />
+        </g>
+        {/* Scale */}
+        <g style={{ cursor: 'nwse-resize' }}
+          onMouseDown={(e) => { if (!isSynthesizedMouse()) startHandleDrag('scale', e); }}
+          onTouchStart={(e) => startHandleDrag('scale', e)}>
+          <circle cx={shx} cy={shy} r={hitR} fill="transparent" style={{ pointerEvents: 'all' }} />
+          <rect x={shx - dotR} y={shy - dotR} width={dotR * 2} height={dotR * 2} rx={px(2)}
+            fill="#fff" stroke={accent} strokeWidth={lineW} style={{ pointerEvents: 'none' }} />
+        </g>
+      </g>
     );
   }
 
@@ -1762,50 +1886,14 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
                 </div>
               )}
 
-              {/* Row 3 */}
+              {/* Row 3 — single-select rotate/scale is now via on-image handles (renderTransformHandles).
+                  Multi-select has no group transform (per design). Delete stays. */}
               <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600 }}>Rotate</span>
-                  <input type="range" min="-180" max="180" step="5"
-                    value={selectRotation}
-                    onMouseDown={snapshotOrigPolys}
-                    onTouchStart={snapshotOrigPolys}
-                    onMouseUp={endCoalesce}
-                    onTouchEnd={endCoalesce}
-                    onTouchCancel={endCoalesce}
-                    onChange={(e) => {
-                      const rot = parseInt(e.target.value);
-                      setSelectRotation(rot);
-                      applyRotationToSelected(rot);
-                    }}
-                    style={{ width: '60px', accentColor: 'var(--accent)' }}
-                  />
-                  <span style={{ fontSize: '10px', color: 'var(--text-primary)', fontWeight: 700, minWidth: '26px' }}>
-                    {selectRotation}°
+                {selectedIds.length === 1 && (
+                  <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600 }}>
+                    Drag the board handles to rotate · scale
                   </span>
-                </div>
-
-                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600 }}>Scale</span>
-                  <input type="range" min="25" max="300" step="5"
-                    value={selectScale}
-                    onMouseDown={snapshotOrigPolys}
-                    onTouchStart={snapshotOrigPolys}
-                    onMouseUp={endCoalesce}
-                    onTouchEnd={endCoalesce}
-                    onTouchCancel={endCoalesce}
-                    onChange={(e) => {
-                      const s = parseInt(e.target.value);
-                      setSelectScale(s);
-                      applyScaleToSelected(s);
-                    }}
-                    style={{ width: '60px', accentColor: 'var(--accent)' }}
-                  />
-                  <span style={{ fontSize: '10px', color: 'var(--text-primary)', fontWeight: 700, minWidth: '30px' }}>
-                    {selectScale}%
-                  </span>
-                </div>
-
+                )}
                 <button onClick={deleteSelected}
                   style={{ ...secBtnStyle, marginLeft: 'auto', color: '#FF5252', borderColor: 'rgba(255,82,82,0.35)', background: 'rgba(255,171,148,0.25)' }}>
                   Delete{selectedIds.length > 1 ? ` (${selectedIds.length})` : ''}
@@ -1921,6 +2009,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
                 {!showAllOutlines && managerMode !== 'heatmap' && selectedIds.length > 0 && holds.filter(h => selectedIds.includes(h.id)).map(h => renderHoldOutline(h))}
                 {renderDrawingState()}
                 {renderPastePreview()}
+                {renderTransformHandles()}
               </svg>
             )}
           </div>
