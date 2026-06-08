@@ -2161,6 +2161,7 @@ export default function App() {
           onWallJoined={onWallJoined}
           onWallLeft={onWallLeft}
           onRolesChanged={refreshMyBoards}
+          onBrowseWalls={() => setView('joinWall')}
           userEmail={user?.email}
           onSignOut={() => supabase.auth.signOut()}
           onViewSession={(session) => { setCompletedSession(session); setView('sessionSummary'); }}
@@ -2169,6 +2170,30 @@ export default function App() {
           displayName={displayName}
           onSaveDisplayName={saveDisplayName}
         />
+      )}
+
+      {/* ── Join a wall (browse every joinable wall) ── */}
+      {view === 'joinWall' && (
+        <Suspense fallback={<div style={{ padding: '40px 16px', textAlign: 'center', color: '#1A0A00', opacity: 0.4, fontSize: 13 }}>Loading...</div>}>
+          <div style={{ padding: '16px', maxWidth: 480, margin: '0 auto' }}>
+            <button
+              onClick={() => setView('settings')}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '6px 0', marginBottom: '12px', border: 'none', background: 'none', color: 'var(--accent)', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}
+            >← Walls</button>
+            <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--text-primary)', marginBottom: 4 }}>Join a wall</div>
+            <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 20 }}>
+              Pick a public wall, or enter a join code for a private one.
+            </div>
+            <WallsSettings
+              user={user}
+              myBoards={myBoards}
+              activeBoardId={activeBoardId}
+              isAdmin={false}
+              onboarding
+              onWallJoined={onWallJoined}
+            />
+          </div>
+        </Suspense>
       )}
 
       {/* ── Session Edit ── */}

@@ -23,7 +23,7 @@ import * as db from '../lib/db';
  */
 export default function WallsSettings({
   user, myBoards = [], activeBoardId, isAdmin,
-  onSwitchBoard, onWallJoined, onWallLeft, onRolesChanged,
+  onSwitchBoard, onWallJoined, onWallLeft, onRolesChanged, onBrowseWalls,
   onboarding = false, // true = wall-less onboarding screen (hide the empty "Your walls" card)
 }) {
   const activeBoard = myBoards.find(b => b.id === activeBoardId) || null;
@@ -154,9 +154,9 @@ export default function WallsSettings({
     <div style={{ marginBottom: '16px' }}>
       {(msg || err) && <Banner err={err} msg={msg} />}
 
-      {/* 1. Your walls — collapsible; Join a wall folded in at the bottom */}
+      {/* 1. Your walls — collapsible; Join a wall is a button (→ browse page) */}
       <div style={{ marginBottom: '16px' }}>
-        <button style={dropHeader} onClick={() => setWallsOpen(o => !o)}>
+        <button style={dropHeader(wallsOpen)} onClick={() => setWallsOpen(o => !o)}>
           <span style={dropTitle}>
             Your walls
             {activeBoard && (
@@ -169,7 +169,7 @@ export default function WallsSettings({
         </button>
 
         {wallsOpen && (
-          <div style={{ ...card, marginTop: '6px', marginBottom: 0, borderTopLeftRadius: '8px', borderTopRightRadius: '8px' }}>
+          <div style={dropBody}>
             {myBoards.map(b => {
               const active = b.id === activeBoardId;
               return (
@@ -182,11 +182,8 @@ export default function WallsSettings({
               );
             })}
 
-            {/* Join a wall — at the bottom of the dropdown */}
-            <div style={{ marginTop: '14px', paddingTop: '14px', borderTop: '1px solid rgba(26,10,0,0.08)' }}>
-              <div style={label}>Join a wall</div>
-              {joinSection}
-            </div>
+            {/* Join a wall — opens a dedicated page listing every joinable wall */}
+            <button style={joinBtn} onClick={() => onBrowseWalls?.()}>+ Join a wall</button>
           </div>
         )}
       </div>
@@ -194,13 +191,13 @@ export default function WallsSettings({
       {/* 2. Manage this wall (admin only) — collapsible */}
       {isAdmin && activeBoard && (
         <div style={{ marginBottom: '16px' }}>
-          <button style={dropHeader} onClick={() => setManageOpen(o => !o)}>
+          <button style={dropHeader(manageOpen)} onClick={() => setManageOpen(o => !o)}>
             <span style={dropTitle}>Manage {activeBoard.name}</span>
             <span style={chevron}>{manageOpen ? '▾' : '▸'}</span>
           </button>
 
           {manageOpen && (
-            <div style={{ ...card, marginTop: '6px', marginBottom: 0, borderTopLeftRadius: '8px', borderTopRightRadius: '8px' }}>
+            <div style={dropBody}>
               {/* visibility */}
               <div style={{ ...row, borderBottom: 'none' }}>
                 <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
@@ -272,10 +269,25 @@ const btnGhost = { padding: '7px 12px', borderRadius: '8px', border: '1px solid 
 const btnDanger = { width: '100%', padding: '11px', borderRadius: '10px', border: '1px solid rgba(155,42,42,0.3)', background: 'rgba(155,42,42,0.06)', color: '#9B2A2A', fontSize: '13px', fontWeight: 700, cursor: 'pointer' };
 const input = { flex: 1, padding: '9px 12px', borderRadius: '8px', border: '1.5px solid rgba(26,10,0,0.15)', background: 'rgba(255,255,255,0.7)', fontSize: '14px', color: 'var(--text-primary)', outline: 'none', boxSizing: 'border-box' };
 
-// collapsible dropdown chrome (matches the Beta Features header in Settings.jsx)
-const dropHeader = { width: '100%', padding: '14px 16px', borderRadius: '12px', border: '1px solid var(--border)', background: 'var(--bg-card)', boxShadow: '0 2px 8px rgba(26,10,0,0.06)', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' };
+// collapsible dropdown chrome — when open, header + body read as one box:
+// the header loses its bottom rounding and the body attaches flush beneath it.
+const dropHeader = (open) => ({
+  width: '100%', padding: '14px 16px',
+  borderRadius: open ? '12px 12px 0 0' : '12px',
+  border: '1px solid var(--border)', borderBottom: open ? 'none' : '1px solid var(--border)',
+  background: 'var(--bg-card)', boxShadow: '0 2px 8px rgba(26,10,0,0.06)',
+  cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+});
+const dropBody = {
+  background: 'var(--bg-card)', padding: '16px',
+  border: '1px solid var(--border)', borderTop: '1px solid rgba(26,10,0,0.08)',
+  borderRadius: '0 0 12px 12px', boxShadow: '0 2px 8px rgba(26,10,0,0.06)',
+};
 const dropTitle = { fontSize: '11px', fontWeight: 800, color: 'var(--accent)', letterSpacing: '1.5px', textTransform: 'uppercase', display: 'flex', alignItems: 'center' };
 const chevron = { fontSize: '12px', color: 'var(--text-dim)' };
+
+// "Join a wall" — accent-outlined button that opens the browse-all-walls page
+const joinBtn = { width: '100%', padding: '12px', borderRadius: '10px', cursor: 'pointer', border: '1.5px dashed var(--accent)', background: 'var(--accent-dim)', color: 'var(--accent)', fontSize: '13px', fontWeight: 800, marginTop: '6px' };
 
 // minimal centered wall row — the name IS the button (active = current wall)
 const wallBtn = (active) => ({

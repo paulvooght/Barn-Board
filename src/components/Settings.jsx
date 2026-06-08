@@ -12,7 +12,7 @@ import WallsSettings from './WallsSettings';
  *   displayName              — current user display name (string)
  *   onSaveDisplayName(name)  — async fn, throws on failure (e.g. duplicate name)
  */
-export default function Settings({ settings, updateSettings, allHolds, onSetupBoard, sessions = [], routes = [], isAdmin = true, user, myBoards = [], activeBoardId, onSwitchBoard, onWallJoined, onWallLeft, onRolesChanged, userEmail, onSignOut, onViewSession, onEditSession, onUpdateBoardImage, currentImageName, displayName = '', onSaveDisplayName }) {
+export default function Settings({ settings, updateSettings, allHolds, onSetupBoard, sessions = [], routes = [], isAdmin = true, user, myBoards = [], activeBoardId, onSwitchBoard, onWallJoined, onWallLeft, onRolesChanged, onBrowseWalls, userEmail, onSignOut, onViewSession, onEditSession, onUpdateBoardImage, currentImageName, displayName = '', onSaveDisplayName }) {
   const totalHolds = allHolds.length;
   const [showChart, setShowChart] = useState(false);
   const [showSessions, setShowSessions] = useState(false);
@@ -547,16 +547,19 @@ export default function Settings({ settings, updateSettings, allHolds, onSetupBo
       </div>
 
       {/* ── Walls: switch / join / manage members (multi-wall 2b-iv) ── */}
-      <WallsSettings
-        user={user}
-        myBoards={myBoards}
-        activeBoardId={activeBoardId}
-        isAdmin={isAdmin}
-        onSwitchBoard={onSwitchBoard}
-        onWallJoined={onWallJoined}
-        onWallLeft={onWallLeft}
-        onRolesChanged={onRolesChanged}
-      />
+      <div style={{ marginTop: '24px' }}>
+        <WallsSettings
+          user={user}
+          myBoards={myBoards}
+          activeBoardId={activeBoardId}
+          isAdmin={isAdmin}
+          onSwitchBoard={onSwitchBoard}
+          onWallJoined={onWallJoined}
+          onWallLeft={onWallLeft}
+          onRolesChanged={onRolesChanged}
+          onBrowseWalls={onBrowseWalls}
+        />
+      </div>
 
       {/* ── Beta Features ── */}
       <div style={{ marginTop: '16px', marginBottom: '16px' }}>
