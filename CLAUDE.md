@@ -123,7 +123,7 @@ wall starts empty). Per-board boardRegion lives in `boards.specs.boardRegion`.
 |------|-------|---------|
 | `src/App.jsx` | ~3040 | View state machine; route/session/playlist CRUD; per-user data & community grades; **all four sync paths** (immediate + debounce + realtime + offline queue). Also defines `ViewRouteHeader` (~680 lines), `NewAngleSuggestionRow`, `NavButton` inline. **Refactor target.** |
 | `src/components/BoardView.jsx` | ~535 | Board image + SVG overlay + zoom/pan + route-view dimming |
-| `src/components/BoardSetupView.jsx` | ~2270 | Hold Manager — Select/Draw/Copy tools, Boundaries/Hold-Info/Heatmap modes, undo/redo, lasso, copy-paste, vertex edit. **Most complex file.** |
+| `src/components/BoardSetupView.jsx` | ~2450 | Hold Manager — Select/Draw/Copy tools, Boundaries/Hold-Info/Heatmap modes, undo/redo, lasso, copy-paste (Single/Multi/Shift stamping + ghost preview), vertex edit, **on-image rotate/scale handles** (single-select; replaced the sliders). **Most complex file.** |
 | `src/components/BoardImageUpdateView.jsx` | ~1790 | Board-image wizard: upload → crop → align → fine-tune → confirm, with perspective warp |
 | `src/components/HoldEditorView.jsx` | ~810 | Individual hold polygon + metadata editor |
 | `src/components/HoldOverlay.jsx` | ~126 | SVG per-hold render for route view (outlines + labels) |
