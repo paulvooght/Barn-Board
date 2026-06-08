@@ -19,6 +19,7 @@ import * as db from '../lib/db';
 export default function WallsSettings({
   user, myBoards = [], activeBoardId, isAdmin,
   onSwitchBoard, onWallJoined, onWallLeft, onRolesChanged,
+  onboarding = false, // true = wall-less onboarding screen (hide the empty "Your walls" card)
 }) {
   const activeBoard = myBoards.find(b => b.id === activeBoardId) || null;
 
@@ -111,7 +112,8 @@ export default function WallsSettings({
         }}>{err || msg}</div>
       )}
 
-      {/* 1. Your walls */}
+      {/* 1. Your walls (hidden on the onboarding screen — you have none yet) */}
+      {!onboarding && (
       <div style={card}>
         <div style={title}>Your walls</div>
         {myBoards.map(b => {
@@ -130,6 +132,7 @@ export default function WallsSettings({
           );
         })}
       </div>
+      )}
 
       {/* 2. Join a wall */}
       <div style={card}>

@@ -13,6 +13,7 @@ const HoldEditorView = lazy(() => import('./components/HoldEditorView'));
 const SessionSummary = lazy(() => import('./components/SessionSummary'));
 const SessionsView = lazy(() => import('./components/SessionsView'));
 const AuthView = lazy(() => import('./components/AuthView'));
+const WallsSettings = lazy(() => import('./components/WallsSettings'));
 const BoardImageUpdateView = lazy(() => import('./components/BoardImageUpdateView'));
 const SessionEditView = lazy(() => import('./components/SessionEditView'));
 import { useLocalStorage } from './hooks/useLocalStorage';
@@ -37,6 +38,7 @@ export default function App() {
   const [user, setUser]           = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [dataReady, setDataReady] = useState(false);
+  const [boardsResolved, setBoardsResolved] = useState(false); // initial wall-resolve done (gates onboarding vs splash)
 
   // ─── Active wall (multi-wall, Phase 2a) ───────────────────────────
   // Which board the user is on. 2a has one wall (The Barn); the switcher and
@@ -73,9 +75,10 @@ export default function App() {
   const [displayName, setDisplayName]       = useState('');
   const [profilesById, setProfilesById]     = useState({}); // { [user_id]: { display_name, is_admin } }
 
-  // isAdmin: prefer DB flag (once profiles are loaded), fall back to ADMIN_EMAIL env var
+  // isAdmin: prefer DB flag (once profiles are loaded), fall back to ADMIN_EMAIL env var.
+  // Defaults to FALSE when no DB flag and no ADMIN_EMAIL (2c) — must not fail open.
   const isAdmin = profilesById[user?.id]?.is_admin === true
-    || (ADMIN_EMAIL ? user?.email === ADMIN_EMAIL : true);
+    || (ADMIN_EMAIL ? user?.email === ADMIN_EMAIL : false);
 
   // ─── Persistent state ─────────────────────────────────────────────
   const [routes, setRoutes]       = useState([]);
@@ -311,12 +314,10 @@ export default function App() {
     ]);
     const roleByBoard = {};
     (memberships || []).forEach(m => { roleByBoard[m.board_id] = m.role; });
-    let mine = (allBoards || []).filter(b => roleByBoard[b.id]).map(b => ({ ...b, role: roleByBoard[b.id] }));
-    // Brand-new account with no membership yet → join The Barn (the 2a default wall).
-    if (mine.length === 0) {
-      const barn = (allBoards || []).find(b => b.slug === 'the-barn');
-      if (barn) { await db.joinBoard(barn.id, userId); mine = [{ ...barn, role: 'member' }]; }
-    }
+    const mine = (allBoards || []).filter(b => roleByBoard[b.id]).map(b => ({ ...b, role: roleByBoard[b.id] }));
+    // 2c: no auto-join. A brand-new (or wall-less) account lands on the onboarding
+    // screen to pick a wall — joining the (now-private-by-default) Barn silently is
+    // both a lockout risk under tenant-isolation RLS and the wrong multi-wall default.
     setMyBoards(mine);
     let boardId = null;
     if (mine.length > 0) {
@@ -349,8 +350,17 @@ export default function App() {
   const onWallJoined = useCallback(async (boardId) => {
     if (!user) return;
     await resolveActiveBoard(user.id);   // myBoards now includes the joined wall
-    switchBoard(boardId);                // auto-switch: nav to board + load that wall
-  }, [user, resolveActiveBoard, switchBoard]);
+    // Land on + load the joined wall unconditionally. (From the no-wall onboarding
+    // state, resolveActiveBoard already set it active, which would make switchBoard
+    // a no-op — so we set + load directly here instead of via switchBoard.)
+    activeBoardIdRef.current = boardId;
+    setActiveBoardId(boardId);
+    localStorage.setItem('barnboard_active_board', boardId);
+    setViewingRoute(null);
+    setHoldSelection({});
+    setView('board');
+    loadDataFromSupabase(user.id, false, boardId);
+  }, [user, resolveActiveBoard, loadDataFromSupabase]);
 
   const onWallLeft = useCallback(async () => {
     if (!user) return;
@@ -367,10 +377,12 @@ export default function App() {
   useEffect(() => {
     if (!user) return;
     setDataReady(false);
+    setBoardsResolved(false);
     hasLoadedOnce.current = false;
     (async () => {
       const boardId = await resolveActiveBoard(user.id);
-      await loadDataFromSupabase(user.id, true, boardId);
+      if (boardId) await loadDataFromSupabase(user.id, true, boardId); // no wall → onboarding screen (skip load)
+      setBoardsResolved(true);
       hasLoadedOnce.current = true;
     })();
   }, [user?.id, loadDataFromSupabase, resolveActiveBoard]);
@@ -1668,6 +1680,38 @@ export default function App() {
   if (!user) return (
     <Suspense fallback={<div style={{ minHeight: '100vh', background: '#FFAB94' }} />}>
       <AuthView />
+    </Suspense>
+  );
+  // Logged in, still resolving which walls you belong to — brief splash so we don't
+  // flash the onboarding screen (or an empty board) before myBoards is known.
+  if (!boardsResolved) return (
+    <div style={{ minHeight: '100vh', background: '#FFAB94', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ fontFamily: "'Kodchasan', sans-serif", color: '#0047FF', fontWeight: 700, fontSize: 18 }}>BARN BOARD</div>
+    </div>
+  );
+  // No wall yet (2c dropped the silent Barn auto-join) — onboarding: join a public
+  // wall or enter a code. Reuses the tested WallsSettings "Join a wall" UI.
+  if (myBoards.length === 0) return (
+    <Suspense fallback={<div style={{ minHeight: '100vh', background: '#FFAB94' }} />}>
+      <div style={{ minHeight: '100vh', background: '#FFAB94', padding: '32px 16px', maxWidth: 480, margin: '0 auto' }}>
+        <div style={{ fontFamily: "'Kodchasan', sans-serif", color: '#0047FF', fontWeight: 800, fontSize: 24, marginBottom: 6 }}>BARN BOARD</div>
+        <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>Join a wall to get started</div>
+        <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 20 }}>
+          Pick a public wall below, or enter a join code for a private one. You can join more later in Settings.
+        </div>
+        <WallsSettings
+          user={user}
+          myBoards={myBoards}
+          activeBoardId={activeBoardId}
+          isAdmin={false}
+          onboarding
+          onWallJoined={onWallJoined}
+        />
+        <button
+          onClick={() => supabase.auth.signOut()}
+          style={{ width: '100%', padding: '11px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-secondary)', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}
+        >Sign out</button>
+      </div>
     </Suspense>
   );
 
