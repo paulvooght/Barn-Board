@@ -184,6 +184,13 @@ export default function WallsSettings({
 
             {/* Join a wall — opens a dedicated page listing every joinable wall */}
             <button style={joinBtn} onClick={() => onBrowseWalls?.()}>+ Join a wall</button>
+
+            {/* Leave the active wall — kept inside the dropdown, set apart below */}
+            {activeBoard && (
+              <div style={{ marginTop: '14px', paddingTop: '14px', borderTop: '1px solid rgba(26,10,0,0.08)' }}>
+                <button style={btnDanger} disabled={busy} onClick={leave}>Leave {activeBoard.name}</button>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -234,13 +241,6 @@ export default function WallsSettings({
                 })}
             </div>
           )}
-        </div>
-      )}
-
-      {/* 3. Leave the active wall */}
-      {activeBoard && (
-        <div style={card}>
-          <button style={btnDanger} disabled={busy} onClick={leave}>Leave {activeBoard.name}</button>
         </div>
       )}
     </div>

@@ -57,6 +57,10 @@ export default function App() {
   // boards.specs (multi-wall 2b-ii). Fall back to holds.json for The Barn and
   // before specs has loaded, so the board area is always defined.
   const activeBoardRegion = activeBoard?.specs?.boardRegion || holdsData.boardRegion;
+  // Physical specs (width/height/angle range) are per-wall too. Merge the wall's
+  // stored specs over the global BOARD_SPECS defaults, so a wall that hasn't had
+  // its specs filled in yet falls back to The Barn's numbers until an admin sets them.
+  const activeBoardSpecs = { ...BOARD_SPECS, ...(activeBoard?.specs || {}) };
   // Default board-image base name for a wall with no image config yet — namespaced
   // by the wall so a fresh wall can never publish under (and clobber) another
   // wall's bucket filename. Walls with a config use their stored (already
@@ -372,6 +376,17 @@ export default function App() {
   const refreshMyBoards = useCallback(async () => {
     if (user) await resolveActiveBoard(user.id);   // refresh roles/visibility; no nav
   }, [user, resolveActiveBoard]);
+
+  // Save the active wall's physical specs (admin/owner). Merge over the wall's
+  // existing specs so boardRegion is preserved, then re-resolve so the new values
+  // show immediately. Throws on RLS/db error so Settings can surface it.
+  const onSaveBoardSpecs = useCallback(async (dims) => {
+    if (!user || !activeBoardIdRef.current) return;
+    const current = myBoards.find(b => b.id === activeBoardIdRef.current)?.specs || {};
+    const { error } = await db.updateBoardSpecs(activeBoardIdRef.current, { ...current, ...dims });
+    if (error) throw error;
+    await resolveActiveBoard(user.id);
+  }, [user, myBoards, resolveActiveBoard]);
 
   // Initial load on login — resolve the active wall first, then load its data.
   useEffect(() => {
@@ -2162,6 +2177,8 @@ export default function App() {
           onWallLeft={onWallLeft}
           onRolesChanged={refreshMyBoards}
           onBrowseWalls={() => setView('joinWall')}
+          boardSpecs={activeBoardSpecs}
+          onSaveBoardSpecs={onSaveBoardSpecs}
           userEmail={user?.email}
           onSignOut={() => supabase.auth.signOut()}
           onViewSession={(session) => { setCompletedSession(session); setView('sessionSummary'); }}

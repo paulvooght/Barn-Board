@@ -12,11 +12,49 @@ import WallsSettings from './WallsSettings';
  *   displayName              — current user display name (string)
  *   onSaveDisplayName(name)  — async fn, throws on failure (e.g. duplicate name)
  */
-export default function Settings({ settings, updateSettings, allHolds, onSetupBoard, sessions = [], routes = [], isAdmin = true, user, myBoards = [], activeBoardId, onSwitchBoard, onWallJoined, onWallLeft, onRolesChanged, onBrowseWalls, userEmail, onSignOut, onViewSession, onEditSession, onUpdateBoardImage, currentImageName, displayName = '', onSaveDisplayName }) {
+export default function Settings({ settings, updateSettings, allHolds, onSetupBoard, sessions = [], routes = [], isAdmin = true, user, myBoards = [], activeBoardId, onSwitchBoard, onWallJoined, onWallLeft, onRolesChanged, onBrowseWalls, boardSpecs = BOARD_SPECS, onSaveBoardSpecs, userEmail, onSignOut, onViewSession, onEditSession, onUpdateBoardImage, currentImageName, displayName = '', onSaveDisplayName }) {
   const totalHolds = allHolds.length;
   const [showChart, setShowChart] = useState(false);
   const [showSessions, setShowSessions] = useState(false);
   const [showBeta, setShowBeta] = useState(false);
+
+  // ── Board Specs (per-wall, admin-editable) ──
+  const [showSpecs, setShowSpecs] = useState(false);
+  const [specsEditing, setSpecsEditing] = useState(false);
+  const [specsForm, setSpecsForm] = useState({ widthM: '', heightM: '', minAngle: '', maxAngle: '' });
+  const [specsSaving, setSpecsSaving] = useState(false);
+  const [specsError, setSpecsError] = useState('');
+
+  const beginSpecsEdit = () => {
+    setSpecsForm({
+      widthM: String(boardSpecs.widthM ?? ''),
+      heightM: String(boardSpecs.heightM ?? ''),
+      minAngle: String(boardSpecs.minAngle ?? ''),
+      maxAngle: String(boardSpecs.maxAngle ?? ''),
+    });
+    setSpecsError('');
+    setSpecsEditing(true);
+  };
+
+  const saveSpecs = async () => {
+    const widthM = parseFloat(specsForm.widthM);
+    const heightM = parseFloat(specsForm.heightM);
+    const minAngle = parseInt(specsForm.minAngle, 10);
+    const maxAngle = parseInt(specsForm.maxAngle, 10);
+    if ([widthM, heightM, minAngle, maxAngle].some(n => Number.isNaN(n))) {
+      setSpecsError('All four values are required.'); return;
+    }
+    if (minAngle >= maxAngle) { setSpecsError('Min angle must be below max angle.'); return; }
+    setSpecsSaving(true); setSpecsError('');
+    try {
+      await onSaveBoardSpecs?.({ widthM, heightM, minAngle, maxAngle });
+      setSpecsEditing(false);
+    } catch (e) {
+      setSpecsError(e?.message || 'Could not save — only the wall owner can edit specs.');
+    } finally {
+      setSpecsSaving(false);
+    }
+  };
 
   // ── Display Name state ──
   const hasName = !!(displayName && displayName.trim());
@@ -535,15 +573,44 @@ export default function Settings({ settings, updateSettings, allHolds, onSetupBo
         )}
       </div>}
 
-      {/* ── Board Specs ── */}
-      <div style={cardStyle}>
-        <div style={sectionTitleStyle}>Board Specs</div>
-        <div style={specGridStyle}>
-          <SpecRow label="Width"       value={`${BOARD_SPECS.widthM}m`} />
-          <SpecRow label="Height"      value={`${BOARD_SPECS.heightM}m`} />
-          <SpecRow label="Angle range" value={`${BOARD_SPECS.minAngle}° – ${BOARD_SPECS.maxAngle}°`} />
-          <SpecRow label="Holds (total)"    value={totalHolds} />
-        </div>
+      {/* ── Board Specs (collapsible; per-wall, admin-editable) ── */}
+      <div style={{ marginBottom: '16px' }}>
+        <button style={dropHeaderStyle(showSpecs)} onClick={() => setShowSpecs(o => !o)}>
+          <span style={{ ...sectionTitleStyle, marginBottom: 0, display: 'flex', alignItems: 'center' }}>Board Specs</span>
+          <span style={{ fontSize: '12px', color: 'var(--text-dim)' }}>{showSpecs ? '▾' : '▸'}</span>
+        </button>
+
+        {showSpecs && (
+          <div style={dropBodyStyle}>
+            {specsEditing ? (
+              <div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                  <SpecInput label="Width (m)"  value={specsForm.widthM}  onChange={v => setSpecsForm(f => ({ ...f, widthM: v }))} />
+                  <SpecInput label="Height (m)" value={specsForm.heightM} onChange={v => setSpecsForm(f => ({ ...f, heightM: v }))} />
+                  <SpecInput label="Min angle (°)" value={specsForm.minAngle} onChange={v => setSpecsForm(f => ({ ...f, minAngle: v }))} />
+                  <SpecInput label="Max angle (°)" value={specsForm.maxAngle} onChange={v => setSpecsForm(f => ({ ...f, maxAngle: v }))} />
+                </div>
+                {specsError && <div style={{ fontSize: '11px', color: '#9B2A2A', marginTop: '8px' }}>{specsError}</div>}
+                <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
+                  <button style={specSaveBtn} disabled={specsSaving} onClick={saveSpecs}>{specsSaving ? 'Saving…' : 'Save'}</button>
+                  <button style={specCancelBtn} disabled={specsSaving} onClick={() => setSpecsEditing(false)}>Cancel</button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div style={specGridStyle}>
+                  <SpecRow label="Width"       value={`${boardSpecs.widthM}m`} />
+                  <SpecRow label="Height"      value={`${boardSpecs.heightM}m`} />
+                  <SpecRow label="Angle range" value={`${boardSpecs.minAngle}° – ${boardSpecs.maxAngle}°`} />
+                  <SpecRow label="Holds (total)"    value={totalHolds} />
+                </div>
+                {isAdmin && (
+                  <button style={specEditBtn} onClick={beginSpecsEdit}>Edit specs</button>
+                )}
+              </>
+            )}
+          </div>
+        )}
       </div>
 
       {/* ── Walls: switch / join / manage members (multi-wall 2b-iv) ── */}
@@ -839,6 +906,36 @@ function SpecRow({ label, value }) {
     </>
   );
 }
+
+function SpecInput({ label, value, onChange }) {
+  return (
+    <label style={{ display: 'block' }}>
+      <div style={{ fontSize: '10px', color: 'var(--text-dim)', marginBottom: '4px', fontWeight: 700 }}>{label}</div>
+      <input
+        type="number" inputMode="decimal" value={value}
+        onChange={e => onChange(e.target.value)}
+        style={{ width: '100%', padding: '8px 10px', borderRadius: '8px', border: '1.5px solid rgba(26,10,0,0.15)', background: 'rgba(255,255,255,0.7)', fontSize: '14px', color: 'var(--text-primary)', outline: 'none', boxSizing: 'border-box' }}
+      />
+    </label>
+  );
+}
+
+// collapsible dropdown chrome — header + body read as one attached box (matches WallsSettings)
+const dropHeaderStyle = (open) => ({
+  width: '100%', padding: '14px 16px',
+  borderRadius: open ? '12px 12px 0 0' : '12px',
+  border: '1px solid var(--border)', borderBottom: open ? 'none' : '1px solid var(--border)',
+  background: 'var(--bg-card)', boxShadow: '0 2px 8px rgba(26,10,0,0.06)',
+  cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+});
+const dropBodyStyle = {
+  background: 'var(--bg-card)', padding: '16px',
+  border: '1px solid var(--border)', borderTop: '1px solid rgba(26,10,0,0.08)',
+  borderRadius: '0 0 12px 12px', boxShadow: '0 2px 8px rgba(26,10,0,0.06)',
+};
+const specEditBtn = { marginTop: '12px', padding: '7px 12px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: 700, cursor: 'pointer' };
+const specSaveBtn = { flex: 1, padding: '9px', borderRadius: '8px', border: 'none', background: 'var(--accent)', color: '#fff', fontSize: '13px', fontWeight: 700, cursor: 'pointer' };
+const specCancelBtn = { flex: 1, padding: '9px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-secondary)', fontSize: '13px', fontWeight: 700, cursor: 'pointer' };
 
 function rowBtnStyle(color) {
   return {

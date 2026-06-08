@@ -171,6 +171,14 @@ export async function setBoardVisibility(boardId, visibility) {
   return { error };
 }
 
+/** Update a wall's `specs` jsonb (physical dimensions + boardRegion). Pass the
+ *  FULL merged specs object so nothing already in there (e.g. boardRegion) is
+ *  dropped. RLS: the board owner can write directly ("boards: owner manage", 004). */
+export async function updateBoardSpecs(boardId, specs) {
+  const { error } = await supabase.from('boards').update({ specs }).eq('id', boardId);
+  return { error };
+}
+
 // ─── board_settings (shared keyed JSON: holds, image config, playlists_<id>) ──
 
 /** Read one settings blob by key. Returns the query (maybeSingle). */
