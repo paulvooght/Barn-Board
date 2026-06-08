@@ -15,6 +15,8 @@ export default function RouteForm({
   techniques, setTechniques,
   styles, setStyles,
   grades,
+  minAngle = BOARD_SPECS.minAngle,
+  maxAngle = BOARD_SPECS.maxAngle,
   selectedCount,
   onSave,
   onCancel,
@@ -132,8 +134,8 @@ export default function RouteForm({
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <input
               type="range"
-              min={BOARD_SPECS.minAngle}
-              max={BOARD_SPECS.maxAngle}
+              min={minAngle}
+              max={maxAngle}
               value={angle}
               onChange={e => setAngle(Number(e.target.value))}
               style={{ flex: 1 }}

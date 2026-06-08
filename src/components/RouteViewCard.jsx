@@ -59,6 +59,9 @@ export default function RouteViewCard({
   onZoomChange,
   // From App: viewRouteOrder length to determine if chevron padding is needed
   hasChevronBar,
+  // Per-wall angle range (from the active board's specs) for the angle slider
+  minAngle,
+  maxAngle,
   // ViewRouteHeader is defined in App.jsx — passed as a prop so RouteViewCard
   // doesn't need to re-define or import it.
   ViewRouteHeader,
@@ -129,6 +132,8 @@ export default function RouteViewCard({
             allHolds={allHolds}
             communityGrades={cg}
             myGradeSuggestions={urd.gradeSuggestions || {}}
+            minAngle={minAngle}
+            maxAngle={maxAngle}
             onSuggestGrade={(headline, angles) => onSuggestGrade(route.id, headline, angles)}
             onAcceptGrade={(grade, angle) => onAcceptGrade(route.id, grade, angle)}
             onEdit={() => onEdit(route)}

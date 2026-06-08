@@ -17,6 +17,7 @@ export default function Settings({ settings, updateSettings, allHolds, onSetupBo
   const [showChart, setShowChart] = useState(false);
   const [showSessions, setShowSessions] = useState(false);
   const [showBeta, setShowBeta] = useState(false);
+  const [showAccount, setShowAccount] = useState(false);
 
   // ── Board Specs (per-wall, admin-editable) ──
   const [showSpecs, setShowSpecs] = useState(false);
@@ -407,13 +408,7 @@ export default function Settings({ settings, updateSettings, allHolds, onSetupBo
       {!settings.betaSessionLogger && <div style={{ marginBottom: '16px' }}>
         <button
           onClick={() => setShowSessions(prev => !prev)}
-          style={{
-            width: '100%', padding: '12px 16px', borderRadius: '12px',
-            border: '1px solid var(--border)', background: 'var(--bg-card)',
-            boxShadow: '0 2px 8px rgba(26,10,0,0.06)',
-            cursor: 'pointer', display: 'flex', justifyContent: 'space-between',
-            alignItems: 'center',
-          }}
+          style={dropHeaderStyle(showSessions)}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <span style={{
@@ -438,9 +433,7 @@ export default function Settings({ settings, updateSettings, allHolds, onSetupBo
         </button>
 
         {showSessions && (
-          <div style={{
-            ...cardStyle, marginTop: '6px', borderTopLeftRadius: '8px', borderTopRightRadius: '8px',
-          }}>
+          <div style={dropBodyStyle}>
         {sessions.length === 0 ? (
           <div style={{ fontSize: '12px', color: 'var(--text-dim)', textAlign: 'center', padding: '12px 0' }}>
             No sessions yet — start one from the home screen
@@ -576,7 +569,7 @@ export default function Settings({ settings, updateSettings, allHolds, onSetupBo
       {/* ── Board Specs (collapsible; per-wall, admin-editable) ── */}
       <div style={{ marginBottom: '16px' }}>
         <button style={dropHeaderStyle(showSpecs)} onClick={() => setShowSpecs(o => !o)}>
-          <span style={{ ...sectionTitleStyle, marginBottom: 0, display: 'flex', alignItems: 'center' }}>Board Specs</span>
+          <span style={dropTitleStyle}>Board Specs</span>
           <span style={{ fontSize: '12px', color: 'var(--text-dim)' }}>{showSpecs ? '▾' : '▸'}</span>
         </button>
 
@@ -632,13 +625,7 @@ export default function Settings({ settings, updateSettings, allHolds, onSetupBo
       <div style={{ marginTop: '16px', marginBottom: '16px' }}>
         <button
           onClick={() => setShowBeta(prev => !prev)}
-          style={{
-            width: '100%', padding: '12px 16px', borderRadius: '12px',
-            border: '1px solid var(--border)', background: 'var(--bg-card)',
-            boxShadow: '0 2px 8px rgba(26,10,0,0.06)',
-            cursor: 'pointer', display: 'flex', justifyContent: 'space-between',
-            alignItems: 'center',
-          }}
+          style={dropHeaderStyle(showBeta)}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <span style={{
@@ -661,10 +648,7 @@ export default function Settings({ settings, updateSettings, allHolds, onSetupBo
         </button>
 
         {showBeta && (
-          <div style={{
-            ...cardStyle, marginTop: '6px',
-            borderTopLeftRadius: '8px', borderTopRightRadius: '8px',
-          }}>
+          <div style={dropBodyStyle}>
             {/* Session Record toggle */}
             <div style={{
               display: 'flex', justifyContent: 'space-between', alignItems: 'center',
@@ -732,27 +716,31 @@ export default function Settings({ settings, updateSettings, allHolds, onSetupBo
         )}
       </div>
 
-      {/* ── Account ── */}
+      {/* ── Account (collapsible) ── */}
       {(userEmail || onSignOut) && (
-        <div style={{ ...cardStyle, marginBottom: '16px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div>
-              <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--accent)', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: 3 }}>Account</div>
+        <div style={{ marginBottom: '16px' }}>
+          <button style={dropHeaderStyle(showAccount)} onClick={() => setShowAccount(o => !o)}>
+            <span style={dropTitleStyle}>Account</span>
+            <span style={{ fontSize: '12px', color: 'var(--text-dim)' }}>{showAccount ? '▾' : '▸'}</span>
+          </button>
+
+          {showAccount && (
+          <div style={dropBodyStyle}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <div style={{ fontSize: '12px', color: 'var(--text-secondary)', fontFamily: 'var(--font-heading)' }}>{userEmail}</div>
+              {onSignOut && (
+                <button
+                  onClick={onSignOut}
+                  style={{
+                    padding: '6px 14px', borderRadius: '8px', fontSize: '12px', fontWeight: 700,
+                    border: '1.5px solid rgba(26,10,0,0.15)', background: 'transparent',
+                    color: 'var(--text-secondary)', cursor: 'pointer',
+                  }}
+                >
+                  Sign Out
+                </button>
+              )}
             </div>
-            {onSignOut && (
-              <button
-                onClick={onSignOut}
-                style={{
-                  padding: '6px 14px', borderRadius: '8px', fontSize: '12px', fontWeight: 700,
-                  border: '1.5px solid rgba(26,10,0,0.15)', background: 'transparent',
-                  color: 'var(--text-secondary)', cursor: 'pointer',
-                }}
-              >
-                Sign Out
-              </button>
-            )}
-          </div>
 
           {userEmail && (
             <div style={{ marginTop: '12px', borderTop: '1px solid rgba(26,10,0,0.08)', paddingTop: '12px' }}>
@@ -844,6 +832,8 @@ export default function Settings({ settings, updateSettings, allHolds, onSetupBo
               )}
             </div>
           )}
+          </div>
+          )}
         </div>
       )}
 
@@ -932,6 +922,11 @@ const dropBodyStyle = {
   background: 'var(--bg-card)', padding: '16px',
   border: '1px solid var(--border)', borderTop: '1px solid rgba(26,10,0,0.08)',
   borderRadius: '0 0 12px 12px', boxShadow: '0 2px 8px rgba(26,10,0,0.06)',
+};
+// shared collapsible-header title (accent, borderless) — matches WallsSettings dropTitle
+const dropTitleStyle = {
+  fontSize: '11px', fontWeight: 800, color: 'var(--accent)',
+  letterSpacing: '1.5px', textTransform: 'uppercase', display: 'flex', alignItems: 'center',
 };
 const specEditBtn = { marginTop: '12px', padding: '7px 12px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: 700, cursor: 'pointer' };
 const specSaveBtn = { flex: 1, padding: '9px', borderRadius: '8px', border: 'none', background: 'var(--accent)', color: '#fff', fontSize: '13px', fontWeight: 700, cursor: 'pointer' };

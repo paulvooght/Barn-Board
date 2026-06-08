@@ -1999,6 +1999,8 @@ export default function App() {
           handleEditHold,
           setHoldEditorSource,
           hasChevronBar: viewRouteOrder.length > 0,
+          minAngle: activeBoardSpecs.minAngle,
+          maxAngle: activeBoardSpecs.maxAngle,
           ViewRouteHeader,
         };
 
@@ -2089,6 +2091,8 @@ export default function App() {
           techniques={techniques} setTechniques={setTechniques}
           styles={styles} setStyles={setStyles}
           grades={grades}
+          minAngle={activeBoardSpecs.minAngle}
+          maxAngle={activeBoardSpecs.maxAngle}
           selectedCount={selectedCount}
           isEditing={!!editingRouteId}
           onSave={saveRoute}
@@ -2380,7 +2384,7 @@ export default function App() {
 }
 
 // ─── New Angle Suggestion Row ────────────────────────────────────────
-function NewAngleSuggestionRow({ grades, existingAngles, onSuggest }) {
+function NewAngleSuggestionRow({ grades, existingAngles, minAngle = BOARD_SPECS.minAngle, maxAngle = BOARD_SPECS.maxAngle, onSuggest }) {
   const [open, setOpen] = useState(false);
   const [angle, setAngle] = useState('');
   const [grade, setGrade] = useState('');
@@ -2466,7 +2470,7 @@ function NewAngleSuggestionRow({ grades, existingAngles, onSuggest }) {
 }
 
 // ─── View Route Header with Angle-Grade Management ──────────────────
-function ViewRouteHeader({ route, sent, flashed, attempted, angleSends, angleFlashes, angleAttempts, isCreator, canEdit, grades, gradeSystem, playlists, settings, allHolds, communityGrades, myGradeSuggestions, onSuggestGrade, onAcceptGrade, onEdit, onClose, onDelete, onToggleSent, onAddAngleGrade, onRemoveAngleGrade, onSetHeadline, onToggleAngleSent, onAddToPlaylist, onCreatePlaylist }) {
+function ViewRouteHeader({ route, sent, flashed, attempted, angleSends, angleFlashes, angleAttempts, isCreator, canEdit, grades, gradeSystem, playlists, settings, allHolds, communityGrades, myGradeSuggestions, minAngle = BOARD_SPECS.minAngle, maxAngle = BOARD_SPECS.maxAngle, onSuggestGrade, onAcceptGrade, onEdit, onClose, onDelete, onToggleSent, onAddAngleGrade, onRemoveAngleGrade, onSetHeadline, onToggleAngleSent, onAddToPlaylist, onCreatePlaylist }) {
   const headlineState = flashed ? 'flash' : sent ? 'sent' : attempted ? 'tried' : 'empty';
   const sendsArr    = angleSends    || [];
   const flashesArr  = angleFlashes  || [];
@@ -2841,7 +2845,7 @@ function ViewRouteHeader({ route, sent, flashed, attempted, angleSends, angleFla
                   <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                     <input
                       type="range"
-                      min={BOARD_SPECS.minAngle} max={BOARD_SPECS.maxAngle}
+                      min={minAngle} max={maxAngle}
                       value={newAngle}
                       onChange={e => setNewAngle(Number(e.target.value))}
                       style={{ flex: 1, accentColor: 'var(--accent)' }}
@@ -3051,6 +3055,8 @@ function ViewRouteHeader({ route, sent, flashed, attempted, angleSends, angleFla
                 <NewAngleSuggestionRow
                   grades={grades}
                   existingAngles={unifiedAngleRows.map(r => r.angle)}
+                  minAngle={minAngle}
+                  maxAngle={maxAngle}
                   onSuggest={(angle, grade) => onSuggestGrade(undefined, { [angle]: grade })}
                 />
               )}
