@@ -89,6 +89,8 @@ wall starts empty). Per-board boardRegion lives in `boards.specs.boardRegion`.
 - `004_boards_multiwall.sql` — **multi-wall Phase 2a (applied to prod 2026-06-04):** `boards` + `board_members`, `board_id` on `routes`/`sessions` (backfilled to "The Barn" seed wall + set as column default), all existing users enrolled as members, permissive RLS on the new tables (tightened to tenant isolation in 2c).
 - `005_holds_per_board.sql` — **multi-wall Phase 2b-ii (applied to prod 2026-06-05):** seeds The Barn's per-board keys (`holds_<barnId>` from `custom_holds` verbatim, `board_image_config_<barnId>`, `boards.specs.boardRegion`). Additive/non-destructive (old global keys kept as revert). Executable twin: `scripts/migrate_holds_to_board.mjs` (dry-run verifier + `--commit`).
 - `006_yonder_board.sql` — **multi-wall Phase 2b-iii (applied to prod 2026-06-05):** stands up the **Yonder** wall — `boards` row (`275dfaa7-1df9-4fe7-8332-c2795eb9ebe7`, slug `yonder`, **public**, owner Paul) + `board_members` (Paul=admin, `claude-test`=member). Idempotent. Executable twin `scripts/seed_yonder.mjs` ALSO seeds Yonder's data (`holds_<id>` ← 108 detected holds, `boards.specs.boardRegion`); image via `publish_board_image.py --board yonder`.
+- `007_board_membership_fns.sql` — **multi-wall Phase 2b-iv (applied to prod 2026-06-07):** 5 SECURITY DEFINER fns (`join_board_by_code`, `get_board_members`, `set_member_role`, `leave_board`, `set_board_visibility`) — each re-checks perms internally (admin-gated; last-admin guard). The privileged-write path; 2c-forward-compatible.
+- `008_rls_tenant_isolation.sql` — **multi-wall Phase 2c (applied to prod 2026-06-08):** real per-wall tenant isolation + per-board admin enforcement. Adds `app_is_member`/`app_is_admin` helpers; routes/ratings → members-only reads, route admin → board admin (drops the hardcoded email), `board_settings` writes → board admin of the key, `board_members` self-join → public-only (private via the 007 code fn), `boards` → public-or-member read. Atomic (begin/commit) with a commented ROLLBACK block. Verified by `scripts/verify_2c_rls.mjs` (22/22). Backup `pre-2c`, rollback tag `v1.8-pre-multiwall-2c`.
 - `scripts/dump_schema.sql` — paste into the Supabase SQL editor to dump live RLS/defaults/FKs/indexes for reconciliation (the parts OpenAPI can't expose).
 
 ### Supabase Sync Pattern
@@ -110,11 +112,12 @@ wall starts empty). Per-board boardRegion lives in `boards.specs.boardRegion`.
 - Only admin sees Hold Manager button in Settings
 - Hold data (overrides + custom holds) is shared across all users (one physical board)
 - Admin status is now sourced from `profiles.is_admin` (set manually via SQL after first signup). `VITE_ADMIN_EMAIL` remains as a bootstrap fallback so the first admin isn't locked out before promoting their profile row.
-- ⚠️ **Admin enforcement is split (verified against live RLS 2026-06-03):**
-  - **Routes:** editing/deleting *others'* routes is gated server-side to a **hardcoded email** (`paul@thisisyonder.com`) in RLS — not `profiles.is_admin`.
-  - **Comments:** delete uses `profiles.is_admin` (a different mechanism).
-  - **`board_settings` (hold data + image config):** writable by **any authenticated user** server-side — so Hold-Manager / image-wizard edits are protected *only* by the client-side `isAdmin` gate, which **fails open** when `VITE_ADMIN_EMAIL` is unset.
-  - **Fixes:** default `isAdmin` to `false`; tighten `board_settings` writes before a public wall; replace the hardcoded-email route policy with per-board roles (`board_members`) for multi-wall — otherwise only Paul can admin any wall.
+- **Admin enforcement (server-side, tightened in multi-wall 2c — migration `008`, applied 2026-06-08):**
+  - **Routes:** editing/deleting *others'* routes = **board admin** of the route's `board_id` (`board_members.role='admin'`, via the `app_is_admin(uuid)` SECURITY DEFINER helper). The old hardcoded-`paul@thisisyonder.com` policy is **gone** — each wall's admin manages that wall.
+  - **Comments:** delete still uses `profiles.is_admin` (a separate, global mechanism — comments aren't yet per-wall).
+  - **`board_settings` (hold data + image config):** writes now require **board admin of the key's `<boardId>`** (any key ending in a board uuid → that board's admin; `playlists_<uid>` → that user; legacy globals → Barn admin). Reads stay authenticated. The old "any authenticated user can write" hole is closed.
+  - **Client `isAdmin`** (comment moderation) now **defaults to `false`** when there's no `profiles.is_admin` flag and no `VITE_ADMIN_EMAIL` (no longer fails open). The Hold-Manager/image gate uses the per-wall `isActiveBoardAdmin` (role on the active wall).
+  - Verified by `scripts/verify_2c_rls.mjs` (22/22, member/admin/non-member, no lockout).
 
 ### Key Files
 *Line counts are approximate (rounded) — kept loosely in sync, don't treat as exact.*
