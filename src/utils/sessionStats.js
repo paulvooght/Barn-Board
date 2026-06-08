@@ -373,6 +373,19 @@ export function computeStats(sessions, routes, userRouteData, period, gradeSyste
     createdCount += (s.routesCreated || []).length;
   }
 
+  // Tried in period — distinct routes attempted but NOT sent (the app's "Tried"
+  // 4-state = attempted, not topped). A route sent in the period counts as a send,
+  // not a try, even if it was attempted first.
+  const attemptedIds = new Set();
+  const sentIdsInPeriod = new Set();
+  for (const s of periodSessions) {
+    for (const id of (s.routesAttempted || [])) attemptedIds.add(id);
+    for (const id of (s.routesSent || [])) sentIdsInPeriod.add(id);
+  }
+  for (const send of periodSends) sentIdsInPeriod.add(send.routeId);
+  let triedCount = 0;
+  for (const id of attemptedIds) if (!sentIdsInPeriod.has(id)) triedCount++;
+
   // ── Warm-up filter ────────────────────────────────────────────────────────
   // For a single-session period: check if that session has a warmupGrade override.
   // For all other periods: use the global derived ceiling (per-session overrides
@@ -473,6 +486,7 @@ export function computeStats(sessions, routes, userRouteData, period, gradeSyste
   return {
     // Activity (no warm-up filter)
     sendCount,
+    triedCount,
     sessionCount,
     createdCount,
     avgSessionLengthMin,
@@ -645,7 +659,7 @@ export function computeDelta(currentStats, previousStats) {
 
   const delta = {};
 
-  const numFields = ['sendCount', 'sessionCount'];
+  const numFields = ['sendCount', 'triedCount', 'sessionCount'];
   for (const f of numFields) {
     const curr = currentStats?.[f];
     const prev = previousStats?.[f];

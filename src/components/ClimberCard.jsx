@@ -211,6 +211,8 @@ export default function ClimberCard({ stats, delta, gradeSystem, displayName, pe
       {statDivider}
       {statCell('Sends', stats.sendCount, delta && <DeltaBadge value={delta.sendCount} />)}
       {statDivider}
+      {statCell('Tried', stats.triedCount ?? 0, delta && <DeltaBadge value={delta.triedCount} />)}
+      {statDivider}
       {statCell('Created', stats.createdCount)}
     </div>
   );

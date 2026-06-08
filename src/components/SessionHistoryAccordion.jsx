@@ -95,6 +95,9 @@ export default function SessionHistoryAccordion({
                 const m        = Math.floor((duration % 3600000) / 60000);
                 const durationStr = duration === 0 ? '—' : h > 0 ? `${h}h ${m}m` : `${m}m`;
                 const sentCount   = (s.routesSent || []).length;
+                // Tried = attempted but not sent this session (matches the app's "Tried" state)
+                const sentSet     = new Set([...(s.routesSent || []), ...((s.sends || []).map(x => x.routeId))]);
+                const triedCount  = (s.routesAttempted || []).filter(id => !sentSet.has(id)).length;
                 const anglesClimbed = s.anglesClimbed || [];
 
                 // Hardest grade sent
@@ -158,6 +161,15 @@ export default function SessionHistoryAccordion({
                           padding: '2px 7px', borderRadius: '6px',
                         }}>
                           {sentCount} sent
+                        </span>
+                      )}
+                      {triedCount > 0 && (
+                        <span style={{
+                          fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)',
+                          background: 'rgba(26,10,0,0.07)',
+                          padding: '2px 7px', borderRadius: '6px',
+                        }}>
+                          {triedCount} tried
                         </span>
                       )}
                       {hardest && (
