@@ -1,5 +1,9 @@
 import { MODE_COLORS } from '../utils/constants';
 
+// Set to true to bring back the small white centre dot on regular hand holds
+// in the route view. Turned off because the dots covered the holds. See Layer 4.
+const SHOW_CENTER_DOTS = false;
+
 /**
  * Renders a single hold as SVG elements inside a parent <svg>.
  *
@@ -110,8 +114,8 @@ export default function HoldOverlay({ hold, boardRegion, imgSize, selection, onT
         </>
       )}
 
-      {/* Small bright dot for regular hand holds */}
-      {!label && (
+      {/* Layer 4: Small bright dot for regular hand holds (toggle via SHOW_CENTER_DOTS) */}
+      {SHOW_CENTER_DOTS && !label && (
         <circle
           cx={cx} cy={cy}
           r={Math.max(bW * 0.004, 3)}
