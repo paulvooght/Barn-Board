@@ -182,15 +182,15 @@ export default function WallsSettings({
               );
             })}
 
-            {/* Join a wall — opens a dedicated page listing every joinable wall */}
-            <button style={joinBtn} onClick={() => onBrowseWalls?.()}>+ Join a wall</button>
-
-            {/* Leave the active wall — kept inside the dropdown, set apart below */}
-            {activeBoard && (
-              <div style={{ marginTop: '14px', paddingTop: '14px', borderTop: '1px solid rgba(26,10,0,0.08)' }}>
-                <button style={btnDanger} disabled={busy} onClick={leave}>Leave {activeBoard.name}</button>
-              </div>
-            )}
+            {/* Join + Leave on one row — side by side so they read as two
+                distinct actions (Join = accent, Leave = danger) rather than two
+                similar full-width stacked buttons. */}
+            <div style={{ display: 'flex', gap: '8px', marginTop: '14px', paddingTop: '14px', borderTop: '1px solid rgba(26,10,0,0.08)' }}>
+              <button style={joinBtn} onClick={() => onBrowseWalls?.()}>+ Join a wall</button>
+              {activeBoard && (
+                <button style={leaveBtn} disabled={busy} onClick={leave}>Leave {activeBoard.name}</button>
+              )}
+            </div>
           </div>
         )}
       </div>
@@ -286,8 +286,9 @@ const dropBody = {
 const dropTitle = { fontSize: '11px', fontWeight: 800, color: 'var(--accent)', letterSpacing: '1.5px', textTransform: 'uppercase', display: 'flex', alignItems: 'center' };
 const chevron = { fontSize: '12px', color: 'var(--text-dim)' };
 
-// "Join a wall" — accent-outlined button that opens the browse-all-walls page
-const joinBtn = { width: '100%', padding: '12px', borderRadius: '10px', cursor: 'pointer', border: '1.5px dashed var(--accent)', background: 'var(--accent-dim)', color: 'var(--accent)', fontSize: '13px', fontWeight: 800, marginTop: '6px' };
+// Join (accent) + Leave (danger) sit side by side, each taking half the row.
+const joinBtn = { flex: 1, padding: '12px', borderRadius: '10px', cursor: 'pointer', border: '1.5px dashed var(--accent)', background: 'var(--accent-dim)', color: 'var(--accent)', fontSize: '13px', fontWeight: 800, whiteSpace: 'nowrap' };
+const leaveBtn = { flex: 1, padding: '12px', borderRadius: '10px', cursor: 'pointer', border: '1px solid rgba(155,42,42,0.3)', background: 'rgba(155,42,42,0.06)', color: '#9B2A2A', fontSize: '13px', fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' };
 
 // minimal centered wall row — the name IS the button (active = current wall)
 const wallBtn = (active) => ({

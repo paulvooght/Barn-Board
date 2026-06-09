@@ -251,7 +251,9 @@
       "Bash(grep -n \"Settings$\\\\|<Settings\\\\|view === 'settings'\\\\|onSwitchBoard\\\\|onWallJoined\\\\|onWallLeft\\\\|onRolesChanged\" src/App.jsx)",
       "Bash(awk 'NR>=2700 && NR<=2845 && /function |const .*=.*\\\\\\(.*\\\\\\).*=>|=> \\\\{/' src/App.jsx)",
       "Bash(sed -n '196,240p' src/lib/db.js)",
-      "Bash(sed -n '26,40p' src/lib/db.js)"
+      "Bash(sed -n '26,40p' src/lib/db.js)",
+      "Bash(node --env-file=.env.local scripts/cleanup_test_sessions.mjs)",
+      "Bash(node --env-file=.env.local scripts/_chk.mjs)"
     ]
   }
 }

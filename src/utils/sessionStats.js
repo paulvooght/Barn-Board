@@ -333,22 +333,15 @@ export function computeStats(sessions, routes, userRouteData, period, gradeSyste
   const avgSessionLengthMin = durCount > 0 ? Math.round(totalDurationMin / durCount) : null;
   const exactSessionLengthMin = period.type === 'session' ? avgSessionLengthMin : undefined;
 
-  // Avg sessions per week
-  let avgSessionsPerWeek = null;
-  if (sessionCount > 0 && period.type !== 'session') {
-    if (period.type === 'all') {
-      const times = safeSessions.map(s => new Date(s.startTime).getTime());
-      const spanMs = Math.max(...times) - Math.min(...times);
-      const spanWeeks = spanMs / (7 * 24 * 60 * 60 * 1000);
-      avgSessionsPerWeek = spanWeeks > 0 ? safeSessions.length / spanWeeks : null;
-    } else {
-      const periodStart = new Date(period.start).getTime();
-      const periodEnd = new Date(period.end).getTime();
-      const periodMs = periodEnd - periodStart;
-      const periodWeeks = periodMs / (7 * 24 * 60 * 60 * 1000);
-      avgSessionsPerWeek = periodWeeks > 0 ? sessionCount / periodWeeks : null;
-    }
-  }
+  // Sessions/week — average over a trailing 12-week (84-day) window. Long enough
+  // to be a stable longer-term rate, short enough to ignore old off-seasons.
+  // Counted across all (board-filtered) sessions, independent of the selected period.
+  const WEEKS_WINDOW = 12;
+  const windowStartMs = Date.now() - WEEKS_WINDOW * 7 * 24 * 60 * 60 * 1000;
+  const sessionsInWindow = safeSessions.filter(
+    s => s.startTime && new Date(s.startTime).getTime() >= windowStartMs
+  ).length;
+  const avgSessionsPerWeek = Math.round((sessionsInWindow / WEEKS_WINDOW) * 10) / 10;
 
   // Top grade in period (no warm-up filter — raw max)
   let topGradeIndex = -1;
@@ -490,7 +483,7 @@ export function computeStats(sessions, routes, userRouteData, period, gradeSyste
     sessionCount,
     createdCount,
     avgSessionLengthMin,
-    avgSessionsPerWeek: avgSessionsPerWeek != null ? Math.round(avgSessionsPerWeek * 10) / 10 : null,
+    avgSessionsPerWeek,
     exactSessionLengthMin,
 
     // Grade
