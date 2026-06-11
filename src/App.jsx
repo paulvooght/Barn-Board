@@ -188,30 +188,13 @@ export default function App() {
     ]);
 
     // a) Routes
-    const routeRows = routeResult.data;
-    if (routeRows && routeRows.length > 0) {
-      const cloudRoutes = routeRows.map(r => ({
-        ...r.data,
-        creatorId: r.data.creatorId || r.user_id,
-        boardId: r.board_id,
-      }));
-      // Merge in any locally-pending routes the cloud doesn't know about yet.
-      // Without this, a refetch (e.g. tab-visibility on flaky cellular) would wipe
-      // a freshly-created route whose upsert hadn't landed — the bug we're fixing.
-      const cloudIds = new Set(cloudRoutes.map(r => r.id));
-      const pending = getPendingRoutes();
-      const orphaned = Object.values(pending)
-        .map(entry => entry.route)
-        .filter(r => r && !cloudIds.has(r.id));
-      if (orphaned.length > 0) {
-        console.log('[pendingSync] preserving', orphaned.length, 'unsynced route(s) across refetch');
-      }
-      setRoutes([...orphaned, ...cloudRoutes]);
-      // Drop any pending entries the cloud now confirms (a successful flush
-      // from another device, or our own retry that we never saw the response for).
-      const confirmedIds = Object.keys(pending).filter(id => cloudIds.has(id));
-      for (const id of confirmedIds) dequeueRoute(id);
-    } else if (isFirstLoad) {
+    // Routes are scoped to the active wall (boardId). An EMPTY result is a real
+    // answer — a fresh wall genuinely has no routes — so we must always re-derive
+    // the routes list from the cloud rows, never leave the previous wall's routes
+    // in state. (The old `length > 0` guard left stale routes when switching to an
+    // empty wall, because a board switch is not isFirstLoad.)
+    const routeRows = routeResult.data || [];
+    if (routeRows.length === 0 && isFirstLoad) {
       // First login — migrate any localStorage routes (sequential, runs once ever)
       const local = JSON.parse(localStorage.getItem('barnboard_routes') || '[]');
       if (local.length > 0) {
@@ -227,6 +210,29 @@ export default function App() {
           }
         }
       }
+    } else {
+      const cloudRoutes = routeRows.map(r => ({
+        ...r.data,
+        creatorId: r.data.creatorId || r.user_id,
+        boardId: r.board_id,
+      }));
+      // Merge in any locally-pending routes the cloud doesn't know about yet.
+      // Without this, a refetch (e.g. tab-visibility on flaky cellular) would wipe
+      // a freshly-created route whose upsert hadn't landed — the bug we're fixing.
+      // Scope to THIS wall so a pending route from another wall doesn't leak in.
+      const cloudIds = new Set(cloudRoutes.map(r => r.id));
+      const pending = getPendingRoutes();
+      const orphaned = Object.values(pending)
+        .map(entry => entry.route)
+        .filter(r => r && !cloudIds.has(r.id) && (!boardId || r.boardId === boardId));
+      if (orphaned.length > 0) {
+        console.log('[pendingSync] preserving', orphaned.length, 'unsynced route(s) across refetch');
+      }
+      setRoutes([...orphaned, ...cloudRoutes]);
+      // Drop any pending entries the cloud now confirms (a successful flush
+      // from another device, or our own retry that we never saw the response for).
+      const confirmedIds = Object.keys(pending).filter(id => cloudIds.has(id));
+      for (const id of confirmedIds) dequeueRoute(id);
     }
 
     // b) User's per-route data
