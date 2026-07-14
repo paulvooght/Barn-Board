@@ -9,8 +9,13 @@
     <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=2" />
     <!-- The board image is dynamic (Supabase board_image_config), so a static
          image preload would be wasted for returning users. Instead, warm the
-         Supabase connection so the actual image + data fetch fast. -->
+         Supabase connection so the actual image + data fetch fast.
+         Two preconnects on purpose: the board image loads non-CORS (<img>), while
+         the REST/auth calls are CORS (they send an Authorization header). Browsers
+         keep separate connection pools for each, so warming both means neither the
+         image nor the first auth/data fetch has to open a cold socket. -->
     <link rel="preconnect" href="https://omsucewpjhfqjnpqdmsh.supabase.co" />
+    <link rel="preconnect" href="https://omsucewpjhfqjnpqdmsh.supabase.co" crossorigin />
     <title>Barn Board</title>
     <!-- Fonts are self-hosted (see src/main.jsx — @fontsource DM Sans + Kodchasan):
          bundled with the app and precached by the service worker, so there's no

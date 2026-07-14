@@ -171,7 +171,7 @@ export default function App() {
   const loadDataFromSupabase = useCallback(async (userId, isFirstLoad, boardId) => {
     // Fire all queries in parallel — biggest startup speedup.
     // Routes + sessions are scoped to the active wall (boardId); the rest are user/global.
-    const [routeResult, urdResult, ratingResult, gradeResult, sessionResult, plResult, imgConfigResult, profilesResult, allRouteResult] = await Promise.all([
+    const [routeResult, urdResult, ratingResult, gradeResult, sessionResult, plResult, imgConfigResult, profilesResult] = await Promise.all([
       db.fetchRoutes(boardId),
       db.fetchUserRouteData(userId),
       db.fetchAllRatings(),
@@ -182,10 +182,11 @@ export default function App() {
       db.getBoardSetting(`playlists_${userId}`),
       db.getBoardImageConfig(boardId),
       db.fetchProfiles(),
-      // All routes the user can read (across every wall) — the Sessions tab resolves
-      // route metadata (grade/holdTypes/styles/holds) from this for cross-board stats.
-      db.fetchRoutes(),
     ]);
+    // NOTE: the cross-wall allRoutes fetch (every route on every wall, for the
+    // Sessions-tab stats) used to live here — it's a big query that gated first
+    // paint for everyone, including users who never open the (beta) Sessions tab.
+    // It's now lazy-loaded on demand when the Sessions view opens (see effect below).
 
     // a) Routes
     // Routes are scoped to the active wall (boardId). An EMPTY result is a real
@@ -270,16 +271,6 @@ export default function App() {
       }
     }
     setGradeRowsByRoute(rowsByRoute);
-
-    // e0) All routes across walls (for cross-board Sessions stats)
-    const allRouteRows = allRouteResult.data;
-    if (allRouteRows) {
-      setAllRoutes(allRouteRows.map(r => ({
-        ...r.data,
-        creatorId: r.data.creatorId || r.user_id,
-        boardId: r.board_id,
-      })));
-    }
 
     // e) Sessions
     const sessionRows = sessionResult.data;
@@ -413,16 +404,32 @@ export default function App() {
     await resolveActiveBoard(user.id);
   }, [user, myBoards, resolveActiveBoard]);
 
-  // Initial load on login — resolve the active wall first, then load its data.
+  // Initial load on login. The naive order is serial — resolve the wall (boards +
+  // board_members, ~1 round trip) THEN load that wall's data (~1 round trip) — which
+  // stacks two latency hits back to back. But the last active wall is cached in
+  // localStorage, so for a returning user we can OPTIMISTICALLY start the data load
+  // for the cached wall in PARALLEL with the authoritative resolve. If resolve later
+  // disagrees (membership changed, cache stale), we reload the correct wall — a rare
+  // path. This overlaps the two round trips and roughly halves time-to-data.
   useEffect(() => {
     if (!user) return;
     setDataReady(false);
     setBoardsResolved(false);
     hasLoadedOnce.current = false;
     (async () => {
+      const cachedBoardId = localStorage.getItem('barnboard_active_board');
+      const optimisticLoad = cachedBoardId
+        ? loadDataFromSupabase(user.id, true, cachedBoardId)
+        : null;
       const boardId = await resolveActiveBoard(user.id);
-      if (boardId) await loadDataFromSupabase(user.id, true, boardId); // no wall → onboarding screen (skip load)
       setBoardsResolved(true);
+      if (boardId && boardId !== cachedBoardId) {
+        // Cache was stale/invalid (or first ever load) → load the real wall.
+        await loadDataFromSupabase(user.id, true, boardId);
+      } else if (optimisticLoad) {
+        await optimisticLoad; // cache was correct — the parallel load already ran
+      }
+      // (boardId null → no wall → onboarding screen, nothing to load)
       hasLoadedOnce.current = true;
     })();
   }, [user?.id, loadDataFromSupabase, resolveActiveBoard]);
@@ -718,6 +725,28 @@ export default function App() {
 
   // Lifted period state for Sessions tab — persists across navigation
   const [sessionsPeriod, setSessionsPeriod] = useState(null);
+
+  // Lazy cross-wall route fetch for the Sessions tab. The Sessions stats resolve
+  // route metadata (grade/holdTypes/styles/holds) across EVERY wall, but that's a
+  // big query we don't want on the first-paint critical path — so we fetch it only
+  // when the Sessions view actually opens, and refresh it each time it does (the
+  // realtime/visibility sync only updates the current wall's `routes`, so allRoutes
+  // would otherwise go stale). SessionsView falls back to the current-wall `routes`
+  // for the brief moment before this lands. (Declared here, after `view`, so the
+  // dependency array doesn't reference `view` in its temporal dead zone.)
+  useEffect(() => {
+    if (view !== 'sessions' || !user) return;
+    let cancelled = false;
+    db.fetchRoutes().then(({ data }) => {
+      if (cancelled || !data) return;
+      setAllRoutes(data.map(r => ({
+        ...r.data,
+        creatorId: r.data.creatorId || r.user_id,
+        boardId: r.board_id,
+      })));
+    });
+    return () => { cancelled = true; };
+  }, [view, user?.id]);
 
   // Back-nav sources — track where viewRoute / sessionEdit were launched from
   const [viewRouteSource, setViewRouteSource] = useState('routes'); // 'routes' | 'sessions'
