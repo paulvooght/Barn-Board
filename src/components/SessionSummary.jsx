@@ -81,6 +81,7 @@ export default function SessionSummary({ session, routes, grades, allSessions, o
           grade: s.grade || route?.grade || '?',
           angle: s.angle || route?.angle || null,
           routeId: s.routeId,
+          flash: s.flash === true,
         };
       });
     }
@@ -270,11 +271,19 @@ export default function SessionSummary({ session, routes, grades, allSessions, o
                 )}
               </span>
               <span style={{
-                background: 'var(--yellow)', color: 'var(--text-primary)',
+                background: s.flash ? 'rgba(255,203,71,0.25)' : 'var(--yellow)',
+                border: s.flash ? '1.5px solid #FFCB47' : '1.5px solid transparent',
+                color: s.flash ? '#b45309' : 'var(--text-primary)',
                 fontWeight: 700, fontFamily: 'var(--font-heading)',
-                fontSize: '11px', padding: '2px 8px', borderRadius: '6px',
+                fontSize: '11px', padding: '1.5px 8px', borderRadius: '6px',
                 flexShrink: 0, marginLeft: '8px',
+                display: 'inline-flex', alignItems: 'center', gap: '3px',
               }}>
+                {s.flash && (
+                  <svg width="9" height="9" viewBox="0 0 24 24" fill="#FFCB47" stroke="none">
+                    <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+                  </svg>
+                )}
                 {s.grade}
               </span>
             </div>
