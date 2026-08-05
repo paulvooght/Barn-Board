@@ -953,17 +953,91 @@ export default function App() {
     logRouteAttempted(routeId);
   }, [user, logRouteAttempted]);
 
-  const logRouteSent = useCallback((routeId, angle, grade) => {
+  // logRouteSent — idempotent per (routeId, angle): updates the existing sends[]
+  // entry in place (e.g. sent → flash upgrade) instead of appending a duplicate.
+  const logRouteSent = useCallback((routeId, angle, grade, isFlash = false) => {
     if (!activeSession) return;
     setActiveSession(prev => {
       if (!prev) return prev;
       const routesSent = prev.routesSent.includes(routeId)
         ? prev.routesSent
         : [...prev.routesSent, routeId];
-      // Also log detailed send info (angle + grade)
       const sends = prev.sends || [];
+      const existingIdx = sends.findIndex(s => s.routeId === routeId && s.angle === (angle || null));
       const newSend = { routeId, angle: angle || null, grade: grade || null, time: new Date().toISOString() };
-      return { ...prev, routesSent: routesSent, sends: [...sends, newSend] };
+      if (isFlash) newSend.flash = true;
+      let newSends;
+      if (existingIdx >= 0) {
+        newSends = sends.slice();
+        newSends[existingIdx] = newSend;
+      } else {
+        newSends = [...sends, newSend];
+      }
+      // flashedRouteIds is derived from sends[] with flash:true — recompute after every update.
+      const flashedRouteIds = [...new Set(newSends.filter(s => s.flash).map(s => s.routeId))];
+      const next = { ...prev, routesSent, sends: newSends };
+      if (flashedRouteIds.length > 0) next.flashedRouteIds = flashedRouteIds;
+      else delete next.flashedRouteIds;
+      return next;
+    });
+  }, [activeSession, setActiveSession]);
+
+  // logAngleAttempted — records an attempt at a specific angle for a route in the
+  // active session (angleAttempts: [{routeId, angles: []}]). No-op without an angle.
+  const logAngleAttempted = useCallback((routeId, angle) => {
+    if (!activeSession || angle == null) return;
+    setActiveSession(prev => {
+      if (!prev) return prev;
+      const attempts = prev.angleAttempts || [];
+      const idx = attempts.findIndex(a => a.routeId === routeId);
+      let newAttempts;
+      if (idx >= 0) {
+        if (attempts[idx].angles.includes(angle)) return prev; // already recorded
+        newAttempts = attempts.slice();
+        newAttempts[idx] = { ...attempts[idx], angles: [...attempts[idx].angles, angle] };
+      } else {
+        newAttempts = [...attempts, { routeId, angles: [angle] }];
+      }
+      return { ...prev, angleAttempts: newAttempts };
+    });
+  }, [activeSession, setActiveSession]);
+
+  // unlogRouteAngle — reverse of logRouteSent + logAngleAttempted for one angle:
+  // removes the angle's sends[] entry and angleAttempts entry, then recomputes
+  // routesSent / flashedRouteIds / routesAttempted from what remains.
+  const unlogRouteAngle = useCallback((routeId, angle) => {
+    if (!activeSession) return;
+    setActiveSession(prev => {
+      if (!prev) return prev;
+      const normAngle = angle || null;
+
+      const sends = (prev.sends || []).filter(s => !(s.routeId === routeId && s.angle === normAngle));
+      const routesSent = sends.some(s => s.routeId === routeId)
+        ? prev.routesSent
+        : prev.routesSent.filter(id => id !== routeId);
+      const flashedRouteIds = [...new Set(sends.filter(s => s.flash).map(s => s.routeId))];
+
+      const attempts = prev.angleAttempts || [];
+      const idx = attempts.findIndex(a => a.routeId === routeId);
+      let newAttempts = attempts;
+      if (idx >= 0) {
+        const remainingAngles = attempts[idx].angles.filter(a => a !== angle);
+        newAttempts = remainingAngles.length > 0
+          ? [...attempts.slice(0, idx), { ...attempts[idx], angles: remainingAngles }, ...attempts.slice(idx + 1)]
+          : [...attempts.slice(0, idx), ...attempts.slice(idx + 1)];
+      }
+      const remainingAttemptAngles = newAttempts.find(a => a.routeId === routeId)?.angles || [];
+      const stillHasSend = sends.some(s => s.routeId === routeId);
+      const routesAttempted = (!stillHasSend && remainingAttemptAngles.length === 0)
+        ? prev.routesAttempted.filter(id => id !== routeId)
+        : prev.routesAttempted;
+
+      const next = { ...prev, sends, routesSent, routesAttempted };
+      if (flashedRouteIds.length > 0) next.flashedRouteIds = flashedRouteIds;
+      else delete next.flashedRouteIds;
+      if (newAttempts.length > 0) next.angleAttempts = newAttempts;
+      else delete next.angleAttempts;
+      return next;
     });
   }, [activeSession, setActiveSession]);
 
@@ -1237,23 +1311,40 @@ export default function App() {
         angle_sends: current.angleSends, angle_flashes: current.angleFlashes || [], angle_attempts: current.angleAttempts || [],
         grade_suggestions: current.gradeSuggestions || {}, attempted: newAttempted,
       });
-      if (newSent && !current.sent) {
-        // Newly marked as sent — log to session
+      if (nextState === 'sent') {
+        // Freshly sent — log to session
         const route = routesRef.current.find(r => r.id === routeId);
         if (route) {
-          logRouteSent(routeId, route.angle, route.grade);
+          logRouteSent(routeId, route.angle, route.grade, false);
           if (route.angle) logAngleClimbed(route.angle);
         }
+      } else if (nextState === 'flash') {
+        // Upgrade the existing sent entry to a flash (logRouteSent is idempotent per angle).
+        const route = routesRef.current.find(r => r.id === routeId);
+        if (route) {
+          logRouteSent(routeId, route.angle, route.grade, true);
+          if (route.angle) logAngleClimbed(route.angle);
+        }
+      } else if (nextState === 'empty' && current.attempted) {
+        // Cycling back to empty from flash — strip this route's session log entries entirely
+        // and drop it from the active session's attempted list.
+        setActiveSession(prevSession => {
+          if (!prevSession) return prevSession;
+          const sends = (prevSession.sends || []).filter(s => s.routeId !== routeId);
+          const flashedRouteIds = [...new Set(sends.filter(s => s.flash).map(s => s.routeId))];
+          const next = {
+            ...prevSession,
+            sends,
+            routesSent: prevSession.routesSent.filter(id => id !== routeId),
+            routesAttempted: prevSession.routesAttempted.filter(id => id !== routeId),
+          };
+          if (flashedRouteIds.length > 0) next.flashedRouteIds = flashedRouteIds;
+          else delete next.flashedRouteIds;
+          return next;
+        });
       }
       // Log attempt when moving away from empty (idempotent)
       if (newAttempted && !current.attempted) logRouteAttempted(routeId);
-      // When cycling back to empty, drop the route from the active session's attempted list too.
-      if (!newAttempted && current.attempted) {
-        setActiveSession(prevSession => {
-          if (!prevSession) return prevSession;
-          return { ...prevSession, routesAttempted: prevSession.routesAttempted.filter(id => id !== routeId) };
-        });
-      }
       return { ...prev, [routeId]: { ...current, sent: newSent, flashed: newFlashed, attempted: newAttempted } };
     });
   }, [user, logRouteSent, logAngleClimbed, logRouteAttempted]);
@@ -1419,16 +1510,20 @@ export default function App() {
         grade_suggestions: current.gradeSuggestions || {}, attempted: willBeAttempted,
       });
 
-      // Session logging — only on transitions that increase progress.
-      if (nextState !== 'empty' && !current.attempted) logRouteAttempted(routeId);
-      if ((nextState === 'sent' || nextState === 'flash') && !sendsArr.includes(angle)) {
+      // Session logging — one branch per target state.
+      if (nextState === 'tried') {
+        logAngleAttempted(routeId, angle);
+        logRouteAttempted(routeId);
+      } else if (nextState === 'sent' || nextState === 'flash') {
         const route = routesRef.current.find(r => r.id === routeId);
         const ag = (route?.angleGrades || []).find(a => a.angle === angle);
-        logRouteSent(routeId, angle, ag?.grade || route?.grade);
+        logAngleAttempted(routeId, angle);
+        logRouteSent(routeId, angle, ag?.grade || route?.grade, nextState === 'flash');
         logAngleClimbed(angle);
+        logRouteAttempted(routeId);
+      } else {
+        unlogRouteAngle(routeId, angle);
       }
-      // Always log attempt as a session attempt when moving away from empty.
-      if (nextState !== 'empty') logRouteAttempted(routeId);
 
       return {
         ...prev,
@@ -1439,7 +1534,7 @@ export default function App() {
         },
       };
     });
-  }, [user, logRouteSent, logAngleClimbed, logRouteAttempted]);
+  }, [user, logRouteSent, logAngleClimbed, logRouteAttempted, logAngleAttempted, unlogRouteAngle]);
 
   const setHeadlineAngleGrade = useCallback((routeId, newAngle, newGrade) => {
     const applyHeadlineSwap = (r) => {
