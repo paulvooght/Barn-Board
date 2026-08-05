@@ -33,6 +33,78 @@ function stripPerUserFields(route) {
   return clean;
 }
 
+// Union `additions` into `existing` without removing anything or duplicating.
+function unionArrays(existing, additions) {
+  if (!additions || additions.length === 0) return existing || [];
+  const set = new Set(existing || []);
+  additions.forEach(v => set.add(v));
+  return [...set];
+}
+
+// Derive, from a saved session, the per-route angle/boolean state that should be
+// additively forward-merged into lifetime userRouteData when a past session is
+// edited. Mirrors the read-side derivation in SessionRoutesCard.jsx /
+// SessionEditView.jsx (STATE_RANK ordering, legacy flashedRouteIds fallback) so
+// all three stay consistent. One deliberate difference: those two map a
+// null-angle send onto the route's headline angle for display; here a
+// null-angle send is skipped for the angle arrays (no guessing an angle for
+// lifetime per-angle data) but still counts toward the route-level `sent` /
+// `flashed` booleans.
+function deriveSessionRouteState(session) {
+  const result = {};
+  if (!session) return result;
+
+  const attemptedIds  = session.routesAttempted || [];
+  const sentIds       = session.routesSent || [];
+  const flashedIds    = new Set(session.flashedRouteIds || []);
+  const angleAttempts = session.angleAttempts || [];
+  const sends         = session.sends || [];
+
+  const loggedIds = new Set([
+    ...attemptedIds,
+    ...sentIds,
+    ...flashedIds,
+    ...angleAttempts.map(a => a.routeId),
+    ...sends.map(s => s.routeId),
+  ]);
+
+  loggedIds.forEach(routeId => {
+    const routeSends = sends.filter(s => s.routeId === routeId);
+
+    // Legacy back-compat: old sessions recorded flash at the route level
+    // (flashedRouteIds) before flash was tracked per-send.
+    const legacyFlash = flashedIds.has(routeId) && !routeSends.some(s => s.flash === true);
+
+    const sendAngleSet  = new Set();
+    const flashAngleSet = new Set();
+    routeSends.forEach(send => {
+      if (send.angle == null) return; // route-level send — no angle to union in
+      sendAngleSet.add(send.angle);
+      if (send.flash === true || legacyFlash) flashAngleSet.add(send.angle);
+    });
+
+    const attemptAngleSet = new Set(sendAngleSet);
+    const attemptsEntry = angleAttempts.find(a => a.routeId === routeId);
+    (attemptsEntry?.angles || []).forEach(angle => attemptAngleSet.add(angle));
+
+    const flashed = flashAngleSet.size > 0 || legacyFlash;
+    // A null-angle send still counts toward `sent` even though it contributes
+    // no angle to sendAngles; flash always implies sent.
+    const sent = routeSends.length > 0 || flashed;
+
+    result[routeId] = {
+      attemptAngles: [...attemptAngleSet],
+      sendAngles: [...sendAngleSet],
+      flashAngles: [...flashAngleSet],
+      attempted: true,
+      sent,
+      flashed,
+    };
+  });
+
+  return result;
+}
+
 export default function App() {
   // ─── Auth ────────────────────────────────────────────────────────
   const [user, setUser]           = useState(null);
@@ -694,12 +766,61 @@ export default function App() {
     });
     // Flush immediately — don't wait for debounce
     if (updated) flushSessionsToSupabase(updated);
+
+    // Additively forward the edited session's per-angle state into lifetime
+    // userRouteData. This is the only place a past-session edit can affect
+    // lifetime data, and it must never subtract: another session (or a direct
+    // route-card edit) may have contributed the same angle independently.
+    // Only routes whose merged record actually changes get a Supabase write —
+    // an unchanged session save must produce zero writes.
+    if (user) {
+      const sessionDelta = deriveSessionRouteState(updatedSession);
+      setUserRouteData(prev => {
+        let next = prev;
+        for (const [routeId, delta] of Object.entries(sessionDelta)) {
+          const current = prev[routeId] || {
+            sent: false, flashed: false, attempted: false, rating: 0,
+            angleSends: [], angleFlashes: [], angleAttempts: [], gradeSuggestions: {},
+          };
+
+          const angleAttempts = unionArrays(current.angleAttempts, delta.attemptAngles);
+          const angleSends    = unionArrays(current.angleSends, delta.sendAngles);
+          const angleFlashes  = unionArrays(current.angleFlashes, delta.flashAngles);
+          const attempted = !!current.attempted || delta.attempted;
+          const sent      = !!current.sent || delta.sent;
+          const flashed   = !!current.flashed || delta.flashed;
+
+          const changed =
+            attempted !== !!current.attempted ||
+            sent      !== !!current.sent ||
+            flashed   !== !!current.flashed ||
+            angleAttempts.length !== (current.angleAttempts || []).length ||
+            angleSends.length    !== (current.angleSends || []).length ||
+            angleFlashes.length  !== (current.angleFlashes || []).length;
+
+          if (!changed) continue;
+
+          const merged = { ...current, attempted, sent, flashed, angleAttempts, angleSends, angleFlashes };
+
+          db.upsertUserRouteData(user.id, routeId, {
+            sent: merged.sent, flashed: merged.flashed, rating: merged.rating,
+            angle_sends: merged.angleSends, angle_flashes: merged.angleFlashes, angle_attempts: merged.angleAttempts,
+            grade_suggestions: merged.gradeSuggestions || {}, attempted: merged.attempted,
+          });
+
+          if (next === prev) next = { ...prev };
+          next[routeId] = merged;
+        }
+        return next;
+      });
+    }
+
     setEditingSession(null);
     const returnTo = editSessionSourceRef.current;
     editSessionSourceRef.current = 'settings';
     setEditSessionSource('settings');
     setView(returnTo === 'sessions' ? 'sessions' : 'settings');
-  }, [setSessions, flushSessionsToSupabase]);
+  }, [user, setSessions, flushSessionsToSupabase, setUserRouteData]);
 
   // UI state
   // view: board | create | routes | sessions | settings | viewRoute | addHold | editHold | setupBoard | sessionSummary | sessionEdit
