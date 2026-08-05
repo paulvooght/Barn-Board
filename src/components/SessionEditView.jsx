@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import { V_GRADES, FONT_GRADES } from '../utils/constants';
 import { getWeekStart } from '../utils/sessionStats';
+import AngleStateChip from './AngleStateChip';
 
 // Board angles
 const BOARD_ANGLES = [18, 20, 25, 30, 35, 40, 45, 50, 55];
@@ -71,8 +72,9 @@ function gradeForAngle(route, angle) {
   return route.grade;
 }
 
-// ── 3-segment toggle states ──
-const TOGGLE_STATES = ['tried', 'sent', 'flashed'];
+// Ordering used to resolve conflicting/duplicate signals when initialising
+// per-angle state from stored session data (flash beats sent beats tried).
+const STATE_RANK = { empty: 0, tried: 1, sent: 2, flash: 3 };
 
 /**
  * RoutePickerModal
@@ -357,43 +359,53 @@ export default function SessionEditView({
     return [...ids];
   }, []); // eslint-disable-line react-hooks/exhaustive-deps -- intentionally only on mount
 
-  // Per-route status: { [routeId]: 'tried' | 'sent' | 'flashed' }
-  const initStatus = useMemo(() => {
+  // Per-route, per-angle state: { [routeId]: { [angle]: 'tried' | 'sent' | 'flash' } }
+  // Angles absent from a route's map are implicitly 'empty'.
+  const initAngleStates = useMemo(() => {
     const map = {};
     initLoggedIds.forEach(id => {
-      if ((session.flashedRouteIds || []).includes(id)) {
-        map[id] = 'flashed';
-      } else if ((session.routesSent || []).includes(id) || (session.sends || []).some(s => s.routeId === id)) {
-        map[id] = 'sent';
-      } else {
-        map[id] = 'tried';
-      }
-    });
-    return map;
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- intentionally only on mount
+      const route = (routes || []).find(r => r.id === id);
+      const headlineAngle = route ? route.angle : undefined;
+      const routeSends = (session.sends || []).filter(s => s.routeId === id);
 
-  // Per-route selected angles: { [routeId]: number[] }
-  // For sent/flashed, sourced from sends[]; for tried, sourced from angleAttempts[]
-  const initAngles = useMemo(() => {
-    const map = {};
-    initLoggedIds.forEach(id => {
-      const status = initStatus[id];
-      if (status === 'sent' || status === 'flashed') {
-        const angles = (session.sends || [])
-          .filter(s => s.routeId === id && s.angle != null)
-          .map(s => s.angle);
-        map[id] = [...new Set(angles)];
-      } else {
-        const entry = (session.angleAttempts || []).find(a => a.routeId === id);
-        map[id] = entry ? entry.angles : [];
+      // Legacy back-compat: old sessions recorded flash at the route level
+      // (flashedRouteIds) before flash was tracked per-angle on each send.
+      const legacyFlash = (session.flashedRouteIds || []).includes(id)
+        && !routeSends.some(s => s.flash === true);
+
+      const angleStates = {};
+      routeSends.forEach(send => {
+        // A route-level send (no angle recorded) maps onto the route's
+        // headline angle so it stays visible/editable instead of being lost.
+        const angle = send.angle != null ? send.angle : headlineAngle;
+        if (angle == null) return;
+        const state = (send.flash === true || legacyFlash) ? 'flash' : 'sent';
+        const existing = angleStates[angle];
+        if (!existing || STATE_RANK[state] > STATE_RANK[existing]) {
+          angleStates[angle] = state;
+        }
+      });
+
+      const attemptsEntry = (session.angleAttempts || []).find(a => a.routeId === id);
+      if (attemptsEntry) {
+        (attemptsEntry.angles || []).forEach(angle => {
+          if (!angleStates[angle]) angleStates[angle] = 'tried';
+        });
       }
+
+      // A route logged with no sends and no angleAttempts at all (attempted-only,
+      // no angle data) still needs a visible/editable chip — seed its headline angle.
+      if (Object.keys(angleStates).length === 0 && headlineAngle != null) {
+        angleStates[headlineAngle] = 'tried';
+      }
+
+      map[id] = angleStates;
     });
     return map;
   }, []); // eslint-disable-line react-hooks/exhaustive-deps -- intentionally only on mount
 
   const [loggedIds, setLoggedIds] = useState(initLoggedIds);
-  const [routeStatus, setRouteStatus] = useState(initStatus);
-  const [routeAngles, setRouteAngles] = useState(initAngles);
+  const [routeAngleStates, setRouteAngleStates] = useState(initAngleStates);
   const [showPicker, setShowPicker] = useState(false);
 
   // ── Header info ──
@@ -437,55 +449,52 @@ export default function SessionEditView({
     if (loggedIds.length !== origLoggedIds.size) return true;
     if (loggedIds.some(id => !origLoggedIds.has(id))) return true;
 
-    // Check statuses
+    // Check per-route, per-angle states
+    const normalizeAngleStates = (m) =>
+      Object.keys(m || {}).sort((a, b) => a - b).map(k => `${k}:${m[k]}`);
     for (const id of loggedIds) {
-      if (routeStatus[id] !== initStatus[id]) return true;
-      const origA = (initAngles[id] || []).slice().sort((a, b) => a - b);
-      const newA = (routeAngles[id] || []).slice().sort((a, b) => a - b);
-      if (JSON.stringify(origA) !== JSON.stringify(newA)) return true;
+      const origNorm = normalizeAngleStates(initAngleStates[id]);
+      const newNorm = normalizeAngleStates(routeAngleStates[id]);
+      if (JSON.stringify(origNorm) !== JSON.stringify(newNorm)) return true;
     }
 
     return false;
-  }, [hours, mins, anglesClimbed, warmupGrade, loggedIds, routeStatus, routeAngles, session, initDurationMs, initStatus, initAngles]);
+  }, [hours, mins, anglesClimbed, warmupGrade, loggedIds, routeAngleStates, session, initDurationMs, initAngleStates]);
 
   // ── Route log handlers ──
 
   const handleAddRoute = (routeId) => {
     if (loggedIds.includes(routeId)) return; // no-op if already logged
     setLoggedIds(prev => [...prev, routeId]);
-    setRouteStatus(prev => ({ ...prev, [routeId]: 'tried' }));
-    setRouteAngles(prev => ({ ...prev, [routeId]: [] }));
+    setRouteAngleStates(prev => ({ ...prev, [routeId]: {} }));
     setShowPicker(false);
   };
 
   const handleRemoveRoute = (routeId) => {
     setLoggedIds(prev => prev.filter(id => id !== routeId));
-    setRouteStatus(prev => {
-      const next = { ...prev };
-      delete next[routeId];
-      return next;
-    });
-    setRouteAngles(prev => {
+    setRouteAngleStates(prev => {
       const next = { ...prev };
       delete next[routeId];
       return next;
     });
   };
 
-  const handleToggleStatus = (routeId) => {
-    setRouteStatus(prev => {
-      const cur = prev[routeId] || 'tried';
-      const idx = TOGGLE_STATES.indexOf(cur);
-      const next = TOGGLE_STATES[(idx + 1) % TOGGLE_STATES.length];
-      return { ...prev, [routeId]: next };
-    });
-  };
-
-  const handleToggleAngleForRoute = (routeId, angle) => {
-    setRouteAngles(prev => {
-      const cur = prev[routeId] || [];
-      const next = cur.includes(angle) ? cur.filter(a => a !== angle) : [...cur, angle];
-      return { ...prev, [routeId]: next };
+  // Cycle one angle's state on one route: empty → tried → sent → flash → empty.
+  const handleCycleAngleState = (routeId, angle) => {
+    setRouteAngleStates(prev => {
+      const routeStates = prev[routeId] || {};
+      const cur = routeStates[angle] || 'empty';
+      const next = cur === 'empty' ? 'tried'
+                 : cur === 'tried' ? 'sent'
+                 : cur === 'sent'  ? 'flash'
+                 :                   'empty';
+      const nextRouteStates = { ...routeStates };
+      if (next === 'empty') {
+        delete nextRouteStates[angle];
+      } else {
+        nextRouteStates[angle] = next;
+      }
+      return { ...prev, [routeId]: nextRouteStates };
     });
   };
 
@@ -495,41 +504,44 @@ export default function SessionEditView({
       ? new Date(new Date(session.startTime).getTime() + (hours * 3600 + mins * 60) * 1000).toISOString()
       : session.endTime;
 
-    // Rebuild route arrays from local state
-    const newRoutesAttempted = [...loggedIds]; // all logged routes were attempted
-    const newRoutesSent = loggedIds.filter(id => routeStatus[id] === 'sent' || routeStatus[id] === 'flashed');
-    const newFlashedIds = loggedIds.filter(id => routeStatus[id] === 'flashed');
+    // routesAttempted = every logged route, regardless of angle state — the
+    // trash button is how a route leaves a session, not an empty chip state.
+    const newRoutesAttempted = [...loggedIds];
 
-    // Rebuild sends array
     const timestampForSends = session.endTime || session.startTime || new Date().toISOString();
     const newSends = [];
-    newRoutesSent.forEach(routeId => {
-      const route = routeMap[routeId];
-      const selectedAngles = routeAngles[routeId] || [];
-      if (selectedAngles.length > 0) {
-        selectedAngles.forEach(angle => {
-          newSends.push({
-            routeId,
-            angle,
-            grade: route ? gradeForAngle(route, angle) : (route?.grade || ''),
-            time: timestampForSends,
-          });
-        });
-      } else {
-        newSends.push({
-          routeId,
-          angle: null,
-          grade: route?.grade || '',
-          time: timestampForSends,
-        });
-      }
-    });
+    const newRoutesSentSet = new Set();
+    const newFlashedSet = new Set();
+    const newAngleAttempts = [];
 
-    // Rebuild angleAttempts for tried-only routes
-    const newAngleAttempts = loggedIds
-      .filter(id => routeStatus[id] === 'tried')
-      .map(id => ({ routeId: id, angles: routeAngles[id] || [] }))
-      .filter(a => a.angles.length > 0); // omit empty to avoid polluting stored JSON
+    loggedIds.forEach(routeId => {
+      const route = routeMap[routeId];
+      const angleStates = routeAngleStates[routeId] || {};
+      const loggedAngles = Object.keys(angleStates).map(Number).sort((a, b) => a - b);
+
+      // Every angle with any non-empty state (tried, sent, or flash) counts
+      // as an attempt — flash ⊂ sent ⊂ tried, matching live logging in App.jsx.
+      if (loggedAngles.length > 0) {
+        newAngleAttempts.push({ routeId, angles: loggedAngles });
+      }
+
+      loggedAngles.forEach(angle => {
+        const state = angleStates[angle];
+        if (state !== 'sent' && state !== 'flash') return;
+        newRoutesSentSet.add(routeId);
+        const send = {
+          routeId,
+          angle,
+          grade: route ? gradeForAngle(route, angle) : '',
+          time: timestampForSends,
+        };
+        if (state === 'flash') {
+          send.flash = true;
+          newFlashedSet.add(routeId);
+        }
+        newSends.push(send);
+      });
+    });
 
     const updated = {
       ...session,
@@ -537,9 +549,9 @@ export default function SessionEditView({
       anglesClimbed,
       warmupGrade: warmupGrade || undefined,
       routesAttempted: newRoutesAttempted,
-      routesSent: newRoutesSent,
+      routesSent: [...newRoutesSentSet],
       sends: newSends,
-      flashedRouteIds: newFlashedIds.length > 0 ? newFlashedIds : undefined,
+      flashedRouteIds: newFlashedSet.size > 0 ? [...newFlashedSet] : undefined,
       angleAttempts: newAngleAttempts.length > 0 ? newAngleAttempts : undefined,
     };
     // Clean up undefined fields
@@ -556,11 +568,6 @@ export default function SessionEditView({
       prev.includes(angle) ? prev.filter(a => a !== angle) : [...prev, angle]
     );
   };
-
-  // ── Status label/color helpers ──
-  const statusLabel = { tried: 'Tried', sent: 'Sent', flashed: 'Flash' };
-  const statusBg = { tried: 'rgba(26,10,0,0.08)', sent: '#22d3ee', flashed: '#FFCB47' };
-  const statusColor = { tried: 'var(--text-secondary)', sent: '#fff', flashed: '#1A0A00' };
 
   return (
     <div style={{ padding: '16px 12px', maxWidth: '480px', margin: '0 auto' }}>
@@ -694,9 +701,13 @@ export default function SessionEditView({
 
         {loggedIds.map(routeId => {
           const route = routeMap[routeId];
-          const status = routeStatus[routeId] || 'tried';
-          const selectedAngles = routeAngles[routeId] || [];
-          const availableAngles = route ? getRouteAngles(route) : [];
+          const angleStates = routeAngleStates[routeId] || {};
+          // Chips shown = the route's defined angles ∪ any angle that already
+          // has a state (so an angle logged in this session but no longer
+          // graded on the route still shows and can be cleared).
+          const chipAngleSet = new Set(route ? getRouteAngles(route) : []);
+          Object.keys(angleStates).forEach(a => chipAngleSet.add(Number(a)));
+          const chipAngles = [...chipAngleSet].sort((a, b) => a - b);
 
           return (
             <div
@@ -737,58 +748,18 @@ export default function SessionEditView({
                 </button>
               </div>
 
-              {/* Status toggle row */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: availableAngles.length > 0 ? '8px' : '0' }}>
-                <div style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.5px', marginRight: '2px', textTransform: 'uppercase' }}>Status</div>
-                <div style={{
-                  display: 'flex', borderRadius: '8px', overflow: 'hidden',
-                  border: '1.5px solid rgba(26,10,0,0.12)',
-                }}>
-                  {TOGGLE_STATES.map(s => (
-                    <button
-                      key={s}
-                      onClick={() => {
-                        setRouteStatus(prev => ({ ...prev, [routeId]: s }));
-                      }}
-                      style={{
-                        padding: '7px 12px', border: 'none', cursor: 'pointer',
-                        fontSize: '12px', fontWeight: 700, minHeight: '36px',
-                        background: status === s ? statusBg[s] : 'rgba(255,255,255,0.4)',
-                        color: status === s ? statusColor[s] : 'var(--text-secondary)',
-                        transition: 'background 0.12s, color 0.12s',
-                        borderRight: s !== 'flashed' ? '1px solid rgba(26,10,0,0.08)' : 'none',
-                      }}
-                    >
-                      {statusLabel[s]}
-                    </button>
+              {/* Per-angle 4-state chips — grade + angle, colour conveys state */}
+              {chipAngles.length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                  {chipAngles.map(angle => (
+                    <AngleStateChip
+                      key={angle}
+                      grade={route ? gradeForAngle(route, angle) : ''}
+                      angle={angle}
+                      state={angleStates[angle] || 'empty'}
+                      onClick={() => handleCycleAngleState(routeId, angle)}
+                    />
                   ))}
-                </div>
-              </div>
-
-              {/* Angle chips row — only if route has angles defined */}
-              {availableAngles.length > 0 && (
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px', alignItems: 'center' }}>
-                  <div style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.5px', marginRight: '2px', textTransform: 'uppercase' }}>Angle</div>
-                  {availableAngles.map(angle => {
-                    const active = selectedAngles.includes(angle);
-                    return (
-                      <button
-                        key={angle}
-                        onClick={() => handleToggleAngleForRoute(routeId, angle)}
-                        style={{
-                          padding: '4px 10px', borderRadius: '7px', border: 'none',
-                          fontSize: '12px', fontWeight: 700, cursor: 'pointer',
-                          background: active ? 'var(--accent)' : 'rgba(26,10,0,0.07)',
-                          color: active ? '#fff' : 'var(--text-secondary)',
-                          fontFamily: 'var(--font-heading)',
-                          transition: 'background 0.12s, color 0.12s',
-                          minHeight: '32px',
-                        }}
-                      >
-                        {angle}°
-                      </button>
-                    );
-                  })}
                 </div>
               )}
             </div>
