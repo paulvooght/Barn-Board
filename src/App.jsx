@@ -1006,37 +1006,26 @@ export default function App() {
 
   const endSession = useCallback(() => {
     if (!activeSession) return;
-    // Snapshot actual sent state at session end — avoids double-counting if user un-sent then re-sent.
-    // Only routes currently marked sent (route.sent or angleGrade.sent) count.
-    const sessionRouteIds = new Set([
-      ...activeSession.routesSent,
-      ...activeSession.routesAttempted,
-    ]);
-    const finalRoutesSent = [];
-    const finalSends = [];
-    for (const routeId of sessionRouteIds) {
-      const route = routesRef.current.find(r => r.id === routeId);
-      if (!route) continue;
-      const urd = userRouteDataRef.current[routeId] || {};
-      // Prefer angle sends (more specific); fall back to main sent flag.
-      const angleSends = urd.angleSends || [];
-      if (angleSends.length > 0) {
-        for (const angle of angleSends) {
-          const ag = (route.angleGrades || []).find(a => a.angle === angle);
-          finalSends.push({ routeId, angle, grade: ag?.grade || route.grade, time: new Date().toISOString() });
-        }
-        if (!finalRoutesSent.includes(routeId)) finalRoutesSent.push(routeId);
-      } else if (urd.sent) {
-        finalRoutesSent.push(routeId);
-        finalSends.push({ routeId, angle: route.angle || null, grade: route.grade || null, time: new Date().toISOString() });
-      }
-    }
+    // activeSession.sends is authoritative: logRouteSent is idempotent per
+    // (routeId, angle) and unlogRouteAngle / cycleSentState remove entries when a
+    // state is cycled back down, so un-sent routes are already gone. It must NOT be
+    // rebuilt from lifetime userRouteData — that would drop each send's `flash` flag
+    // and its real timestamp, and would fabricate sends from OTHER sessions (a route
+    // merely tried today but sent at 30° last month would gain a bogus 30° send here).
+    const finalSends = (activeSession.sends || []).filter(s =>
+      routesRef.current.some(r => r.id === s.routeId)
+    );
+    const finalRoutesSent = [...new Set(finalSends.map(s => s.routeId))];
+    const finalFlashedRouteIds = [...new Set(finalSends.filter(s => s.flash).map(s => s.routeId))];
+
     const finished = {
       ...activeSession,
       endTime: new Date().toISOString(),
       routesSent: finalRoutesSent,
       sends: finalSends,
     };
+    if (finalFlashedRouteIds.length > 0) finished.flashedRouteIds = finalFlashedRouteIds;
+    else delete finished.flashedRouteIds;
     let savedSessions;
     setSessions(prev => {
       savedSessions = [finished, ...prev];

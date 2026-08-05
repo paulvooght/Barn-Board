@@ -60,20 +60,23 @@ export default function AngleStateChip({ grade, angle, state = 'empty', onClick 
 
   const content = (
     <>
-      <div style={{
+      {/* <span>s, not <div>s — the read-only variant renders inside a <span>,
+          and inside the route-row <button> in SessionRoutesCard. */}
+      <span style={{
         fontSize: '13px', fontWeight: 800, fontFamily: 'var(--font-heading)',
         color: cfg.textColor, lineHeight: 1.15,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
       }}>
         {gradeLabel}{glyph}
-      </div>
-      <div style={{
+      </span>
+      <span style={{
+        display: 'block',
         fontSize: '9px', fontWeight: 700, lineHeight: 1.1, marginTop: '2px',
         color: state === 'empty' ? 'var(--text-muted)' : cfg.textColor,
         opacity: state === 'empty' ? 0.85 : 0.75,
       }}>
         {angle}°
-      </div>
+      </span>
     </>
   );
 
