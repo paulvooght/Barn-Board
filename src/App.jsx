@@ -24,6 +24,7 @@ import { supabase, ADMIN_EMAIL } from './lib/supabase';
 import * as db from './lib/db';
 import { V_GRADES, FONT_GRADES, V_GRADE_INDEX, FONT_GRADE_INDEX, SELECTION_MODES, MODE_COLORS, MODE_LABELS, BOARD_SPECS, HOLD_COLOR_DOT, HOLD_TYPE_SINGULAR_TO_PLURAL, convertGrade, displayGrade, getYouTubeId, getYouTubeThumbnail, DEFAULT_BOARD_IMAGE, DEFAULT_BOARD_SRCSET, DEFAULT_BOARD_SIZES } from './utils/constants';
 import { enqueueRoute, dequeueRoute, recordFailure, getPendingRoutes } from './utils/pendingRouteSync';
+import { enqueueSession, dequeueSession, recordFailure as recordSessionFailure, getPendingSessions, getPendingSessionIds } from './utils/pendingSessionSync';
 
 // Strip per-user fields before writing to the shared routes table
 function stripPerUserFields(route) {
@@ -354,16 +355,33 @@ export default function App() {
     }
     setGradeRowsByRoute(rowsByRoute);
 
-    // e) Sessions
-    const sessionRows = sessionResult.data;
-    if (sessionRows && sessionRows.length > 0) {
-      setSessions(sessionRows.map(r => ({ ...r.data, boardId: r.board_id })));
-    } else if (isFirstLoad) {
+    // e) Sessions — a personal, cross-board log (fetched for ALL walls above), so
+    // the pending-session merge below is intentionally NOT scoped to boardId.
+    const sessionRows = sessionResult.data || [];
+    if (sessionRows.length === 0 && isFirstLoad) {
+      // First login — migrate any localStorage sessions (legacy one-way, runs once ever)
       const local = JSON.parse(localStorage.getItem('barnboard_sessions') || '[]');
       if (local.length > 0) {
         setSessions(local);
         await db.insertSessions(local.map(s => ({ id: s.id, user_id: userId, data: s })));
       }
+    } else {
+      const cloudSessions = sessionRows.map(r => ({ ...r.data, boardId: r.board_id }));
+      // Merge in any locally-pending sessions the cloud doesn't know about yet.
+      // Mirrors the pending-route merge above — a session whose upload failed must
+      // still be visible in the Sessions tab, not silently dropped from state.
+      const cloudSessionIds = new Set(cloudSessions.map(s => s.id));
+      const pendingSessions = getPendingSessions();
+      const orphanedSessions = Object.values(pendingSessions)
+        .map(entry => entry.session)
+        .filter(s => s && !cloudSessionIds.has(s.id));
+      if (orphanedSessions.length > 0) {
+        console.log('[pendingSessionSync] preserving', orphanedSessions.length, 'unsynced session(s) across refetch');
+      }
+      setSessions([...orphanedSessions, ...cloudSessions]);
+      // Drop any pending entries the cloud now confirms.
+      const confirmedSessionIds = Object.keys(pendingSessions).filter(id => cloudSessionIds.has(id));
+      for (const id of confirmedSessionIds) dequeueSession(id);
     }
 
     // f) Playlists
@@ -547,6 +565,12 @@ export default function App() {
     })();
   }, [user?.id, loadDataFromSupabase, resolveActiveBoard]);
 
+  // Latest retryPendingSessions, set once it's defined further below (it depends on
+  // flushSessionsToSupabase, which isn't declared yet at this point in the file) —
+  // a ref avoids a forward-reference/TDZ issue while still letting this earlier
+  // tab-visibility handler trigger a pending-session retry.
+  const retryPendingSessionsRef = useRef(() => {});
+
   // Re-fetch from Supabase when tab becomes visible (switching devices/tabs)
   useEffect(() => {
     if (!user) return;
@@ -554,6 +578,7 @@ export default function App() {
       if (document.visibilityState === 'visible' && hasLoadedOnce.current) {
         console.log('[Sync] Tab visible — refreshing from Supabase');
         loadDataFromSupabase(user.id, false, activeBoardIdRef.current);
+        retryPendingSessionsRef.current();
       }
     };
     document.addEventListener('visibilitychange', handleVisibility);
@@ -703,11 +728,23 @@ export default function App() {
   const sessionsRef = useRef(sessions);
   sessionsRef.current = sessions;
 
+  // Reconciles against the localStorage durability queue: any of the sessions we
+  // just tried to write that are sitting in the pending queue get dequeued on
+  // success, or have their failure recorded (and stay queued) on failure. This
+  // covers the immediate flush after endSession, the debounced sync below (which
+  // now routes through this same function), and the retry loop — whichever call
+  // happens to succeed first clears the queue entry, and a failure is never silent.
   const flushSessionsToSupabase = useCallback(async (sessionsToSync) => {
     const s = sessionsToSync || sessionsRef.current;
     if (!user || s.length === 0) return;
     clearTimeout(sessionsSyncTimer.current);
-    await db.upsertSessions(s.map(ss => ({ id: ss.id, user_id: user.id, data: ss, ...boardCol(ss) })));
+    const { error } = await db.upsertSessions(s.map(ss => ({ id: ss.id, user_id: user.id, data: ss, ...boardCol(ss) })));
+    const queuedIds = s.map(ss => ss.id).filter(id => getPendingSessionIds().includes(id));
+    if (error) {
+      for (const id of queuedIds) recordSessionFailure(id, error);
+    } else {
+      for (const id of queuedIds) dequeueSession(id);
+    }
   }, [user]);
 
   useEffect(() => {
@@ -715,10 +752,48 @@ export default function App() {
     clearTimeout(sessionsSyncTimer.current);
     sessionsSyncTimer.current = setTimeout(async () => {
       if (sessions.length === 0) return;
-      await db.upsertSessions(sessions.map(s => ({ id: s.id, user_id: user.id, data: s, ...boardCol(s) })));
+      console.log('[Sync] Debounced upsert:', sessions.length, 'sessions');
+      await flushSessionsToSupabase(sessions);
     }, 1500);
     return () => clearTimeout(sessionsSyncTimer.current);
-  }, [sessions, user, dataReady]);
+  }, [sessions, user, dataReady, flushSessionsToSupabase]);
+
+  // Re-attempt every entry sitting in the localStorage pending-session queue. Called
+  // on: initial load, tab visibility change, network 'online' event. Mirrors
+  // flushPendingRoutes. Prefers the live in-memory session (may include later edits)
+  // over the queued snapshot.
+  const retryPendingSessions = useCallback(async () => {
+    if (!user) return;
+    const queue = getPendingSessions();
+    const ids = Object.keys(queue);
+    if (ids.length === 0) return;
+    const liveById = new Map(sessionsRef.current.map(s => [s.id, s]));
+    const toFlush = ids
+      .map(id => liveById.get(id) || queue[id].session)
+      .filter(Boolean);
+    if (toFlush.length === 0) return;
+    console.log('[pendingSessionSync] retrying', toFlush.length, 'pending session(s)');
+    await flushSessionsToSupabase(toFlush);
+  }, [user, flushSessionsToSupabase]);
+  retryPendingSessionsRef.current = retryPendingSessions;
+
+  // ─── Pending-session retry triggers ────────────────────────────────
+  // After every successful load, retry anything still stuck in the queue.
+  useEffect(() => {
+    if (!user || !dataReady) return;
+    retryPendingSessions();
+  }, [user?.id, dataReady, retryPendingSessions]);
+
+  // When the device regains network, immediately retry.
+  useEffect(() => {
+    if (!user) return;
+    const handleOnline = () => {
+      console.log('[pendingSessionSync] online — retrying pending sessions');
+      retryPendingSessions();
+    };
+    window.addEventListener('online', handleOnline);
+    return () => window.removeEventListener('online', handleOnline);
+  }, [user?.id, retryPendingSessions]);
 
   // ─── Playlists sync ───────────────────────────────────────────────
   const playlistsSyncTimer = useRef(null);
@@ -1067,6 +1142,12 @@ export default function App() {
     };
     if (finalFlashedRouteIds.length > 0) finished.flashedRouteIds = finalFlashedRouteIds;
     else delete finished.flashedRouteIds;
+    // Durably enqueue BEFORE anything else — localStorage writes are synchronous, so
+    // this guarantees a persisted copy exists at the moment `barnboard_active_session`
+    // (the only other durable copy) is cleared below. If the upload that follows
+    // fails, the session survives in the pending queue and stays visible (merged
+    // into `sessions` on next load) instead of vanishing.
+    enqueueSession(finished);
     let savedSessions;
     setSessions(prev => {
       savedSessions = [finished, ...prev];
