@@ -1,0 +1,64 @@
+# Keeps the Supabase project awake.
+#
+# Why: the free Supabase plan auto-pauses a project after ~7 days with no
+# API activity. When that happens, the project's URL stops resolving and
+# the whole app goes down until someone manually restores it from the
+# Supabase dashboard. This workflow pings the database on a schedule so
+# that never happens.
+#
+# Why every 2 days: the pause threshold is ~7 days, so running every 2
+# days leaves plenty of slack for a missed or delayed run (GitHub does not
+# guarantee scheduled workflows fire at the exact minute).
+#
+# Gotcha: GitHub automatically disables scheduled workflows in a repo
+# after 60 days with no commits to the repo at all. GitHub emails the repo
+# owner a warning before that happens. Any new commit/push re-arms it, and
+# it can also be manually re-enabled from the Actions tab in GitHub.
+#
+# Setup: this workflow needs two repository secrets, SUPABASE_URL and
+# SUPABASE_ANON_KEY. See .github/workflows/README.md for how to add them.
+
+name: Supabase Keepalive
+
+on:
+  schedule:
+    # Every 2 days at 09:00 UTC.
+    - cron: "0 9 */2 * *"
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Supabase REST API
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          # Hit PostgREST directly (not just the CDN edge) so this proves
+          # the database itself is reachable and awake.
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 \
+            -H "apikey: $SUPABASE_ANON_KEY" \
+            -H "Authorization: Bearer $SUPABASE_ANON_KEY" \
+            "$SUPABASE_URL/rest/v1/boards?select=id&limit=1")
+
+          echo "Supabase responded with HTTP $HTTP_CODE"
+
+          # The "boards" table's RLS policy only grants SELECT to
+          # authenticated users, so an anon request legitimately gets back
+          # an empty result, or a 401/403/406. Any of those still mean the
+          # request made a full round trip to Postgres and back, so they
+          # all count as success. A connection failure, DNS failure,
+          # timeout ("000"), or any 5xx means the project is likely down
+          # or paused, so those are treated as failure.
+          case "$HTTP_CODE" in
+            200|401|403|406)
+              echo "Keepalive ping succeeded."
+              ;;
+            *)
+              echo "Keepalive ping FAILED (HTTP $HTTP_CODE)."
+              echo "The Supabase project is likely paused (free-tier projects auto-pause after ~7 days of inactivity)."
+              echo "Fix: go to https://supabase.com/dashboard, open the project, and restore/unpause it."
+              exit 1
+              ;;
+          esac
