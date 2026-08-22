@@ -1,6 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App.jsx';
+import ErrorBoundary from './components/ErrorBoundary.jsx';
 // Self-hosted fonts (bundled + service-worker precached → no Google round-trip,
 // no flash-of-fallback after first load). Weights match the old Google URL.
 import '@fontsource/dm-sans/400.css';
@@ -32,6 +33,8 @@ if (/iPhone|iPad|iPod/.test(navigator.userAgent)) {
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <App />
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
   </React.StrictMode>,
 );

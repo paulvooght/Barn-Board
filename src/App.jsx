@@ -4,6 +4,7 @@ import ModeSelector from './components/ModeSelector';
 import Icon from './components/Icon';
 import SentCycleButton from './components/SentCycleButton';
 import RouteViewCard from './components/RouteViewCard';
+import ErrorScreen from './components/ErrorScreen';
 
 const BoardSetupView = lazy(() => import('./components/BoardSetupView'));
 const RouteForm = lazy(() => import('./components/RouteForm'));
@@ -111,6 +112,10 @@ export default function App() {
   const [authLoading, setAuthLoading] = useState(true);
   const [dataReady, setDataReady] = useState(false);
   const [boardsResolved, setBoardsResolved] = useState(false); // initial wall-resolve done (gates onboarding vs splash)
+  // Set when the boot sequence (resolving the active wall + loading its data)
+  // fails or times out — e.g. the backend is unreachable. Lets us show a
+  // friendly retry screen instead of stranding the user on the splash forever.
+  const [bootError, setBootError] = useState(null);
 
   // ─── Active wall (multi-wall, Phase 2a) ───────────────────────────
   // Which board the user is on. 2a has one wall (The Barn); the switcher and
@@ -228,6 +233,11 @@ export default function App() {
         console.warn('[dev autologin] VITE_DEV_AUTOLOGIN=true but email/password env vars missing');
       }
       setUser(session?.user ?? null);
+      setAuthLoading(false);
+    }).catch((err) => {
+      // getSession() itself rejecting (e.g. unreachable backend) must not strand
+      // the app on the auth splash forever — fall through to the auth screen.
+      console.error('[auth] getSession failed:', err);
       setAuthLoading(false);
     });
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
@@ -487,14 +497,24 @@ export default function App() {
     if (!user) return;
     setDataReady(false);
     setBoardsResolved(false);
+    setBootError(null);
     hasLoadedOnce.current = false;
-    (async () => {
+    let timedOut = false;
+    // A HANGING network (as opposed to one that rejects) must not strand the
+    // splash forever either — race the boot work against a hard timeout.
+    let timeoutId;
+    const timeout = new Promise((resolve) => {
+      timeoutId = setTimeout(() => {
+        timedOut = true;
+        resolve();
+      }, 12000);
+    });
+    const boot = (async () => {
       const cachedBoardId = localStorage.getItem('barnboard_active_board');
       const optimisticLoad = cachedBoardId
         ? loadDataFromSupabase(user.id, true, cachedBoardId)
         : null;
       const boardId = await resolveActiveBoard(user.id);
-      setBoardsResolved(true);
       if (boardId && boardId !== cachedBoardId) {
         // Cache was stale/invalid (or first ever load) → load the real wall.
         await loadDataFromSupabase(user.id, true, boardId);
@@ -502,7 +522,28 @@ export default function App() {
         await optimisticLoad; // cache was correct — the parallel load already ran
       }
       // (boardId null → no wall → onboarding screen, nothing to load)
-      hasLoadedOnce.current = true;
+    })();
+    // If the timeout wins the race but `boot` later rejects anyway, that
+    // rejection is otherwise never observed — swallow it here so it can't
+    // surface as an unhandled promise rejection (bootError is already set
+    // by the timeout path below).
+    boot.catch(() => {});
+    (async () => {
+      try {
+        await Promise.race([boot, timeout]);
+        if (timedOut) {
+          throw new Error('Timed out reaching the server after 12s');
+        }
+      } catch (err) {
+        console.error('[boot] failed to resolve active wall / load data:', err);
+        setBootError(err);
+      } finally {
+        clearTimeout(timeoutId);
+        // Always unstick the splash — a rejection or timeout must never strand
+        // the user on it forever.
+        setBoardsResolved(true);
+        hasLoadedOnce.current = true;
+      }
     })();
   }, [user?.id, loadDataFromSupabase, resolveActiveBoard]);
 
@@ -1955,6 +1996,20 @@ export default function App() {
     <Suspense fallback={<div style={{ minHeight: '100vh', background: '#FFAB94' }} />}>
       <AuthView />
     </Suspense>
+  );
+  // Boot failed (or timed out) trying to reach the server — e.g. the backend
+  // is unreachable. Checked BEFORE the !boardsResolved splash below, since
+  // boardsResolved is always forced true (see the boot effect's `finally`)
+  // even on failure — without this check the app would just show a blank
+  // board instead of explaining what happened.
+  if (bootError) return (
+    <ErrorScreen
+      title="Can't reach the board"
+      message="The app couldn't connect to the server just now. This is usually a passing network glitch — give it a moment and try again."
+      retryLabel="Try again"
+      onRetry={() => window.location.reload()}
+      detail={bootError?.message || String(bootError)}
+    />
   );
   // Logged in, still resolving which walls you belong to — brief splash so we don't
   // flash the onboarding screen (or an empty board) before myBoards is known.
