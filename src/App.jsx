@@ -428,10 +428,16 @@ export default function App() {
   // it. Runs alongside the data load — 2a reads aren't board-filtered yet, so order
   // doesn't matter.
   const resolveActiveBoard = useCallback(async (userId) => {
-    const [{ data: memberships }, { data: allBoards }] = await Promise.all([
+    const [{ data: memberships, error: membershipsError }, { data: allBoards, error: boardsError }] = await Promise.all([
       db.fetchMyMemberships(userId),
       db.fetchBoards(),
     ]);
+    // supabase-js RESOLVES on a network failure and hands the problem back as
+    // `error` rather than rejecting. Without this check an unreachable server is
+    // indistinguishable from "this account belongs to no walls", and the user is
+    // dumped on the join-a-wall onboarding screen as though their walls had
+    // vanished. Throw instead, so the boot shows the offline notice.
+    if (membershipsError || boardsError) throw (membershipsError || boardsError);
     const roleByBoard = {};
     (memberships || []).forEach(m => { roleByBoard[m.board_id] = m.role; });
     const mine = (allBoards || []).filter(b => roleByBoard[b.id]).map(b => ({ ...b, role: roleByBoard[b.id] }));
@@ -467,9 +473,16 @@ export default function App() {
   // ── Membership changes (2b-iv) ──────────────────────────────────────
   // Join/leave re-resolve myBoards then land on a wall (with its data loaded);
   // role/visibility changes refresh myBoards silently so the user stays in Settings.
+  // resolveActiveBoard throws if the server is unreachable. These three are
+  // user-initiated (not the boot path), so a failure here shouldn't blow up as an
+  // unhandled rejection — log it and carry on with whatever walls we already know.
   const onWallJoined = useCallback(async (boardId) => {
     if (!user) return;
-    await resolveActiveBoard(user.id);   // myBoards now includes the joined wall
+    try {
+      await resolveActiveBoard(user.id);   // myBoards now includes the joined wall
+    } catch (err) {
+      console.error('[walls] could not refresh walls after joining:', err);
+    }
     // Land on + load the joined wall unconditionally. (From the no-wall onboarding
     // state, resolveActiveBoard already set it active, which would make switchBoard
     // a no-op — so we set + load directly here instead of via switchBoard.)
@@ -484,13 +497,22 @@ export default function App() {
 
   const onWallLeft = useCallback(async () => {
     if (!user) return;
-    await resolveActiveBoard(user.id);   // drops the left wall; activeBoardId → a remaining one
+    try {
+      await resolveActiveBoard(user.id);   // drops the left wall; activeBoardId → a remaining one
+    } catch (err) {
+      console.error('[walls] could not refresh walls after leaving:', err);
+    }
     const next = activeBoardIdRef.current;
     if (next) { setView('board'); loadDataFromSupabase(user.id, false, next); }
   }, [user, resolveActiveBoard, loadDataFromSupabase]);
 
   const refreshMyBoards = useCallback(async () => {
-    if (user) await resolveActiveBoard(user.id);   // refresh roles/visibility; no nav
+    if (!user) return;
+    try {
+      await resolveActiveBoard(user.id);   // refresh roles/visibility; no nav
+    } catch (err) {
+      console.error('[walls] could not refresh walls:', err);
+    }
   }, [user, resolveActiveBoard]);
 
   // Save the active wall's physical specs (admin/owner). Merge over the wall's
@@ -517,52 +539,69 @@ export default function App() {
     setBoardsResolved(false);
     setBootError(null);
     hasLoadedOnce.current = false;
-    let timedOut = false;
-    // A HANGING network (as opposed to one that rejects) must not strand the
-    // splash forever either — race the boot work against a hard timeout.
+    let cancelled = false;
     let timeoutId;
-    const timeout = new Promise((resolve) => {
-      timeoutId = setTimeout(() => {
-        timedOut = true;
-        resolve();
-      }, 12000);
-    });
-    const boot = (async () => {
+    // Only the WALL RESOLVE is raced against a timeout, because it's the step
+    // that gates the splash — a hanging (rather than rejecting) network must not
+    // strand the user on it forever. The data load that follows is deliberately
+    // NOT raced: once the walls are known the board is usable, and a slow or
+    // failed data load is recovered by the visibility refetch and the pending
+    // sync queues. Yanking a working board away to show an error screen would be
+    // worse than letting the data arrive late.
+    const RESOLVE_TIMEOUT_MS = 12000;
+    const withTimeout = (promise) => Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timeoutId = setTimeout(
+          () => reject(new Error(`Timed out reaching the server after ${RESOLVE_TIMEOUT_MS / 1000}s`)),
+          RESOLVE_TIMEOUT_MS,
+        );
+      }),
+    ]);
+
+    (async () => {
       const cachedBoardId = localStorage.getItem('barnboard_active_board');
+      // Kick the cached wall's data load off in parallel with the authoritative
+      // resolve (see the note above). Its own failure is non-fatal, so keep the
+      // rejection handled here rather than letting it surface unhandled.
       const optimisticLoad = cachedBoardId
         ? loadDataFromSupabase(user.id, true, cachedBoardId)
+            .catch(err => { console.error('[boot] optimistic data load failed:', err); })
         : null;
-      const boardId = await resolveActiveBoard(user.id);
-      if (boardId && boardId !== cachedBoardId) {
-        // Cache was stale/invalid (or first ever load) → load the real wall.
-        await loadDataFromSupabase(user.id, true, boardId);
-      } else if (optimisticLoad) {
-        await optimisticLoad; // cache was correct — the parallel load already ran
-      }
-      // (boardId null → no wall → onboarding screen, nothing to load)
-    })();
-    // If the timeout wins the race but `boot` later rejects anyway, that
-    // rejection is otherwise never observed — swallow it here so it can't
-    // surface as an unhandled promise rejection (bootError is already set
-    // by the timeout path below).
-    boot.catch(() => {});
-    (async () => {
+
+      let boardId = null;
       try {
-        await Promise.race([boot, timeout]);
-        if (timedOut) {
-          throw new Error('Timed out reaching the server after 12s');
-        }
+        boardId = await withTimeout(resolveActiveBoard(user.id));
       } catch (err) {
-        console.error('[boot] failed to resolve active wall / load data:', err);
-        setBootError(err);
+        console.error('[boot] could not resolve the active wall:', err);
+        if (!cancelled) setBootError(err);
+        return;
       } finally {
         clearTimeout(timeoutId);
-        // Always unstick the splash — a rejection or timeout must never strand
-        // the user on it forever.
-        setBoardsResolved(true);
+        // Unstick the splash as soon as the walls are known (or known to have
+        // failed) — the data load below must never gate it, or every startup
+        // waits on a full round trip of route/session data.
+        if (!cancelled) setBoardsResolved(true);
+      }
+
+      try {
+        if (boardId && boardId !== cachedBoardId) {
+          // Cache was stale/invalid (or first ever load) → load the real wall.
+          await loadDataFromSupabase(user.id, true, boardId);
+        } else if (optimisticLoad) {
+          await optimisticLoad; // cache was correct — the parallel load already ran
+        }
+        // (boardId null → no wall → onboarding screen, nothing to load)
+      } catch (err) {
+        // Non-fatal: the wall resolved, so the app is usable and the visibility
+        // refetch / pending queues will catch up.
+        console.error('[boot] data load failed (recoverable):', err);
+      } finally {
         hasLoadedOnce.current = true;
       }
     })();
+
+    return () => { cancelled = true; clearTimeout(timeoutId); };
   }, [user?.id, loadDataFromSupabase, resolveActiveBoard]);
 
   // Latest retryPendingSessions, set once it's defined further below (it depends on

@@ -8,7 +8,7 @@ export default function ErrorScreen({ title, message, onRetry, retryLabel, detai
   return (
     <div
       style={{
-        minHeight: '100vh',
+        minHeight: '100dvh',
         background: '#FFAB94',
         display: 'flex',
         alignItems: 'center',
@@ -31,7 +31,7 @@ export default function ErrorScreen({ title, message, onRetry, retryLabel, detai
       >
         <div
           style={{
-            fontFamily: "'Kodchasan', sans-serif",
+            fontFamily: 'var(--font-heading)',
             color: '#1A0A00',
             fontWeight: 700,
             fontSize: 20,
@@ -42,7 +42,7 @@ export default function ErrorScreen({ title, message, onRetry, retryLabel, detai
         </div>
         <div
           style={{
-            fontFamily: "'DM Sans', sans-serif",
+            fontFamily: 'var(--font-body)',
             color: '#1A0A00',
             fontSize: 15,
             lineHeight: 1.5,
@@ -65,7 +65,7 @@ export default function ErrorScreen({ title, message, onRetry, retryLabel, detai
               color: '#fff',
               border: 'none',
               borderRadius: 10,
-              fontFamily: "'DM Sans', sans-serif",
+              fontFamily: 'var(--font-body)',
               fontWeight: 600,
               fontSize: 15,
               cursor: 'pointer',
@@ -78,7 +78,7 @@ export default function ErrorScreen({ title, message, onRetry, retryLabel, detai
           <details style={{ marginTop: 16, textAlign: 'left' }}>
             <summary
               style={{
-                fontFamily: "'DM Sans', sans-serif",
+                fontFamily: 'var(--font-body)',
                 fontSize: 12,
                 color: '#8a8a8a',
                 cursor: 'pointer',
