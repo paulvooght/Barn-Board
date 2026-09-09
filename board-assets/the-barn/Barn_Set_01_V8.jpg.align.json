@@ -1,0 +1,115 @@
+{
+  "reference_image": "board-assets/the-barn/Barn_Set_01_V7.jpg",
+  "new_image": "board-assets/the-barn/Barn_Set_01_V8_raw.jpg",
+  "output_image": "board-assets/the-barn/Barn_Set_01_V8.jpg",
+  "reference_size": {
+    "width": 1500,
+    "height": 1463
+  },
+  "new_size": {
+    "width": 1500,
+    "height": 1463
+  },
+  "match_report": {
+    "keypoints_reference": 4781,
+    "keypoints_new": 4918,
+    "good_matches": 612,
+    "inliers": 427,
+    "inlier_ratio": 0.6977124183006536,
+    "mean_reprojection_error_px": 0.8402893510501132,
+    "max_reprojection_error_px": 2.9551822685888873
+  },
+  "homography_new_to_reference": [
+    [
+      0.9585957485686805,
+      -0.014992906733287077,
+      3.621418675146458
+    ],
+    [
+      -0.013619233761129656,
+      0.941174891348518,
+      19.488178455918906
+    ],
+    [
+      -7.5358739716377165e-06,
+      -3.031111980202024e-05,
+      1.0
+    ]
+  ],
+  "displacement": {
+    "top_left": {
+      "reference_xy": [
+        0,
+        0
+      ],
+      "new_image_xy": [
+        -4.1026212067926275,
+        -20.76559116995228
+      ],
+      "dx": -4.1026212067926275,
+      "dy": -20.76559116995228,
+      "magnitude": 21.16698555307356
+    },
+    "top_right": {
+      "reference_xy": [
+        1499,
+        0
+      ],
+      "new_image_xy": [
+        1541.7486958005006,
+        1.6035887134031137
+      ],
+      "dx": 42.74869580050063,
+      "dy": 1.6035887134031137,
+      "magnitude": 42.778762130354984
+    },
+    "bottom_left": {
+      "reference_xy": [
+        0,
+        1462
+      ],
+      "new_image_xy": [
+        19.11673775363893,
+        1463.8016898725477
+      ],
+      "dx": 19.11673775363893,
+      "dy": 1.8016898725477404,
+      "magnitude": 19.20145173517474
+    },
+    "bottom_right": {
+      "reference_xy": [
+        1499,
+        1462
+      ],
+      "new_image_xy": [
+        1495.730116643293,
+        1467.700088657528
+      ],
+      "dx": -3.2698833567069414,
+      "dy": 5.700088657528113,
+      "magnitude": 6.5713885800605105
+    },
+    "centre": {
+      "reference_xy": [
+        750.0,
+        731.5
+      ],
+      "new_image_xy": [
+        768.0678098449392,
+        745.5651956929064
+      ],
+      "dx": 18.067809844939234,
+      "dy": 14.0651956929064,
+      "magnitude": 22.89706274771146
+    }
+  },
+  "border_fill": {
+    "pixel_count": 48282,
+    "total_pixels": 2194500,
+    "percent": 2.2001367053998635
+  },
+  "pure_black_pixel_count": 2,
+  "min_inliers_threshold": 100,
+  "max_residual_threshold": 3.0,
+  "passed": true
+}
