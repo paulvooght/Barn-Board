@@ -164,6 +164,10 @@ wall starts empty). Per-board boardRegion lives in `boards.specs.boardRegion`.
 | `src/utils/pendingRouteSync.js` | ~67 | localStorage offline queue for unsynced routes |
 | `src/data/holds.json` | — | Base hold positions + polygons + `boardRegion` |
 | `scripts/detect_holds.py` | — | Python hold detection from board photo. Colour palette (cyan/yellow/purple/black **+ red/orange/green/blue/pink** for vivid walls) + per-component **watershed split** for touching holds. `--image` accepts a direct path (e.g. `board-assets/<slug>/x.jpg`); legacy white-bg auto-pick only when no `--image`. |
+| `scripts/align_board_image.py` | — | Measures the camera homography between two board photos (SIFT+RANSAC). **Measuring instrument only — its warped image is a diagnostic, never published.** |
+| `scripts/reproject_holds.py` | — | **Board-image protocol step 2.** Carries every hold polygon from the old photo's frame into the new one via the inverse camera homography. Exact, ID-preserving, no re-detection. Emits an `--update` file for `merge_board_holds.mjs`. |
+| `scripts/merge_board_holds.mjs` | — | **The only sanctioned tool for mutating a live per-board hold array.** `--add` (append, duplicate-guarded) / `--update` (geometry-only, metadata preserved). Dry-run by default; `--commit` backs up first, writes, then re-fetches and re-verifies. Refuses to drop, rename or re-prefix an ID. |
+| `scripts/diff_new_holds.py` | — | Illumination-invariant diff of old vs new board photo → NEW / CHANGED / INTERIOR / VANISHED regions + candidate polygons. Read-only. |
 | `scripts/merge_holds.py` | — | ID-preserving merge of re-detected holds |
 | `scripts/publish_board_image.py` | — | Upload image variants + write image config. **`--board <slug\|id>`** → per-board `board_image_config_<id>`, reads `board-assets/<slug>/`. Omit `--board` for the legacy global Barn flow (reads `public/`). |
 | `scripts/migrate_holds_to_board.mjs` | — | 2b-ii migration: verify (dry-run) + `--commit` seed of per-board holds/image/boardRegion. Twin of `005_holds_per_board.sql`. |
@@ -311,21 +315,69 @@ Routes reference holds by ID (`hold_1`, `hold_5`, etc.). If hold IDs change or s
 ### The Danger
 `detect_holds.py` assigns IDs sequentially by sorted position (`hold_1`, `hold_2`, ...). If the board photo changes — even slightly — and new holds are detected between existing ones, **every ID after the insertion point shifts**. `hold_5` becomes a completely different physical hold. All routes referencing the old `hold_5` now point to the wrong place.
 
-### Safe Workflow: Additive Hold Merge
-**NEVER run `detect_holds.py` and directly overwrite `holds.json`.** Instead:
+### THE BOARD PHOTO IS THE TRUTH — NEVER DISTORT IT
+**Owner rule (2026-09-09, non-negotiable): never warp, distort or re-project the board
+photo to make old hold outlines line up. Move the HOLDS to fit the photo.**
+
+Every new photo is shot from a slightly different camera position (V7→V8 measured
+4–42 px). There are two ways to reconcile that, and only one is allowed:
+
+| | verdict |
+|---|---|
+| Warp the PHOTO into the old photo's frame so hold records can stay put | ❌ **Rejected.** Tried on V8; the owner looked at the deployed board and rejected it. The photo is what you look at every session — "safe for the database" is not the same as "right for the app". |
+| Move the HOLD OUTLINES into the new photo's frame, IDs untouched | ✅ **The protocol.** |
+
+`scripts/align_board_image.py` is now a **measuring instrument only** — run it to obtain
+the homography. Its warped-image output is a diagnostic, never a deliverable.
+
+### Safe Workflow: Board Image Update (live per-board holds)
+This is the path for a wall whose holds live in `board_settings['holds_<boardId>']`
+(The Barn, Yonder — i.e. everything real). Never overwrite `holds.json`.
 
 ```bash
-# Step 1: Detect holds from new photo into a SEPARATE file
-python3 scripts/detect_holds.py --output src/data/holds_new.json
+# Step 0: ALWAYS back up + tag first
+node --env-file=.env.local scripts/backup_tables.mjs pre-<label>
+git tag -a v1.x-pre-<label> -m "..." && git push origin v1.x-pre-<label>
 
-# Step 2: Merge new detections into existing holds (preserves IDs)
-python3 scripts/merge_holds.py src/data/holds.json src/data/holds_new.json
+# Step 1: MEASURE the camera move between the published photo and the new one
+python3 scripts/align_board_image.py \
+    --reference board-assets/<slug>/<published>.jpg \
+    --new       board-assets/<slug>/<new>_raw.jpg \
+    --output    /tmp/_diagnostic_only.jpg          # discard this image
 
-# Step 3: Review the merge report, then commit
+# Step 2: Carry every hold outline into the NEW photo's frame (exact, ID-preserving)
+python3 scripts/reproject_holds.py \
+    --holds <snapshot>.json --align <new>.jpg.align.json \
+    --new-image board-assets/<slug>/<new>_raw.jpg \
+    --output _holds_reprojected.json --overlay _review.jpg
 
-# Step 4: Publish the new image to Supabase (uploads + writes board_image_config)
-python3 scripts/publish_board_image.py Barn_Set_01_V6
+# Step 3: Apply — dry-run first, then --commit (invariant-checked)
+node --env-file=.env.local scripts/merge_board_holds.mjs --board <slug> \
+    --update _holds_reprojected.json          # add --commit when the report looks right
+
+# Step 4: Publish the RAW, UNDISTORTED camera file
+python3 scripts/publish_board_image.py <new> --board <slug>
+
+# Step 5: Find what physically changed, then fine-tune
+python3 scripts/diff_new_holds.py --reference <old>.jpg --aligned <aligned>.jpg --board <slug>
+node --env-file=.env.local scripts/merge_board_holds.mjs --board <slug> --add <candidates>.json
 ```
+
+**Use the homography, not re-detection + nearest-neighbour matching.** The camera move is a
+single global transform, so reprojection is exact; re-detection guesses outlines *and* then
+guesses the pairing, and discards hand-tuned polygons.
+
+**Expect "records ahead of the camera".** Holds mounted and outlined in Hold Manager *after*
+the last photo was taken have approximate outlines drawn over bare plywood. They are NOT new
+holds — they already have IDs. Re-outline them with `--update`; never add duplicates. Spot
+them by comparing edge energy inside each polygon between the old and new photo (a big
+increase = a hold appeared under an existing record), and cross-check the ID's epoch-ms
+timestamp against the old photo's date.
+
+⚠️ **`scripts/merge_holds.py` is LEGACY** — it operates on the `hold_N` base-hold model in
+`src/data/holds.json` only. It excludes `custom_*` IDs, and every live per-board hold is
+`custom_*`, so on real data it would silently discard **all** of them. It now refuses to run
+in that situation. Live hold arrays go through `scripts/merge_board_holds.mjs`.
 
 Step 4 uploads all four image sizes (full + 800w/1200w/2000w responsive variants) to the `board-images` Supabase storage bucket, then upserts `board_settings` with `key='board_image_config'`. This is the same config the in-app wizard writes, so both code-based and wizard-based updates flow through a single source of truth — whichever ran last wins. The app picks up the new image on next load or tab switch.
 
