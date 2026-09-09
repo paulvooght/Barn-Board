@@ -330,7 +330,16 @@ Every new photo is shot from a slightly different camera position (V7→V8 measu
 `scripts/align_board_image.py` is now a **measuring instrument only** — run it to obtain
 the homography. Its warped-image output is a diagnostic, never a deliverable.
 
-### Safe Workflow: Board Image Update (live per-board holds)
+### ⚠️ TWEAK vs RESET — two different events, only one is built
+Every board-image update is either a **TWEAK** (same set, a few holds changed → routes MUST
+survive → preserve IDs) or a **RESET** (wall stripped and re-set → old routes retired).
+**Only TWEAK is built** (below). **RESET is spec'd but NOT implemented — see
+`docs/RESET_PROCESS_SPEC.md`. Read it before ever re-setting a wall that has routes.**
+Doing a RESET with today's tools either leaves every route pointing at holds that are no
+longer on the wall, or — if someone deletes the old holds to tidy up — breaks every route
+silently. Never auto-decide which one is happening; the admin chooses explicitly.
+
+### Safe Workflow: Board Image Update — TWEAK (live per-board holds)
 This is the path for a wall whose holds live in `board_settings['holds_<boardId>']`
 (The Barn, Yonder — i.e. everything real). Never overwrite `holds.json`.
 
