@@ -1,8 +1,24 @@
 #!/usr/bin/env python3
 """
-Merge a freshly detected holds file into an existing holds.json,
-preserving hold IDs for spatially matched holds so that existing routes
-continue to reference the correct physical holds.
+LEGACY — operates on the src/data/holds.json BASE-HOLD model only
+(`hold_N` IDs). This is NOT the tool for any wall's live per-board hold
+array — those all live in Supabase board_settings['holds_<boardId>'] and,
+for every wall that exists today, are entirely `custom_*` IDs. Running this
+script against a live per-board export would have its `custom_` exclusion
+filter (see `merge_holds()` below) throw away every existing hold and mint
+fresh `hold_N` IDs in their place — silently destroying every route's hold
+references. A guard against that is built in (see `merge_holds()`), but the
+real fix is: don't use this script for that job.
+
+For live per-board holds (adding newly-detected holds, or re-fitting the
+geometry of holds that moved), use `scripts/merge_board_holds.mjs` instead —
+it is ID-safe by construction (append-only / geometry-only-update, with
+before/after invariant checks and a pre-write backup).
+
+Kept as-is for its documented purpose: The Barn's legacy revert/reseed path,
+merging a freshly detected holds file into an existing holds.json, preserving
+hold IDs for spatially matched holds so that existing routes continue to
+reference the correct physical holds.
 
 Usage:
     python3 scripts/merge_holds.py <existing_file> <new_file> [options]
@@ -12,9 +28,16 @@ Arguments:
     new_file            Freshly detected holds from detect_holds.py --output
 
 Options:
-    --threshold FLOAT   Max distance (board %) for a spatial match (default: 5.0)
-    --update-positions  Update matched holds' cx/cy/polygon to new detection values
-    --dry-run           Print report without modifying any files
+    --threshold FLOAT       Max distance (board %) for a spatial match (default: 5.0)
+    --update-positions      Update matched holds' cx/cy/polygon to new detection values
+    --dry-run               Print report without modifying any files
+    --allow-custom-loss     Escape hatch: proceed even though the custom_
+                            exclusion filter is about to drop most/all of the
+                            "existing" holds (see the guard in merge_holds()).
+                            Only pass this if you are SURE `existing_file` is
+                            genuinely the legacy hold_N base-hold model and
+                            the custom_ holds it contains are meant to be
+                            dropped from this merge.
 
 Example workflow after a board image replacement:
     python3 scripts/detect_holds.py --output src/data/holds_new.json
@@ -33,7 +56,8 @@ def euclidean(a, b):
     return math.hypot(a['cx'] - b['cx'], a['cy'] - b['cy'])
 
 
-def merge_holds(existing_data, new_data, threshold=5.0, update_positions=False):
+def merge_holds(existing_data, new_data, threshold=5.0, update_positions=False,
+                 allow_custom_loss=False):
     """
     Spatially match new detections to existing holds.
 
@@ -41,8 +65,37 @@ def merge_holds(existing_data, new_data, threshold=5.0, update_positions=False):
         merged_holds    — list of hold dicts with correct IDs
         report          — dict with match details for printing
     """
-    existing_holds = [h for h in existing_data['holds']
-                      if not h['id'].startswith('custom_')]
+    all_existing = existing_data['holds']
+    existing_holds = [h for h in all_existing if not h['id'].startswith('custom_')]
+
+    # Guard against the landmine this script used to be: every live per-board
+    # hold array (board_settings['holds_<boardId>']) is 100% `custom_*` IDs
+    # today, so the exclusion filter above would silently drop the whole
+    # thing and mint fresh hold_N IDs — scrambling every route's hold
+    # references. If most/all of `existing_file`'s holds are being dropped
+    # this way, that's a strong signal this isn't the legacy hold_N file this
+    # script expects.
+    dropped = len(all_existing) - len(existing_holds)
+    if dropped > 0:
+        print(f'\n⚠ WARNING: {dropped} of {len(all_existing)} hold(s) in the existing '
+              f"file are `custom_*` and are being EXCLUDED from this merge "
+              f"(their IDs will not be preserved).")
+        if dropped >= len(all_existing) or dropped > len(all_existing) / 2:
+            if not allow_custom_loss:
+                print(
+                    f"\n✗ ABORT: this would drop {dropped}/{len(all_existing)} holds — "
+                    f"most or all of the existing file. That means `existing_file` is a "
+                    f"live per-board hold export (all-custom_ IDs), not the legacy "
+                    f"src/data/holds.json base-hold model this script operates on.\n\n"
+                    f"  Use scripts/merge_board_holds.mjs instead — it is the ID-safe "
+                    f"tool for live per-board holds (--add to append, --update to re-fit "
+                    f"geometry), and ships with before/after invariant checks + a backup.\n\n"
+                    f"  If you really do mean to discard these custom_ holds from this "
+                    f"legacy merge, re-run with --allow-custom-loss."
+                )
+                sys.exit(1)
+            print('  --allow-custom-loss passed: proceeding anyway.')
+
     new_detections = new_data['holds']
 
     # Find max numeric ID in existing holds
@@ -162,6 +215,9 @@ def main():
                         help='Update matched holds cx/cy/polygon to new detection values')
     parser.add_argument('--dry-run', action='store_true',
                         help='Print report without modifying files')
+    parser.add_argument('--allow-custom-loss', action='store_true',
+                        help='Escape hatch: proceed even if the custom_ exclusion filter '
+                             'is about to drop most/all of the existing holds')
     args = parser.parse_args()
 
     existing_path = Path(args.existing_file)
@@ -188,6 +244,7 @@ def main():
         existing_data, new_data,
         threshold=args.threshold,
         update_positions=args.update_positions,
+        allow_custom_loss=args.allow_custom_loss,
     )
 
     print_report(report)
