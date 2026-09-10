@@ -23,10 +23,20 @@ const now = () => new Date().toISOString();
 
 // ─── routes ──────────────────────────────────────────────────────────────────
 
-/** All routes, newest first. Pass a boardId to scope to one wall (multi-wall). */
-export function fetchRoutes(boardId) {
+/**
+ * All routes, newest first. Pass a boardId to scope to one wall (multi-wall).
+ * Pass setVersion to additionally scope to one hold-set version (RESET
+ * process — see docs/RESET_PROCESS_SPEC.md and scripts/board_reset.mjs).
+ * Omitted by default so every existing call site is unaffected; deliberately
+ * NOT added to the select() list here — routes.set_version only exists once
+ * migration 010_set_versions.sql has been applied, and code can deploy ahead
+ * of that migration being run, so widening the select would risk breaking
+ * every existing caller until the owner runs the SQL.
+ */
+export function fetchRoutes(boardId, setVersion) {
   let q = supabase.from('routes').select('id, user_id, data, board_id').order('created_at', { ascending: false });
   if (boardId) q = q.eq('board_id', boardId);
+  if (setVersion !== undefined) q = q.eq('set_version', setVersion);
   return q;
 }
 
@@ -212,6 +222,15 @@ export const getBoardHolds = (boardId) => getBoardSetting(`holds_${boardId}`);
 
 /** Persist this wall's full hold array (IDs preserved verbatim). */
 export const setBoardHolds = (boardId, holds) => setBoardSetting(`holds_${boardId}`, holds);
+
+/**
+ * One archived set's frozen hold snapshot (`holds_<boardId>_v<n>`), written
+ * by scripts/board_reset.mjs when a wall is RESET to a new set (see
+ * docs/RESET_PROCESS_SPEC.md). An archived route (set_version < the wall's
+ * current boards.specs.setVersion) should render from this snapshot rather
+ * than the live `holds_<boardId>` array, which by then holds a different set.
+ */
+export const getFrozenHolds = (boardId, setVersion) => getBoardSetting(`holds_${boardId}_v${setVersion}`);
 
 /** This wall's board-image config ({ imageName, baseUrl, ... }). */
 export const getBoardImageConfig = (boardId) => getBoardSetting(`board_image_config_${boardId}`);
