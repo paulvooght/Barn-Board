@@ -168,6 +168,7 @@ wall starts empty). Per-board boardRegion lives in `boards.specs.boardRegion`.
 | `scripts/reproject_holds.py` | — | **Board-image protocol step 2.** Carries every hold polygon from the old photo's frame into the new one via the inverse camera homography. Exact, ID-preserving, no re-detection. Emits an `--update` file for `merge_board_holds.mjs`. |
 | `scripts/merge_board_holds.mjs` | — | **The only sanctioned tool for mutating a live per-board hold array.** `--add` (append, duplicate-guarded) / `--update` (geometry-only, metadata preserved). Dry-run by default; `--commit` backs up first, writes, then re-fetches and re-verifies. Refuses to drop, rename or re-prefix an ID. |
 | `scripts/diff_new_holds.py` | — | Illumination-invariant diff of old vs new board photo → NEW / CHANGED / INTERIOR / VANISHED regions + candidate polygons. Read-only. |
+| `scripts/board_update.py` | — | **The one-command TWEAK entry point.** Shells out to the pieces above in order (backup → align → diff/RESET-check → reproject → apply → publish → gated guided re-outline → new-hold review → outline-fit scoring → report); checks every exit code; `--dry-run` for a genuinely read-only rehearsal. See "One-command board update" above. |
 | `scripts/merge_holds.py` | — | ID-preserving merge of re-detected holds |
 | `scripts/publish_board_image.py` | — | Upload image variants + write image config. **`--board <slug\|id>`** → per-board `board_image_config_<id>`, reads `board-assets/<slug>/`. Omit `--board` for the legacy global Barn flow (reads `public/`). |
 | `scripts/migrate_holds_to_board.mjs` | — | 2b-ii migration: verify (dry-run) + `--commit` seed of per-board holds/image/boardRegion. Twin of `005_holds_per_board.sql`. |
@@ -398,6 +399,25 @@ The merge script:
 3. **Unmatched new holds**: assigned new sequential IDs continuing from the highest existing number (e.g., `hold_44`, `hold_45`)
 4. **Unmatched old holds**: flagged as "possibly removed from board" but NOT deleted (routes may still reference them)
 5. Outputs a merge report showing what matched, what's new, what's orphaned
+
+### One-command board update
+When the owner says something like *"I've dropped in a new pic for a board update / tweak"*,
+the correct response is to run the single command below for the relevant wall — **no design
+conversation needed.** `scripts/board_update.py` runs the whole TWEAK chain above unattended:
+backup → measure the camera move → diff old-vs-new (also the TWEAK-vs-RESET check, run before
+any write) → reproject hold outlines (IDs preserved) → apply → publish the raw photo → guided
+re-outline, gated to holds where two methods agree → new-hold candidates written for review
+(never auto-added) → outline-fit scoring → a final report. It checks the exit code of every
+step and stops on the first failure; it refuses to proceed (pointing at
+`docs/RESET_PROCESS_SPEC.md`) if the photo looks like the wall was reset rather than tweaked.
+After it finishes, report its printed summary to the owner and hand over the review images plus
+`board-assets/<slug>/_update_report.md` — don't re-derive any of that by hand.
+
+```bash
+python3 scripts/board_update.py --board <slug> --image <path/to/new_raw.jpg>
+python3 scripts/board_update.py --board <slug>              # auto-detect the new photo
+python3 scripts/board_update.py --board <slug> --dry-run    # read-only rehearsal, writes nothing
+```
 
 ### NEVER Do These
 - ❌ Run `detect_holds.py` and let it overwrite `holds.json` directly
