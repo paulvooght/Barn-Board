@@ -88,12 +88,16 @@ pure read-only comparison of the reference photo vs the aligned new one.
 ────────────────────────────────────────────────────────────────────────────
 WHAT IS NOT FULLY AUTOMATIC (see also the report this script writes)
   - Step 7 (guided re-outline) needs a heavyweight ML venv (torch +
-    ultralytics + a SAM checkpoint) that this repo keeps at the ephemeral
-    /tmp/holds_venv — it will not survive a reboot and is not something an
-    unattended cron-style run can guarantee exists. If it's missing, this
-    script SKIPS step 7/8 with a clear warning and continues — the core,
-    ID-preserving TWEAK (steps 1-6) has already completed safely by then,
-    so a missing refinement pass degrades quality, not correctness.
+    ultralytics + a SAM checkpoint, ~900 MB). It used to live at /tmp/holds_venv,
+    which macOS clears on reboot — so the best outlining step silently skipped
+    after every restart, defeating the point of a one-command update. It now
+    lives at ~/.barn-board/holds_venv (override with BARN_HOLDS_VENV) and is
+    AUTO-CREATED on first use; an existing /tmp/holds_venv is still reused so a
+    warm machine doesn't re-download it. If creation fails, or with
+    --no-toolchain-install, this script SKIPS steps 7/8 with a clear warning and
+    continues — the core, ID-preserving TWEAK (steps 1-6) has already completed
+    safely by then, so a missing refinement pass degrades quality, not
+    correctness, and never touches hold IDs or routes.
   - Step 6 (publish) and step 5 (apply geometry) are two independent writes
     to two different Supabase subsystems (a table row, a storage bucket) —
     there is no distributed transaction across them. If step 5 succeeds and
@@ -124,6 +128,7 @@ Dependencies: everything already used elsewhere in this repo's scripts
 """
 import argparse
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -149,7 +154,50 @@ from reproject_holds import pct_to_px, px_to_pct  # noqa: E402
 
 GEOMETRY_KEYS = ("cx", "cy", "polygon", "w_pct", "h_pct", "r", "area")
 DEFAULT_BOARD_REGION = "1.0,0.5,98.0,97.0"
-VENV_PYTHON = Path("/tmp/holds_venv/bin/python")
+# The SAM/torch toolchain lives in its own venv (~900 MB) so it never pollutes
+# system python. It used to live in /tmp, which macOS clears on reboot — that made
+# the best outlining step silently skip after every restart, which defeats the
+# point of a one-command update. So: a persistent location, auto-created on demand.
+# BARN_HOLDS_VENV overrides it. /tmp/holds_venv is still honoured if it exists, so
+# an already-warm session doesn't re-download 900 MB.
+VENV_DIR = Path(
+    os.environ.get("BARN_HOLDS_VENV")
+    or (Path("/tmp/holds_venv") if Path("/tmp/holds_venv/bin/python").exists()
+        else Path.home() / ".barn-board" / "holds_venv")
+)
+VENV_PYTHON = VENV_DIR / "bin" / "python"
+
+
+def ensure_venv(auto_install=True):
+    """Return a python interpreter with the SAM toolchain, creating it if needed.
+
+    Returns None (with a clear explanation) rather than raising: the core
+    ID-preserving TWEAK has already completed by the time this is needed, so a
+    missing toolchain must degrade to "skip the polish step", never fail the run.
+    """
+    if VENV_PYTHON.exists():
+        return VENV_PYTHON
+    if not auto_install:
+        log(f"⚠  SAM toolchain not found at {VENV_DIR} — skipping guided re-outline.")
+        return None
+    reqs = REPO_ROOT / "scripts" / "requirements-detect.txt"
+    if not reqs.exists():
+        log(f"⚠  {reqs} missing — cannot build the SAM toolchain. Skipping re-outline.")
+        return None
+    log(f"SAM toolchain missing — creating it at {VENV_DIR} (one-off, ~900 MB, several minutes)…")
+    try:
+        VENV_DIR.parent.mkdir(parents=True, exist_ok=True)
+        subprocess.run([sys.executable, "-m", "venv", str(VENV_DIR)], check=True)
+        subprocess.run([str(VENV_DIR / "bin" / "pip"), "install", "-q", "-r", str(reqs)], check=True)
+    except (subprocess.CalledProcessError, OSError) as e:
+        log(f"⚠  Could not build the SAM toolchain ({e}). Skipping guided re-outline.")
+        log("   The ID-preserving part of this update already completed successfully.")
+        return None
+    if not VENV_PYTHON.exists():
+        log("⚠  venv creation reported success but the interpreter is missing. Skipping.")
+        return None
+    log(f"✓ SAM toolchain ready at {VENV_DIR} — it will persist across reboots.")
+    return VENV_PYTHON
 
 _t_run_start = time.time()
 _step_no = 0
@@ -396,6 +444,8 @@ def build_argparser():
     ap.add_argument("--diff-min-area", type=int, default=150,
                      help="Forwarded to diff_new_holds.py --min-area (default 150, tuned for "
                           "The Barn's V7->V8 pair; override per-board if it's noisy).")
+    ap.add_argument("--no-toolchain-install", action="store_true",
+                    help="Do not auto-create the SAM venv if missing; skip the re-outline instead.")
     ap.add_argument("--board-region", default=None, metavar="L,T,W,H",
                      help="Override the board region instead of reading boards.specs.boardRegion.")
     return ap
@@ -650,15 +700,15 @@ def main():
     guided_ok = False
     gated_count = 0
     holds_final_local = holds_after_reproject
-    if not VENV_PYTHON.exists():
-        log(f"[SKIP] {VENV_PYTHON} not found — this is an ephemeral dev venv (torch + "
-            f"ultralytics + a SAM checkpoint) that doesn't survive a reboot and can't be "
-            f"assumed present for an unattended run. The core TWEAK (steps 1-6) already "
-            f"completed safely; skipping this refinement pass.")
+    venv_python = ensure_venv(auto_install=not args.no_toolchain_install)
+    if venv_python is None:
+        log("[SKIP] SAM toolchain unavailable — skipping this refinement pass. "
+            "The core TWEAK (steps 1-6) already completed safely, so hold IDs and "
+            "every route are intact; only the outline polish is missing.")
     else:
         guided_out = f"{work_prefix}_guided_updates.json"
         guided_review_dir = f"{work_prefix}_guided_review"
-        cmd = [str(VENV_PYTHON), "scripts/guided_reoutline.py",
+        cmd = [str(venv_python), "scripts/guided_reoutline.py",
                "--holds-file", holds_after_reproject_path, "--image", str(new_image),
                "--output", guided_out, "--review-dir", guided_review_dir,
                "--top", str(args.review_top), "--board-region", board_region_str]
