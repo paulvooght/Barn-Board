@@ -20,7 +20,7 @@ const SessionEditView = lazy(() => import('./components/SessionEditView'));
 import { useLocalStorage } from './hooks/useLocalStorage';
 import { useCustomHolds } from './hooks/useCustomHolds';
 import holdsData from './data/holds.json';
-import { supabase, ADMIN_EMAIL } from './lib/supabase';
+import { supabase, ADMIN_EMAIL, isRecoveryLink } from './lib/supabase';
 import * as db from './lib/db';
 import { V_GRADES, FONT_GRADES, V_GRADE_INDEX, FONT_GRADE_INDEX, SELECTION_MODES, MODE_COLORS, MODE_LABELS, BOARD_SPECS, HOLD_COLOR_DOT, HOLD_TYPE_SINGULAR_TO_PLURAL, convertGrade, displayGrade, getYouTubeId, getYouTubeThumbnail, DEFAULT_BOARD_IMAGE, DEFAULT_BOARD_SRCSET, DEFAULT_BOARD_SIZES } from './utils/constants';
 import { enqueueRoute, dequeueRoute, recordFailure, getPendingRoutes } from './utils/pendingRouteSync';
@@ -111,6 +111,9 @@ export default function App() {
   // ─── Auth ────────────────────────────────────────────────────────
   const [user, setUser]           = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
+  // True after arriving via a password-reset email link: the user is signed in
+  // but must choose a new password before seeing the app.
+  const [recoveryMode, setRecoveryMode] = useState(isRecoveryLink);
   const [dataReady, setDataReady] = useState(false);
   const [boardsResolved, setBoardsResolved] = useState(false); // initial wall-resolve done (gates onboarding vs splash)
   // Set when the boot sequence (resolving the active wall + loading its data)
@@ -241,7 +244,8 @@ export default function App() {
       console.error('[auth] getSession failed:', err);
       setAuthLoading(false);
     });
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'PASSWORD_RECOVERY') setRecoveryMode(true);
       setUser(session?.user ?? null);
       if (!session) { setRoutes([]); setSessions([]); setDataReady(false); }
     });
@@ -2112,9 +2116,12 @@ export default function App() {
       <div style={{ fontFamily: "'Kodchasan', sans-serif", color: '#0047FF', fontWeight: 700, fontSize: 18 }}>BARN BOARD</div>
     </div>
   );
-  if (!user) return (
+  if (!user || recoveryMode) return (
     <Suspense fallback={<div style={{ minHeight: '100vh', background: '#FFAB94' }} />}>
-      <AuthView />
+      <AuthView
+        recovery={!!user && recoveryMode}
+        onRecoveryDone={() => setRecoveryMode(false)}
+      />
     </Suspense>
   );
   // Boot failed (or timed out) trying to reach the server — e.g. the backend

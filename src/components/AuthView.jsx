@@ -1,31 +1,68 @@
 import { useState } from 'react';
-import { supabase } from '../lib/supabase';
+import { supabase, authLinkError } from '../lib/supabase';
 
-export default function AuthView() {
+// mode: 'login' | 'signup' | 'forgot' (request a reset email).
+// recovery=true: the user arrived from a reset-email link and is already signed
+// in — show only "choose a new password" (no old password needed).
+export default function AuthView({ recovery = false, onRecoveryDone }) {
   const [email, setEmail]       = useState('');
   const [password, setPassword] = useState('');
-  const [isSignUp, setIsSignUp] = useState(false);
+  const [confirm, setConfirm]   = useState('');
+  const [mode, setMode]         = useState('login');
   const [loading, setLoading]   = useState(false);
-  const [error, setError]       = useState('');
+  const [error, setError]       = useState(
+    authLinkError ? `That email link didn't work (${authLinkError}). Request a new one below.` : ''
+  );
   const [message, setMessage]   = useState('');
+
+  const switchMode = (m) => { setMode(m); setError(''); setMessage(''); };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setLoading(true);
     setError('');
     setMessage('');
 
-    const { error } = isSignUp
-      ? await supabase.auth.signUp({ email, password })
-      : await supabase.auth.signInWithPassword({ email, password });
+    if (recovery) {
+      if (password.length < 6) { setError('Password must be at least 6 characters.'); return; }
+      if (password !== confirm) { setError("Passwords don't match."); return; }
+      setLoading(true);
+      const { error } = await supabase.auth.updateUser({ password });
+      setLoading(false);
+      if (error) setError(error.message);
+      else onRecoveryDone?.();
+      return;
+    }
 
-    if (error) {
-      setError(error.message);
-    } else if (isSignUp) {
+    setLoading(true);
+    let result;
+    if (mode === 'forgot') {
+      // Supabase emails a one-time link back to this site; opening it signs the
+      // user in and fires PASSWORD_RECOVERY (handled in App.jsx).
+      result = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: window.location.origin,
+      });
+    } else if (mode === 'signup') {
+      result = await supabase.auth.signUp({ email, password });
+    } else {
+      result = await supabase.auth.signInWithPassword({ email, password });
+    }
+
+    if (result.error) {
+      setError(result.error.message);
+    } else if (mode === 'signup') {
       setMessage('Check your email to confirm your account, then log in.');
+    } else if (mode === 'forgot') {
+      setMessage('If that email has an account, a reset link is on its way. Open it on this device.');
     }
     setLoading(false);
   };
+
+  const linkBtn = { background: 'none', border: 'none', color: '#0047FF', fontFamily: 'DM Sans, sans-serif', fontSize: 13, cursor: 'pointer', padding: 6 };
+  const showEmail    = !recovery;
+  const showPassword = recovery || mode !== 'forgot';
+  const submitLabel  = recovery ? 'Set New Password'
+    : mode === 'forgot' ? 'Send Reset Link'
+    : mode === 'signup' ? 'Create Account' : 'Log In';
 
   const input = {
     width: '100%', padding: '10px 14px', borderRadius: 8,
@@ -52,17 +89,35 @@ export default function AuthView() {
           </div>
         </div>
 
+        {(recovery || mode === 'forgot') && (
+          <div style={{ fontFamily: 'DM Sans, sans-serif', fontSize: 13, color: '#555', marginBottom: 14, textAlign: 'center' }}>
+            {recovery ? 'Choose a new password.' : "Enter your email and we'll send you a link to reset your password."}
+          </div>
+        )}
+
         <form onSubmit={handleSubmit}>
-          <div style={{ marginBottom: 12 }}>
-            <input type="email" autoComplete="email"
-              placeholder="Email" value={email}
-              onChange={e => setEmail(e.target.value)} required style={input} />
-          </div>
-          <div style={{ marginBottom: 20 }}>
-            <input type="password" autoComplete="current-password"
-              placeholder="Password" value={password}
-              onChange={e => setPassword(e.target.value)} required style={input} />
-          </div>
+          {showEmail && (
+            <div style={{ marginBottom: 12 }}>
+              <input type="email" autoComplete="email"
+                placeholder="Email" value={email}
+                onChange={e => setEmail(e.target.value)} required style={input} />
+            </div>
+          )}
+          {showPassword && (
+            <div style={{ marginBottom: recovery ? 12 : 20 }}>
+              <input type="password"
+                autoComplete={recovery || mode === 'signup' ? 'new-password' : 'current-password'}
+                placeholder={recovery ? 'New password (min 6 chars)' : 'Password'} value={password}
+                onChange={e => setPassword(e.target.value)} required style={input} />
+            </div>
+          )}
+          {recovery && (
+            <div style={{ marginBottom: 20 }}>
+              <input type="password" autoComplete="new-password"
+                placeholder="Confirm new password" value={confirm}
+                onChange={e => setConfirm(e.target.value)} required style={input} />
+            </div>
+          )}
 
           {error   && <div style={{ color: '#f87171', fontSize: 13, marginBottom: 10, fontFamily: 'DM Sans, sans-serif' }}>{error}</div>}
           {message && <div style={{ color: '#22a870', fontSize: 13, marginBottom: 10, fontFamily: 'DM Sans, sans-serif' }}>{message}</div>}
@@ -72,16 +127,22 @@ export default function AuthView() {
             border: 'none', borderRadius: 8, fontFamily: 'DM Sans, sans-serif',
             fontWeight: 700, fontSize: 15, cursor: loading ? 'wait' : 'pointer',
           }}>
-            {loading ? '...' : isSignUp ? 'Create Account' : 'Log In'}
+            {loading ? '...' : submitLabel}
           </button>
         </form>
 
-        <div style={{ marginTop: 16, textAlign: 'center' }}>
-          <button onClick={() => { setIsSignUp(!isSignUp); setError(''); setMessage(''); }}
-            style={{ background: 'none', border: 'none', color: '#0047FF', fontFamily: 'DM Sans, sans-serif', fontSize: 13, cursor: 'pointer' }}>
-            {isSignUp ? 'Already have an account? Log in' : 'Need an account? Sign up'}
-          </button>
-        </div>
+        {!recovery && (
+          <div style={{ marginTop: 16, textAlign: 'center', display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {mode === 'login' && (
+              <button type="button" onClick={() => switchMode('forgot')} style={linkBtn}>
+                Forgot password?
+              </button>
+            )}
+            <button type="button" onClick={() => switchMode(mode === 'login' ? 'signup' : 'login')} style={linkBtn}>
+              {mode === 'login' ? 'Need an account? Sign up' : 'Back to log in'}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
