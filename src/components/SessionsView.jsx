@@ -70,14 +70,15 @@ export default function SessionsView({
   );
 
   // ── Default period: most recent session, or all-time if none exist ────────
-  const defaultPeriod = useMemo(() => freshDefaultPeriod(allSess), []); // stable — computed once
+  // App resets `period` to null whenever a session starts or stops, so this
+  // re-anchors to the newest session (the live one first) — not only on mount.
+  const defaultPeriod = useMemo(() => freshDefaultPeriod(allSess), [allSess]);
 
-  // Initialise parent period on first render (when it is null)
   useEffect(() => {
     if (period === null && onChangePeriod) {
       onChangePeriod(defaultPeriod);
     }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [period]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Use a safe local fallback so the rest of the component never sees null
   const safePeriod = period ?? defaultPeriod;
@@ -356,7 +357,7 @@ export default function SessionsView({
             }
             sessionBoardName={selectedSession ? boardName(selectedSession.boardId) : null}
             onEditSession={
-              selectedSession && onEditSession
+              selectedSession && !selectedSession._live && onEditSession
                 ? () => onEditSession(selectedSession)
                 : null
             }

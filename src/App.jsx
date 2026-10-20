@@ -1006,6 +1006,25 @@ export default function App() {
   // Lifted period state for Sessions tab — persists across navigation
   const [sessionsPeriod, setSessionsPeriod] = useState(null);
 
+  // The in-progress session is shown in the Sessions tab straight away (as the
+  // most recent "Last session"), not only once it's stopped. `_live` marks it so
+  // the UI can label it and hide session editing until it's finished.
+  const sessionsWithLive = useMemo(() => {
+    if (!activeSession) return sessions;
+    return [{ ...activeSession, _live: true }, ...sessions.filter(s => s.id !== activeSession.id)];
+  }, [activeSession, sessions]);
+
+  // Starting or stopping a session re-anchors the Sessions tab to it: null makes
+  // SessionsView pick the most recent session (the live one, or the one just ended).
+  const liveSessionId = activeSession?.id || null;
+  useEffect(() => { setSessionsPeriod(null); }, [liveSessionId]);
+
+  // Tried this session = attempted but not sent (matches the 4-state "Tried").
+  // Re-cycling an already-tried route (sent → flash → empty → tried) re-logs it here.
+  const liveTriedCount = activeSession
+    ? (activeSession.routesAttempted || []).filter(id => !activeSession.routesSent.includes(id)).length
+    : 0;
+
   // Lazy cross-wall route fetch for the Sessions tab. The Sessions stats resolve
   // route metadata (grade/holdTypes/styles/holds) across EVERY wall, but that's a
   // big query we don't want on the first-paint critical path — so we fetch it only
@@ -2255,6 +2274,14 @@ export default function App() {
                   {activeSession.routesSent.length} sent
                 </span>
               )}
+              {liveTriedCount > 0 && (
+                <span style={{
+                  fontSize: '10px', fontWeight: 700, color: '#3BA8C4',
+                  background: 'rgba(125,211,232,0.15)', padding: '1px 6px', borderRadius: '6px',
+                }}>
+                  {liveTriedCount} tried
+                </span>
+              )}
               {activeSession.routesCreated?.length > 0 && (
                 <span style={{
                   fontSize: '10px', fontWeight: 700, color: '#3BA8C4',
@@ -2587,7 +2614,7 @@ export default function App() {
             onEndSession={endSession}
             setSessionAngle={setSessionAngle}
             logAngleClimbed={logAngleClimbed}
-            sessions={sessions}
+            sessions={sessionsWithLive}
             settings={settings}
             displayName={displayName}
             userRouteData={userRouteData}
