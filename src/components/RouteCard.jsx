@@ -1,10 +1,8 @@
-import { useState } from 'react';
 import { getYouTubeId } from '../utils/constants';
 import Icon from './Icon';
 import SentCycleButton from './SentCycleButton';
 
 export default function RouteCard({ route, sent, flashed, attempted, communityRating, ratingCount, communityGrade, onView, onRate, onToggleSent, missingHoldCount, onRemoveFromPlaylist }) {
-  const [nameExpanded, setNameExpanded] = useState(false);
   const displayRating = Math.round(communityRating || 0);
   const hasVideo  = !!getYouTubeId(route.youtubeUrl);
   const hasAngleGrades = (route.angleGrades || []).length > 0;
@@ -77,14 +75,14 @@ export default function RouteCard({ route, sent, flashed, attempted, communityRa
             )}
           </div>
           <div style={{ minWidth: 0, display: 'flex', alignItems: 'flex-start', gap: '5px', paddingTop: '3px' }}>
+            {/* Tapping the name opens the route like the rest of the card;
+                long names wrap to two lines instead of needing a tap to expand. */}
             <span
-              onClick={(e) => { e.stopPropagation(); setNameExpanded(prev => !prev); }}
               style={{
                 fontWeight: 700, color: 'var(--text-primary)', fontSize: '16px',
-                lineHeight: 1.2, cursor: 'pointer',
-                ...(nameExpanded
-                  ? { whiteSpace: 'normal', wordBreak: 'break-word' }
-                  : { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }),
+                lineHeight: 1.2, wordBreak: 'break-word',
+                display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
+                overflow: 'hidden',
               }}
             >
               {route.name}
@@ -149,13 +147,11 @@ export default function RouteCard({ route, sent, flashed, attempted, communityRa
         </div>
 
         {/* Bottom-right: community star rating */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}
-          onClick={e => e.stopPropagation()}
-        >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
           {[1, 2, 3, 4, 5].map(star => (
             <button
               key={star}
-              onClick={() => onRate(star)}
+              onClick={(e) => { e.stopPropagation(); onRate(star); }}
               title={`Rate ${star} star${star > 1 ? 's' : ''}`}
               style={{
                 background: 'none', border: 'none', padding: '1px',
