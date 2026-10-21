@@ -22,7 +22,7 @@ import { useCustomHolds } from './hooks/useCustomHolds';
 import holdsData from './data/holds.json';
 import { supabase, ADMIN_EMAIL, isRecoveryLink } from './lib/supabase';
 import * as db from './lib/db';
-import { V_GRADES, FONT_GRADES, V_GRADE_INDEX, FONT_GRADE_INDEX, SELECTION_MODES, MODE_COLORS, MODE_LABELS, BOARD_SPECS, HOLD_COLOR_DOT, HOLD_TYPE_SINGULAR_TO_PLURAL, convertGrade, displayGrade, getYouTubeId, getYouTubeThumbnail, DEFAULT_BOARD_IMAGE, DEFAULT_BOARD_SRCSET, DEFAULT_BOARD_SIZES } from './utils/constants';
+import { V_GRADES, FONT_GRADES, V_GRADE_INDEX, FONT_GRADE_INDEX, SELECTION_MODES, HANDED_ROLES, MODE_COLORS, MODE_LABELS, BOARD_SPECS, HOLD_COLOR_DOT, HOLD_TYPE_SINGULAR_TO_PLURAL, convertGrade, displayGrade, getYouTubeId, getYouTubeThumbnail, DEFAULT_BOARD_IMAGE, DEFAULT_BOARD_SRCSET, DEFAULT_BOARD_SIZES } from './utils/constants';
 import { enqueueRoute, dequeueRoute, recordFailure, getPendingRoutes } from './utils/pendingRouteSync';
 import { enqueueSession, dequeueSession, recordFailure as recordSessionFailure, getPendingSessions, getPendingSessionIds } from './utils/pendingSessionSync';
 
@@ -470,6 +470,7 @@ export default function App() {
     localStorage.setItem('barnboard_active_board', boardId);
     setViewingRoute(null);
     setHoldSelection({});
+    setHoldHandedness({});
     setView('board');
     loadDataFromSupabase(user.id, false, boardId);
   }, [user, loadDataFromSupabase]);
@@ -495,6 +496,7 @@ export default function App() {
     localStorage.setItem('barnboard_active_board', boardId);
     setViewingRoute(null);
     setHoldSelection({});
+    setHoldHandedness({});
     setView('board');
     loadDataFromSupabase(user.id, false, boardId);
   }, [user, resolveActiveBoard, loadDataFromSupabase]);
@@ -990,6 +992,10 @@ export default function App() {
   const holdSelectionRef = useRef(holdSelection);
   // Keep ref in sync — guarantees saveRoute always reads the latest holds
   holdSelectionRef.current = holdSelection;
+  // Left/right-hand-only marks for the route being created/edited: { holdId: 'L' | 'R' }
+  const [holdHandedness, setHoldHandedness] = useState({});
+  const holdHandednessRef = useRef(holdHandedness);
+  holdHandednessRef.current = holdHandedness;
   const [viewingRoute, setViewingRoute]   = useState(null);
   const [editingHold, setEditingHold]     = useState(null);
   const [editingRouteId, setEditingRouteId] = useState(null);
@@ -1124,6 +1130,7 @@ export default function App() {
 
   const resetCreate = useCallback(() => {
     setHoldSelection({});
+    setHoldHandedness({});
     setRouteName('');
     setRouteGrade(settings.gradeSystem === 'V' ? 'V3' : '6A');
     setRouteAngle(30);
@@ -1147,7 +1154,28 @@ export default function App() {
       }
       return next;
     });
+    // Deselected (same role tapped again), or turned into a foot hold → drop any
+    // left/right mark. The ref still holds the pre-tap selection here.
+    const wasDeselected = holdSelectionRef.current[holdId] === selectionMode;
+    const keepsMark = !wasDeselected && HANDED_ROLES.includes(selectionMode);
+    setHoldHandedness(prev => {
+      if (!prev[holdId] || keepsMark) return prev;
+      const next = { ...prev };
+      delete next[holdId];
+      return next;
+    });
   }, [selectionMode]);
+
+  // Set (or clear, with null) a hold's left/right-hand-only mark. Used by the
+  // long-press L/R picker on the create board.
+  const setHandedness = useCallback((holdId, side /* 'L' | 'R' | null */) => {
+    setHoldHandedness(prev => {
+      const next = { ...prev };
+      if (side === 'L' || side === 'R') next[holdId] = side;
+      else delete next[holdId];
+      return next;
+    });
+  }, []);
 
   // ─── Session management ─────────────────────────────────────────
   const startSession = useCallback(() => {
@@ -1352,6 +1380,13 @@ export default function App() {
     for (const [id, type] of Object.entries(rawHolds)) {
       if (holdIdSetNow.has(id)) currentHolds[id] = type;
     }
+    // Keep only L/R marks on holds that still exist and are hand-type
+    const handednessNow = {};
+    for (const [id, side] of Object.entries(holdHandednessRef.current)) {
+      if (currentHolds[id] && HANDED_ROLES.includes(currentHolds[id]) && (side === 'L' || side === 'R')) {
+        handednessNow[id] = side;
+      }
+    }
     if (!routeName.trim() || Object.keys(currentHolds).length === 0) {
       console.warn('[saveRoute] Blocked: no holds selected', Object.keys(currentHolds).length);
       return;
@@ -1379,6 +1414,7 @@ export default function App() {
         description: description.trim() || undefined,
         youtubeUrl: youtubeUrl.trim() || undefined,
         holds: currentHolds,
+        handedness: Object.keys(handednessNow).length ? handednessNow : undefined,
         holdSnapshots,
         holdTypes, techniques, styles,
         updatedAt: new Date().toISOString(),
@@ -1404,6 +1440,7 @@ export default function App() {
         boardId: activeBoardIdRef.current,
         youtubeUrl: youtubeUrl.trim() || undefined,
         holds: currentHolds,
+        handedness: Object.keys(handednessNow).length ? handednessNow : undefined,
         holdSnapshots,
         holdTypes, techniques, styles,
         createdAt: new Date().toISOString(),
@@ -1527,6 +1564,7 @@ export default function App() {
       setDescription(r.description || '');
       setYoutubeUrl(r.youtubeUrl || '');
       setHoldSelection({ ...(r.holds || {}) });
+      setHoldHandedness({ ...(r.handedness || {}) });
       setSelectionMode(SELECTION_MODES.HAND);
       setEditingRouteId(r.id);
       setViewingRoute(null);
@@ -2319,6 +2357,7 @@ export default function App() {
         <BoardView
           holds={allHolds}
           selection={holdSelection}
+          handedness={holdHandedness}
           onHoldTap={view === 'create' ? handleHoldTap : undefined}
           onBoardClick={view === 'board' ? () => { resetCreate(); setView('create'); } : undefined}
           interactive={view === 'create'}

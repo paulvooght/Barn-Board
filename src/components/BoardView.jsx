@@ -12,7 +12,7 @@ function clamp(val, min, max) {
 // boardRegion (the board area inside the photo) is per-wall — passed in by App.jsx
 // (activeBoard.specs.boardRegion). Falls back to holds.json for The Barn / before
 // specs loads, so two walls with different board areas each render correctly.
-export default function BoardView({ holds, selection, onHoldTap, onBoardClick, interactive, dimBoard, imgSrc, imgSrcSet, imgSizes, holdSnapshots, onZoomChange, boardRegion = holdsData.boardRegion, children }) {
+export default function BoardView({ holds, selection, handedness, onHoldTap, onBoardClick, interactive, dimBoard, imgSrc, imgSrcSet, imgSizes, holdSnapshots, onZoomChange, boardRegion = holdsData.boardRegion, children }) {
   const [imageLoaded, setImageLoaded] = useState(false);
   // Default to the board image's native ratio (1500×1463) so the box reserves
   // the correct height BEFORE the image loads — prevents the thin-strip → full
@@ -437,6 +437,7 @@ export default function BoardView({ holds, selection, onHoldTap, onBoardClick, i
                   boardRegion={boardRegion}
                   imgSize={imgSize}
                   selection={selection}
+                  handedness={handedness}
                   onTap={onHoldTap}
                   interactive={interactive}
                   pxScale={pxScale}

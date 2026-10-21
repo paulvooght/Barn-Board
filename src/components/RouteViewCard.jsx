@@ -101,6 +101,7 @@ export default function RouteViewCard({
       <BoardView
         holds={allHolds}
         selection={holdSelection}
+        handedness={route.handedness}
         onHoldTap={isInteractive && holdDataMode ? (id) => {
           if (route.holds?.[id]) {
             setInspectedRouteHoldId(prev => prev === id ? null : id);

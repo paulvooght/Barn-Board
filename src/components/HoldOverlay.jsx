@@ -1,4 +1,4 @@
-import { MODE_COLORS } from '../utils/constants';
+import { MODE_COLORS, HANDED_ROLES } from '../utils/constants';
 
 // Set to true to bring back the small white centre dot on regular hand holds
 // in the route view. Turned off because the dots covered the holds. See Layer 4.
@@ -10,7 +10,7 @@ const SHOW_CENTER_DOTS = false;
  * Route view: bold colored outlines, tinted fill, large labels.
  * The board image is dimmed separately (BoardView) so these pop.
  */
-export default function HoldOverlay({ hold, boardRegion, imgSize, selection, onTap, interactive, pxScale = 1 }) {
+export default function HoldOverlay({ hold, boardRegion, imgSize, selection, handedness, onTap, interactive, pxScale = 1 }) {
   const selType  = selection?.[hold.id];
   const isSelected = !!selType;
   const color    = isSelected ? MODE_COLORS[selType] : null;
@@ -72,6 +72,20 @@ export default function HoldOverlay({ hold, boardRegion, imgSize, selection, onT
     : cy + ry;
   const labelY = bottomY + strokeW / 2 + pillH / 2 + 3; // gap below outline
 
+  // Left/right-hand badge: small circle on the hold's top-right corner
+  const side = handedness?.[hold.id];
+  const showHandBadge = HANDED_ROLES.includes(selType) && (side === 'L' || side === 'R');
+  const badgeR = fontSize * 0.9;
+  const rightX = hasPolygon
+    ? Math.max(...hold.polygon.map(([x]) => toSvgX(x)))
+    : cx + rx;
+  const topY = hasPolygon
+    ? Math.min(...hold.polygon.map(([, y]) => toSvgY(y)))
+    : cy - ry;
+  // Nudge outward (about a third of the radius) so it sits on the edge, not over the hold
+  const badgeCx = rightX + badgeR * 0.35;
+  const badgeCy = topY - badgeR * 0.35;
+
   return (
     <g style={{ pointerEvents: 'none' }}>
       {/* Layer 1: Wide outer glow */}
@@ -110,6 +124,29 @@ export default function HoldOverlay({ hold, boardRegion, imgSize, selection, onT
             style={{ pointerEvents: 'none', userSelect: 'none' }}
           >
             {label}
+          </text>
+        </>
+      )}
+
+      {/* Layer 3b: L/R hand badge on the top-right edge */}
+      {showHandBadge && (
+        <>
+          <circle
+            cx={badgeCx} cy={badgeCy} r={badgeR}
+            fill={color}
+            style={{ filter: 'drop-shadow(0 2px 4px rgba(26,10,0,0.5))' }}
+          />
+          <text
+            x={badgeCx} y={badgeCy}
+            textAnchor="middle"
+            dominantBaseline="central"
+            fontSize={fontSize * 1.1}
+            fontWeight="900"
+            fontFamily="var(--font-heading)"
+            fill="#fff"
+            style={{ pointerEvents: 'none', userSelect: 'none' }}
+          >
+            {side}
           </text>
         </>
       )}

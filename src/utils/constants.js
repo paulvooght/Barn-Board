@@ -52,6 +52,14 @@ export const SELECTION_MODES = {
   FINISH:    'finish',
 };
 
+// Roles a climber uses a hand on — only these can be marked left/right hand only.
+export const HANDED_ROLES = [
+  SELECTION_MODES.START,
+  SELECTION_MODES.HAND,
+  SELECTION_MODES.HAND_ONLY,
+  SELECTION_MODES.FINISH,
+];
+
 export const MODE_COLORS = {
   [SELECTION_MODES.HAND]: '#0047FF',
   [SELECTION_MODES.HAND_ONLY]: '#c084fc',
