@@ -472,6 +472,8 @@ export default function App() {
     setViewingRoute(null);
     setHoldSelection({});
     setHoldHandedness({});
+    setRouteAnnotations([]);
+    setDrawMode(false);
     setView('board');
     loadDataFromSupabase(user.id, false, boardId);
   }, [user, loadDataFromSupabase]);
@@ -498,6 +500,8 @@ export default function App() {
     setViewingRoute(null);
     setHoldSelection({});
     setHoldHandedness({});
+    setRouteAnnotations([]);
+    setDrawMode(false);
     setView('board');
     loadDataFromSupabase(user.id, false, boardId);
   }, [user, resolveActiveBoard, loadDataFromSupabase]);
@@ -997,6 +1001,12 @@ export default function App() {
   const [holdHandedness, setHoldHandedness] = useState({});
   const holdHandednessRef = useRef(holdHandedness);
   holdHandednessRef.current = holdHandedness;
+  // Freehand "draw line" annotations for the route being created/edited:
+  // [{ points: [[x%, y%], ...], closed }] — board-area percentages.
+  const [routeAnnotations, setRouteAnnotations] = useState([]);
+  const routeAnnotationsRef = useRef(routeAnnotations);
+  routeAnnotationsRef.current = routeAnnotations;
+  const [drawMode, setDrawMode] = useState(false);
   const [viewingRoute, setViewingRoute]   = useState(null);
   const [editingHold, setEditingHold]     = useState(null);
   const [editingRouteId, setEditingRouteId] = useState(null);
@@ -1132,6 +1142,8 @@ export default function App() {
   const resetCreate = useCallback(() => {
     setHoldSelection({});
     setHoldHandedness({});
+    setRouteAnnotations([]);
+    setDrawMode(false);
     setRouteName('');
     setRouteGrade(settings.gradeSystem === 'V' ? 'V3' : '6A');
     setRouteAngle(30);
@@ -1205,7 +1217,7 @@ export default function App() {
 
   // Close the picker whenever we leave create view
   useEffect(() => {
-    if (view !== 'create') setHandPicker(null);
+    if (view !== 'create') { setHandPicker(null); setDrawMode(false); }
   }, [view]);
 
   // ─── Session management ─────────────────────────────────────────
@@ -1412,6 +1424,7 @@ export default function App() {
       if (holdIdSetNow.has(id)) currentHolds[id] = type;
     }
     // Keep only L/R marks on holds that still exist and are hand-type
+    const annotationsNow = routeAnnotationsRef.current;
     const handednessNow = {};
     for (const [id, side] of Object.entries(holdHandednessRef.current)) {
       if (currentHolds[id] && HANDED_ROLES.includes(currentHolds[id]) && (side === 'L' || side === 'R')) {
@@ -1446,6 +1459,7 @@ export default function App() {
         youtubeUrl: youtubeUrl.trim() || undefined,
         holds: currentHolds,
         handedness: Object.keys(handednessNow).length ? handednessNow : undefined,
+        annotations: annotationsNow.length ? annotationsNow : undefined,
         holdSnapshots,
         holdTypes, techniques, styles,
         updatedAt: new Date().toISOString(),
@@ -1472,6 +1486,7 @@ export default function App() {
         youtubeUrl: youtubeUrl.trim() || undefined,
         holds: currentHolds,
         handedness: Object.keys(handednessNow).length ? handednessNow : undefined,
+        annotations: annotationsNow.length ? annotationsNow : undefined,
         holdSnapshots,
         holdTypes, techniques, styles,
         createdAt: new Date().toISOString(),
@@ -1596,6 +1611,8 @@ export default function App() {
       setYoutubeUrl(r.youtubeUrl || '');
       setHoldSelection({ ...(r.holds || {}) });
       setHoldHandedness({ ...(r.handedness || {}) });
+      setRouteAnnotations(r.annotations || []);
+      setDrawMode(false);
       setSelectionMode(SELECTION_MODES.HAND);
       setEditingRouteId(r.id);
       setViewingRoute(null);
@@ -2391,6 +2408,9 @@ export default function App() {
           handedness={holdHandedness}
           onHoldTap={view === 'create' ? handleHoldTap : undefined}
           onHoldLongPress={view === 'create' ? handleHoldLongPress : undefined}
+          drawMode={view === 'create' && drawMode}
+          annotations={routeAnnotations}
+          onAnnotationAdd={view === 'create' ? (a) => setRouteAnnotations(prev => [...prev, a]) : undefined}
           onBoardClick={view === 'board' ? () => { resetCreate(); setView('create'); } : undefined}
           interactive={view === 'create'}
           dimBoard={false}
@@ -2471,7 +2491,59 @@ export default function App() {
               }}>
                 Tap Mode
               </div>
-              <ModeSelector mode={selectionMode} setMode={setSelectionMode} />
+              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
+                <ModeSelector
+                  mode={drawMode ? null : selectionMode}
+                  setMode={(m) => { setDrawMode(false); setSelectionMode(m); }}
+                />
+                <button
+                  onClick={() => setDrawMode(d => !d)}
+                  aria-pressed={drawMode}
+                  style={{
+                    padding: '7px 14px',
+                    borderRadius: '20px',
+                    border: drawMode ? '2px solid #1A0A00' : '2px solid rgba(26,10,0,0.15)',
+                    background: drawMode ? 'rgba(26,10,0,0.12)' : 'rgba(255,255,255,0.5)',
+                    color: drawMode ? '#1A0A00' : 'var(--text-secondary)',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    transition: 'all 0.15s',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  ✏️ Draw
+                </button>
+              </div>
+              {drawMode && (
+                <div style={{ display: 'flex', gap: '6px', marginTop: '8px' }}>
+                  {[
+                    { label: 'Undo line', onClick: () => setRouteAnnotations(prev => prev.slice(0, -1)) },
+                    { label: 'Clear lines', onClick: () => setRouteAnnotations([]) },
+                  ].map(({ label, onClick }) => {
+                    const disabled = routeAnnotations.length === 0;
+                    return (
+                      <button
+                        key={label}
+                        onClick={onClick}
+                        disabled={disabled}
+                        style={{
+                          padding: '6px 12px', borderRadius: '14px',
+                          border: '1.5px solid rgba(26,10,0,0.25)',
+                          background: 'rgba(255,255,255,0.7)',
+                          color: 'var(--text-secondary)',
+                          fontSize: '11px', fontWeight: 600,
+                          cursor: disabled ? 'default' : 'pointer',
+                          opacity: disabled ? 0.4 : 1,
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
               <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '8px' }}>
                 <span style={{ color: selectedCount > 0 ? 'var(--accent)' : 'var(--text-dim)', fontWeight: selectedCount > 0 ? 700 : 400 }}>
                   {selectedCount} holds selected
@@ -2480,9 +2552,10 @@ export default function App() {
                 {finishCount   > 0 && <span style={{ color: MODE_COLORS.finish   }}> · {finishCount} finish</span>}
                 {footCount     > 0 && <span style={{ color: MODE_COLORS.foot     }}> · {footCount} foot</span>}
                 {handOnlyCount > 0 && <span style={{ color: MODE_COLORS.handOnly }}> · {handOnlyCount} hand only</span>}
+                {routeAnnotations.length > 0 && <span style={{ color: 'var(--text-secondary)' }}> · {routeAnnotations.length} line{routeAnnotations.length > 1 ? 's' : ''}</span>}
               </div>
               <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                Long-press a hold to mark it left / right hand
+                {drawMode ? 'Drag to draw · pinch to zoom' : 'Long-press a hold to mark it left / right hand'}
               </div>
             </div>
           )}

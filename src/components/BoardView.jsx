@@ -12,7 +12,7 @@ function clamp(val, min, max) {
 // boardRegion (the board area inside the photo) is per-wall — passed in by App.jsx
 // (activeBoard.specs.boardRegion). Falls back to holds.json for The Barn / before
 // specs loads, so two walls with different board areas each render correctly.
-export default function BoardView({ holds, selection, handedness, onHoldTap, onHoldLongPress, onBoardClick, interactive, dimBoard, imgSrc, imgSrcSet, imgSizes, holdSnapshots, onZoomChange, boardRegion = holdsData.boardRegion, children }) {
+export default function BoardView({ holds, selection, handedness, onHoldTap, onHoldLongPress, drawMode, annotations, onAnnotationAdd, onBoardClick, interactive, dimBoard, imgSrc, imgSrcSet, imgSizes, holdSnapshots, onZoomChange, boardRegion = holdsData.boardRegion, children }) {
   const [imageLoaded, setImageLoaded] = useState(false);
   // Default to the board image's native ratio (1500×1463) so the box reserves
   // the correct height BEFORE the image loads — prevents the thin-strip → full
@@ -47,6 +47,15 @@ export default function BoardView({ holds, selection, handedness, onHoldTap, onH
     }
   }
   useEffect(() => cancelLongPressTimer, []);
+
+  // ─── Freehand draw mode (create/edit only) ─────────────────────────────
+  // strokeRef holds the in-progress stroke (board-% points) for the event
+  // handlers; liveStroke mirrors it into state purely so it renders live.
+  // strokeSrcRef remembers whether the stroke came from touch or mouse.
+  const drawActive = !!(interactive && drawMode && onAnnotationAdd);
+  const strokeRef    = useRef(null);
+  const strokeSrcRef = useRef(null);   // 'touch' | 'mouse'
+  const [liveStroke, setLiveStroke] = useState(null);
 
   const allHolds = holds ?? holdsData.holds;
 
@@ -184,7 +193,78 @@ export default function BoardView({ holds, selection, handedness, onHoldTap, onH
     return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
   }
 
-  latestRef.current = { findHoldAtPoint, onHoldLongPress };
+  // client px → board-area % (0–100, clamped). Same maths as findHoldAtPoint
+  // (bounding rect of the overlay svg, which already includes CSS zoom/pan).
+  function clientToBoardPct(clientX, clientY) {
+    const svg = svgRef.current;
+    if (!svg) return null;
+    const rect = svg.getBoundingClientRect();
+    if (!rect.width || !rect.height) return null;
+    const svgX = ((clientX - rect.left) / rect.width)  * imgSize.w;
+    const svgY = ((clientY - rect.top)  / rect.height) * imgSize.h;
+    const bLeft = imgSize.w * boardRegion.left  / 100;
+    const bTop  = imgSize.h * boardRegion.top   / 100;
+    const bW    = imgSize.w * boardRegion.width  / 100;
+    const bH    = imgSize.h * boardRegion.height / 100;
+    return [
+      clamp((svgX - bLeft) / bW * 100, 0, 100),
+      clamp((svgY - bTop)  / bH * 100, 0, 100),
+    ];
+  }
+
+  function beginStroke(clientX, clientY, src) {
+    const p = clientToBoardPct(clientX, clientY);
+    if (!p) return;
+    strokeRef.current = [p];
+    strokeSrcRef.current = src;
+    setLiveStroke([p]);
+  }
+
+  function extendStroke(clientX, clientY) {
+    const pts = strokeRef.current;
+    if (!pts) return;
+    const p = clientToBoardPct(clientX, clientY);
+    if (!p) return;
+    const last = pts[pts.length - 1];
+    if (Math.hypot(p[0] - last[0], p[1] - last[1]) < 0.15) return;   // sub-pixel jitter
+    pts.push(p);
+    setLiveStroke(pts.slice());
+  }
+
+  function discardStroke() {
+    strokeRef.current = null;
+    strokeSrcRef.current = null;
+    setLiveStroke(null);
+  }
+
+  function finishStroke() {
+    const pts = strokeRef.current;
+    discardStroke();
+    const cb = latestRef.current.onAnnotationAdd;
+    if (!pts || pts.length < 2 || !cb) return;
+
+    let len = 0;
+    for (let i = 1; i < pts.length; i++) {
+      len += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+    }
+    if (len < 2) return;   // accidental tap / tiny scribble
+
+    // Thin: drop points closer than 0.5 board-% to the previous kept point
+    const kept = [pts[0]];
+    for (let i = 1; i < pts.length; i++) {
+      const k = kept[kept.length - 1];
+      if (Math.hypot(pts[i][0] - k[0], pts[i][1] - k[1]) >= 0.5) kept.push(pts[i]);
+    }
+    const last = pts[pts.length - 1];
+    if (kept[kept.length - 1] !== last) kept.push(last);   // always keep the end
+
+    const first = pts[0];
+    const closed = len > 12 && Math.hypot(last[0] - first[0], last[1] - first[1]) < 5;
+    const r2 = (n) => Math.round(n * 100) / 100;
+    cb({ points: kept.map(([x, y]) => [r2(x), r2(y)]), closed });
+  }
+
+  latestRef.current = { findHoldAtPoint, onHoldLongPress, onAnnotationAdd };
 
   function handleTouchStart(e) {
     lastTouchTimeRef.current = Date.now();
@@ -192,6 +272,17 @@ export default function BoardView({ holds, selection, handedness, onHoldTap, onH
     longPressFiredRef.current = false;
     if (onBoardClick && !interactive && scaleRef.current === 1 && e.touches.length === 1) {
       setBoardPressed(true);
+    }
+    if (drawActive) {
+      if (e.touches.length === 1) {
+        // One finger in draw mode = start a stroke (no tap, no pan, no long-press)
+        pinchRef.current.active = false;
+        dragRef.current.active  = false;
+        beginStroke(e.touches[0].clientX, e.touches[0].clientY, 'touch');
+        return;
+      }
+      // A second finger cancels the stroke and falls through to pinch-zoom below
+      discardStroke();
     }
     if (e.touches.length === 2) {
       pinchRef.current.active = true;
@@ -228,6 +319,12 @@ export default function BoardView({ holds, selection, handedness, onHoldTap, onH
   }
 
   function handleTouchMove(e) {
+    // touch-action: none on the container (set while interactive / drawing) stops
+    // the browser scrolling, so no preventDefault is needed (React's touchmove is passive).
+    if (strokeRef.current && strokeSrcRef.current === 'touch') {
+      if (e.touches.length === 1) extendStroke(e.touches[0].clientX, e.touches[0].clientY);
+      return;
+    }
     if (pinchRef.current.active && e.touches.length === 2) {
       e.preventDefault();
       const t0   = e.touches[0], t1 = e.touches[1];
@@ -260,6 +357,10 @@ export default function BoardView({ holds, selection, handedness, onHoldTap, onH
 
   function handleTouchEnd(e) {
     cancelLongPressTimer();
+    if (strokeRef.current && strokeSrcRef.current === 'touch') {
+      lastTouchTimeRef.current = Date.now();   // keep synthesized mouse events ignored
+      finishStroke();
+    }
     // A long-press already opened the picker — swallow this touchend's tap.
     // Re-stamp the touch time so any synthesized mouse events that follow
     // (which arrive >500ms after touchstart here) are still ignored.
@@ -285,6 +386,7 @@ export default function BoardView({ holds, selection, handedness, onHoldTap, onH
 
   function handleTouchCancel() {
     cancelLongPressTimer();
+    if (strokeRef.current && strokeSrcRef.current === 'touch') discardStroke();
     longPressFiredRef.current = false;
   }
 
@@ -293,6 +395,7 @@ export default function BoardView({ holds, selection, handedness, onHoldTap, onH
   // by the timer above (Android also fires contextmenu after a long-press, so
   // ignore it if a touch just happened).
   function handleContextMenu(e) {
+    if (drawActive) { e.preventDefault(); return; }   // no picker while drawing
     if (!(interactive && onHoldLongPress)) return;
     e.preventDefault();
     if (Date.now() - lastTouchTimeRef.current < 1500) return;
@@ -303,6 +406,12 @@ export default function BoardView({ holds, selection, handedness, onHoldTap, onH
   // ─── Mouse drag-to-pan (desktop) ──────────────────────────────────────
   function handleMouseDown(e) {
     if (e.button !== 0 || isSynthesizedMouse()) return;
+    if (drawActive) {
+      // Mouse drag in draw mode draws (no panning, no click-to-toggle)
+      mouseRef.current.active = false;
+      beginStroke(e.clientX, e.clientY, 'mouse');
+      return;
+    }
     mouseRef.current = {
       active: true,
       startX: e.clientX,
@@ -316,6 +425,10 @@ export default function BoardView({ holds, selection, handedness, onHoldTap, onH
   }
 
   function handleMouseMove(e) {
+    if (strokeRef.current && strokeSrcRef.current === 'mouse') {
+      if (!isSynthesizedMouse()) extendStroke(e.clientX, e.clientY);
+      return;
+    }
     if (!mouseRef.current.active || isSynthesizedMouse()) return;
     const dx = e.clientX - mouseRef.current.startX;
     const dy = e.clientY - mouseRef.current.startY;
@@ -333,6 +446,11 @@ export default function BoardView({ holds, selection, handedness, onHoldTap, onH
   }
 
   function handleMouseUp(e) {
+    if (strokeRef.current && strokeSrcRef.current === 'mouse') {
+      finishStroke();
+      mouseRef.current.active = false;
+      return;
+    }
     if (isSynthesizedMouse()) { mouseRef.current.active = false; return; }
     // If click (no drag movement), check for hold hit
     if (mouseRef.current.active && !mouseRef.current.moved) {
@@ -402,11 +520,11 @@ export default function BoardView({ holds, selection, handedness, onHoldTap, onH
           borderRadius: asButton ? '16px' : 0,
           boxShadow: asButton ? '0 6px 20px rgba(26,10,0,0.18)' : 'none',
           background: 'rgba(26,10,0,0.05)',
-          touchAction: (isZoomed || interactive) ? 'none' : 'pan-y',
+          touchAction: (isZoomed || interactive || drawActive) ? 'none' : 'pan-y',
           userSelect: 'none',
           WebkitUserSelect: 'none',
           WebkitTouchCallout: 'none',
-          cursor: isZoomed ? (mouseDown ? 'grabbing' : 'grab') : (asButton ? 'pointer' : 'default'),
+          cursor: drawActive ? 'crosshair' : isZoomed ? (mouseDown ? 'grabbing' : 'grab') : (asButton ? 'pointer' : 'default'),
           transition: 'transform 0.1s ease, box-shadow 0.1s ease',
           transform: asButton && boardPressed ? 'scale(0.99)' : 'scale(1)',
         }}
@@ -475,6 +593,12 @@ export default function BoardView({ holds, selection, handedness, onHoldTap, onH
                       const h = hold.h_pct !== undefined ? hold.h_pct : hold.r * 2;
                       return <ellipse key={hold.id} cx={toX(hold.cx)} cy={toY(hold.cy)} rx={Math.max((w / 100) * bW / 2, 2)} ry={Math.max((h / 100) * bH / 2, 2)} fill="black" />;
                     })}
+                    {/* Closed drawn loops un-dim like a hold */}
+                    {(annotations || []).map((a, i) => (
+                      a.closed && a.points?.length >= 3 ? (
+                        <polygon key={`ann-cut-${i}`} points={a.points.map(([x, y]) => `${toX(x)},${toY(y)}`).join(' ')} fill="black" strokeLinejoin="round" />
+                      ) : null
+                    ))}
                   </mask>
                 </defs>
                 <rect width={imgSize.w} height={imgSize.h} fill="white" mask="url(#hold-cutout-mask)" />
@@ -548,6 +672,33 @@ export default function BoardView({ holds, selection, handedness, onHoldTap, onH
                     </g>
                   );
                 });
+              })()}
+              {/* Freehand drawn lines (saved + live stroke). Dark under-stroke + white top stroke. */}
+              {((annotations && annotations.length > 0) || liveStroke) && (() => {
+                const bL = imgSize.w * boardRegion.left / 100;
+                const bT = imgSize.h * boardRegion.top / 100;
+                const bWd = imgSize.w * boardRegion.width / 100;
+                const bHt = imgSize.h * boardRegion.height / 100;
+                const pts = (arr) => arr.map(([x, y]) => `${bL + (x / 100) * bWd},${bT + (y / 100) * bHt}`).join(' ');
+                const items = [
+                  ...(annotations || []).filter(a => a?.points?.length >= 2),
+                  ...(liveStroke && liveStroke.length >= 2 ? [{ points: liveStroke, closed: false }] : []),
+                ];
+                const common = { fill: 'none', strokeLinecap: 'round', strokeLinejoin: 'round' };
+                return (
+                  <g style={{ pointerEvents: 'none' }}>
+                    {items.map((a, i) => {
+                      const Shape = a.closed ? 'polygon' : 'polyline';
+                      const p = pts(a.points);
+                      return (
+                        <g key={`ann-${i}`}>
+                          <Shape points={p} {...common} stroke="rgba(26,10,0,0.55)" strokeWidth={4.5 * pxScale} />
+                          <Shape points={p} {...common} stroke="#fff" strokeWidth={2.5 * pxScale} />
+                        </g>
+                      );
+                    })}
+                  </g>
+                );
               })()}
             </svg>
           )}
