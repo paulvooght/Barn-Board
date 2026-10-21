@@ -75,7 +75,9 @@ export default function HoldOverlay({ hold, boardRegion, imgSize, selection, han
   // Left/right-hand badge: small circle on the hold's top-right corner
   const side = handedness?.[hold.id];
   const showHandBadge = HANDED_ROLES.includes(selType) && (side === 'L' || side === 'R');
-  const badgeR = fontSize * 0.9;
+  // Sized in screen pixels (pxScale = SVG units per screen px) so it stays
+  // readable on a phone at 1x zoom, where board-relative sizing is ~2px.
+  const badgeR = Math.max(7 * pxScale, fontSize * 0.9);
   const rightX = hasPolygon
     ? Math.max(...hold.polygon.map(([x]) => toSvgX(x)))
     : cx + rx;
@@ -134,13 +136,14 @@ export default function HoldOverlay({ hold, boardRegion, imgSize, selection, han
           <circle
             cx={badgeCx} cy={badgeCy} r={badgeR}
             fill={color}
+            stroke="#fff" strokeWidth={Math.max(1.2 * pxScale, 1)}
             style={{ filter: 'drop-shadow(0 2px 4px rgba(26,10,0,0.5))' }}
           />
           <text
             x={badgeCx} y={badgeCy}
             textAnchor="middle"
             dominantBaseline="central"
-            fontSize={fontSize * 1.1}
+            fontSize={badgeR * 1.15}
             fontWeight="900"
             fontFamily="var(--font-heading)"
             fill="#fff"
