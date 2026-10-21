@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef, useMemo, lazy, Suspense } from 'react';
 import BoardView from './components/BoardView';
+import HandednessPicker from './components/HandednessPicker';
 import ModeSelector from './components/ModeSelector';
 import Icon from './components/Icon';
 import SentCycleButton from './components/SentCycleButton';
@@ -1176,6 +1177,36 @@ export default function App() {
       return next;
     });
   }, []);
+
+  // Long-press L/R picker (create/edit mode): { holdId, x, y } | null
+  const [handPicker, setHandPicker] = useState(null);
+  const selectionModeRef = useRef(selectionMode);
+  selectionModeRef.current = selectionMode;
+
+  const handleHoldLongPress = useCallback((holdId, x, y) => {
+    // Effective role = its current role, or the role it would get if tapped now
+    const role = holdSelectionRef.current[holdId] || selectionModeRef.current;
+    if (!HANDED_ROLES.includes(role)) return;   // foot holds have no hand
+    setHandPicker({ holdId, x, y });
+  }, []);
+
+  const pickHandedness = useCallback((side /* 'L' | 'R' | null */) => {
+    const picker = handPicker;
+    setHandPicker(null);
+    if (!picker) return;
+    const { holdId } = picker;
+    if (side && !holdSelectionRef.current[holdId]) {
+      // Not selected yet → select it with the current mode (set directly; a tap would toggle)
+      const mode = selectionModeRef.current;
+      setHoldSelection(prev => ({ ...prev, [holdId]: mode }));
+    }
+    setHandedness(holdId, side);
+  }, [handPicker, setHandedness]);
+
+  // Close the picker whenever we leave create view
+  useEffect(() => {
+    if (view !== 'create') setHandPicker(null);
+  }, [view]);
 
   // ─── Session management ─────────────────────────────────────────
   const startSession = useCallback(() => {
@@ -2359,6 +2390,7 @@ export default function App() {
           selection={holdSelection}
           handedness={holdHandedness}
           onHoldTap={view === 'create' ? handleHoldTap : undefined}
+          onHoldLongPress={view === 'create' ? handleHoldLongPress : undefined}
           onBoardClick={view === 'board' ? () => { resetCreate(); setView('create'); } : undefined}
           interactive={view === 'create'}
           dimBoard={false}
@@ -2449,9 +2481,23 @@ export default function App() {
                 {footCount     > 0 && <span style={{ color: MODE_COLORS.foot     }}> · {footCount} foot</span>}
                 {handOnlyCount > 0 && <span style={{ color: MODE_COLORS.handOnly }}> · {handOnlyCount} hand only</span>}
               </div>
+              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                Long-press a hold to mark it left / right hand
+              </div>
             </div>
           )}
         </BoardView>
+      )}
+
+      {view === 'create' && handPicker && (
+        <HandednessPicker
+          x={handPicker.x}
+          y={handPicker.y}
+          current={holdHandedness[handPicker.holdId]}
+          color={MODE_COLORS[holdSelection[handPicker.holdId] || selectionMode]}
+          onPick={pickHandedness}
+          onClose={() => setHandPicker(null)}
+        />
       )}
 
       {/* ── Carousel — viewRoute ── */}

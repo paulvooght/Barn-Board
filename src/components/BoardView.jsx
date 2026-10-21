@@ -12,7 +12,7 @@ function clamp(val, min, max) {
 // boardRegion (the board area inside the photo) is per-wall — passed in by App.jsx
 // (activeBoard.specs.boardRegion). Falls back to holds.json for The Barn / before
 // specs loads, so two walls with different board areas each render correctly.
-export default function BoardView({ holds, selection, handedness, onHoldTap, onBoardClick, interactive, dimBoard, imgSrc, imgSrcSet, imgSizes, holdSnapshots, onZoomChange, boardRegion = holdsData.boardRegion, children }) {
+export default function BoardView({ holds, selection, handedness, onHoldTap, onHoldLongPress, onBoardClick, interactive, dimBoard, imgSrc, imgSrcSet, imgSizes, holdSnapshots, onZoomChange, boardRegion = holdsData.boardRegion, children }) {
   const [imageLoaded, setImageLoaded] = useState(false);
   // Default to the board image's native ratio (1500×1463) so the box reserves
   // the correct height BEFORE the image loads — prevents the thin-strip → full
@@ -31,6 +31,22 @@ export default function BoardView({ holds, selection, handedness, onHoldTap, onB
   const mouseRef        = useRef({ active: false, startX: 0, startY: 0, basePanX: 0, basePanY: 0, moved: false });
   const lastTouchTimeRef = useRef(0);
   const isSynthesizedMouse = () => Date.now() - lastTouchTimeRef.current < 500;
+
+  // ─── Long-press (touch) → onHoldLongPress ─────────────────────────────
+  // Timer + "already fired" flag live in refs (read from event handlers).
+  // longPressFiredRef makes touchend skip the normal tap so a long-press
+  // doesn't also toggle the hold.
+  const longPressTimerRef = useRef(null);
+  const longPressFiredRef = useRef(false);
+  const latestRef         = useRef({});   // always-fresh findHoldAtPoint / callback for the timer
+
+  function cancelLongPressTimer() {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  }
+  useEffect(() => cancelLongPressTimer, []);
 
   const allHolds = holds ?? holdsData.holds;
 
@@ -168,8 +184,12 @@ export default function BoardView({ holds, selection, handedness, onHoldTap, onB
     return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
   }
 
+  latestRef.current = { findHoldAtPoint, onHoldLongPress };
+
   function handleTouchStart(e) {
     lastTouchTimeRef.current = Date.now();
+    cancelLongPressTimer();
+    longPressFiredRef.current = false;
     if (onBoardClick && !interactive && scaleRef.current === 1 && e.touches.length === 1) {
       setBoardPressed(true);
     }
@@ -178,6 +198,7 @@ export default function BoardView({ holds, selection, handedness, onHoldTap, onB
       dragRef.current.active  = false;
       const t0 = e.touches[0], t1 = e.touches[1];
       pinchRef.current.lastDist = Math.hypot(t0.clientX - t1.clientX, t0.clientY - t1.clientY);
+      cancelLongPressTimer();   // second finger = pinch, not a long-press
     } else if (e.touches.length === 1) {
       pinchRef.current.active = false;
       dragRef.current = {
@@ -188,6 +209,21 @@ export default function BoardView({ holds, selection, handedness, onHoldTap, onB
         basePanY: panRef.current.y,
         moved: false,
       };
+      if (interactive && onHoldLongPress) {
+        const startX = e.touches[0].clientX;
+        const startY = e.touches[0].clientY;
+        longPressTimerRef.current = setTimeout(() => {
+          longPressTimerRef.current = null;
+          const { findHoldAtPoint: find, onHoldLongPress: cb } = latestRef.current;
+          if (!cb || !dragRef.current.active || dragRef.current.moved) return;
+          const hitId = find(startX, startY);
+          if (hitId) {
+            longPressFiredRef.current = true;
+            navigator.vibrate?.(10);
+            cb(hitId, startX, startY);
+          }
+        }, 450);
+      }
     }
   }
 
@@ -205,7 +241,10 @@ export default function BoardView({ holds, selection, handedness, onHoldTap, onB
     } else if (dragRef.current.active && e.touches.length === 1) {
       const dx = e.touches[0].clientX - dragRef.current.startX;
       const dy = e.touches[0].clientY - dragRef.current.startY;
-      if (Math.abs(dx) > 12 || Math.abs(dy) > 12) dragRef.current.moved = true;
+      if (Math.abs(dx) > 12 || Math.abs(dy) > 12) {
+        dragRef.current.moved = true;
+        cancelLongPressTimer();
+      }
       if (scaleRef.current > 1 && dragRef.current.moved) {
         e.preventDefault();
         const el   = containerRef.current;
@@ -220,8 +259,15 @@ export default function BoardView({ holds, selection, handedness, onHoldTap, onB
   }
 
   function handleTouchEnd(e) {
+    cancelLongPressTimer();
+    // A long-press already opened the picker — swallow this touchend's tap.
+    // Re-stamp the touch time so any synthesized mouse events that follow
+    // (which arrive >500ms after touchstart here) are still ignored.
+    const longPressWasFired = longPressFiredRef.current;
+    longPressFiredRef.current = false;
+    if (longPressWasFired) lastTouchTimeRef.current = Date.now();
     // If single-finger tap (no drag movement), check for hold hit
-    if (dragRef.current.active && !dragRef.current.moved) {
+    if (!longPressWasFired && dragRef.current.active && !dragRef.current.moved) {
       if (interactive && onHoldTap) {
         const touch = e.changedTouches?.[0];
         const clientX = touch ? touch.clientX : dragRef.current.startX;
@@ -235,6 +281,23 @@ export default function BoardView({ holds, selection, handedness, onHoldTap, onB
     pinchRef.current.active = false;
     dragRef.current.active  = false;
     setBoardPressed(false);
+  }
+
+  function handleTouchCancel() {
+    cancelLongPressTimer();
+    longPressFiredRef.current = false;
+  }
+
+  // Right-click (laptop) → same picker as a touch long-press. Only claims the
+  // context menu when the picker is available; touch long-presses are handled
+  // by the timer above (Android also fires contextmenu after a long-press, so
+  // ignore it if a touch just happened).
+  function handleContextMenu(e) {
+    if (!(interactive && onHoldLongPress)) return;
+    e.preventDefault();
+    if (Date.now() - lastTouchTimeRef.current < 1500) return;
+    const hitId = findHoldAtPoint(e.clientX, e.clientY);
+    if (hitId) onHoldLongPress(hitId, e.clientX, e.clientY);
   }
 
   // ─── Mouse drag-to-pan (desktop) ──────────────────────────────────────
@@ -322,6 +385,8 @@ export default function BoardView({ holds, selection, handedness, onHoldTap, onB
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
+        onTouchCancel={handleTouchCancel}
+        onContextMenu={handleContextMenu}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
@@ -339,6 +404,8 @@ export default function BoardView({ holds, selection, handedness, onHoldTap, onB
           background: 'rgba(26,10,0,0.05)',
           touchAction: (isZoomed || interactive) ? 'none' : 'pan-y',
           userSelect: 'none',
+          WebkitUserSelect: 'none',
+          WebkitTouchCallout: 'none',
           cursor: isZoomed ? (mouseDown ? 'grabbing' : 'grab') : (asButton ? 'pointer' : 'default'),
           transition: 'transform 0.1s ease, box-shadow 0.1s ease',
           transform: asButton && boardPressed ? 'scale(0.99)' : 'scale(1)',
