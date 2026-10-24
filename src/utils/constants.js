@@ -188,11 +188,11 @@ export function getYouTubeThumbnail(url) {
 
 // Static fallback used only until the dynamic board_image_config loads (or when
 // offline / brand-new). Kept in sync with the current live image (V8, undistorted — matches live hold coords).
-export const DEFAULT_BOARD_IMAGE = '/Barn_Set_01_V8.jpg';
+export const DEFAULT_BOARD_IMAGE = '/Barn_Set_01_V9.jpg';
 export const DEFAULT_BOARD_SRCSET =
-  '/Barn_Set_01_V8-800w.jpg 800w, ' +
-  '/Barn_Set_01_V8-1200w.jpg 1200w, ' +
-  '/Barn_Set_01_V8-2000w.jpg 2000w';
+  '/Barn_Set_01_V9-800w.jpg 800w, ' +
+  '/Barn_Set_01_V9-1200w.jpg 1200w, ' +
+  '/Barn_Set_01_V9-2000w.jpg 2000w';
 export const DEFAULT_BOARD_SIZES = '100vw';
 
 export const BOARD_SPECS = {
