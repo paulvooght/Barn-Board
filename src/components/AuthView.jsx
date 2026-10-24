@@ -14,6 +14,7 @@ export default function AuthView({ recovery = false, onRecoveryDone }) {
     authLinkError ? `That email link didn't work (${authLinkError}). Request a new one below.` : ''
   );
   const [message, setMessage]   = useState('');
+  const [revealPw, setRevealPw] = useState(false);
 
   const switchMode = (m) => { setMode(m); setError(''); setMessage(''); };
 
@@ -69,6 +70,29 @@ export default function AuthView({ recovery = false, onRecoveryDone }) {
     border: '1.5px solid #e0d5cc', fontFamily: 'DM Sans, sans-serif',
     fontSize: 16, boxSizing: 'border-box',
   };
+  // Password inputs leave room on the right for the show/hide eye button.
+  const pwInput = { ...input, paddingRight: 48 };
+  const pwType = revealPw ? 'text' : 'password';
+
+  // Eye button sitting inside the password field — toggles plain-text display.
+  const revealBtn = (
+    <button type="button" onClick={() => setRevealPw(v => !v)}
+      aria-label={revealPw ? 'Hide password' : 'Show password'}
+      aria-pressed={revealPw}
+      style={{
+        position: 'absolute', right: 2, top: '50%', transform: 'translateY(-50%)',
+        width: 44, height: 44, background: 'none', border: 'none', padding: 0,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        color: revealPw ? '#0047FF' : '#998877', cursor: 'pointer',
+      }}>
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+        strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z" />
+        <circle cx="12" cy="12" r="3" />
+        {!revealPw && <line x1="3" y1="3" x2="21" y2="21" />}
+      </svg>
+    </button>
+  );
 
   return (
     <div style={{
@@ -104,18 +128,19 @@ export default function AuthView({ recovery = false, onRecoveryDone }) {
             </div>
           )}
           {showPassword && (
-            <div style={{ marginBottom: recovery ? 12 : 20 }}>
-              <input type="password"
+            <div style={{ marginBottom: recovery ? 12 : 20, position: 'relative' }}>
+              <input type={pwType}
                 autoComplete={recovery || mode === 'signup' ? 'new-password' : 'current-password'}
                 placeholder={recovery ? 'New password (min 6 chars)' : 'Password'} value={password}
-                onChange={e => setPassword(e.target.value)} required style={input} />
+                onChange={e => setPassword(e.target.value)} required style={pwInput} />
+              {revealBtn}
             </div>
           )}
           {recovery && (
             <div style={{ marginBottom: 20 }}>
-              <input type="password" autoComplete="new-password"
+              <input type={pwType} autoComplete="new-password"
                 placeholder="Confirm new password" value={confirm}
-                onChange={e => setConfirm(e.target.value)} required style={input} />
+                onChange={e => setConfirm(e.target.value)} required style={pwInput} />
             </div>
           )}
 

@@ -68,6 +68,13 @@ function positivityLabel(val) {
   return 'Very juggy';
 }
 
+// Thickness multiplier for hold outlines at a given zoom. Exactly 1 at 1x (normal view unchanged),
+// growing gently as you zoom in: 1.15x at 2x, 1.45x at 4x, ~2x at 8x — outlines stay readable zoomed in.
+// Applied AFTER the 1-unit minimum/rounding so it isn't swallowed by them.
+function outlineZoomBoost(scale) {
+  return 1 + 0.15 * (Math.max(scale || 1, 1) - 1);
+}
+
 export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc, imgSrcSet, imgSizes, initialManagerMode, onManagerModeChange, onEditHold, routes, boardRegion = holdsData.boardRegion }) {
   const { state: holds, setState: setHolds, undo, redo, canUndo, canRedo, beginCoalesce, endCoalesce } = useUndoRedo(initialHolds);
 
@@ -1276,7 +1283,7 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
       const heatPct = heatPercentiles[hold.id]; // undefined if unused (count 0)
       const heatColor = heatPct !== undefined ? colorForPercentile(heatPct) : null;
       const zPx = pxScale / scale;
-      const lineWidth = Math.max(Math.round(0.7 * zPx), 1);
+      const lineWidth = Math.max(Math.round(0.7 * zPx), 1) * outlineZoomBoost(scale);
 
       if (!hasPoly) {
         const cx = toSvgX(hold.cx);
@@ -1331,7 +1338,9 @@ export default function BoardSetupView({ initialHolds, onSave, onCancel, imgSrc,
     // pxScale converts screen px → SVG units at 1x zoom. Dividing by scale compensates for CSS zoom.
     const zPx = pxScale / scale;
     // Green: very thin. Selected: medium. Medium confidence: hairline.
-    const lineWidth = (isSel || isInspected || showVertices) ? Math.max(Math.round(2.5 * zPx), 1) : isHigh ? Math.max(Math.round(0.7 * zPx), 1) : Math.max(Math.round(0.5 * zPx), 1);
+    // Outlines thicken gently as you zoom in (1x look unchanged) — selected ones less, so vertex editing stays precise.
+    const boost = outlineZoomBoost(scale);
+    const lineWidth = (isSel || isInspected || showVertices) ? Math.max(Math.round(2.5 * zPx), 1) * Math.sqrt(boost) : isHigh ? Math.max(Math.round(0.7 * zPx), 1) * boost : Math.max(Math.round(0.5 * zPx), 1) * boost;
 
     if (!hasPoly) {
       const cx = toSvgX(hold.cx);
