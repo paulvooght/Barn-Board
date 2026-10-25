@@ -9,6 +9,10 @@ const SORT_OPTIONS = [
   { key: 'rating', label: 'Rating' },
 ];
 
+// Sentinel for activePlaylist: the "Recent" tile (routes from the last session).
+// Not a real playlist, so playlists.find(...) on it returns undefined.
+const RECENT_ID = '__recent__';
+
 function getMissingHoldCount(route, holdIdSet) {
   return Object.keys(route.holds || {}).filter(id => !holdIdSet.has(id)).length;
 }
@@ -19,6 +23,7 @@ export default function RouteList({
   onViewRoute, onCreateNew, onRateRoute, onToggleSent,
   onCreatePlaylist, onDeletePlaylist, onRenamePlaylist, onRemoveRouteFromPlaylist,
   onFetchSharedPlaylists, onTogglePlaylistShared, onAddSharedPlaylist, userId,
+  recentSession, showRecentTile,
 }) {
   const urd = userRouteData || {};
   const cr = communityRatings || {};
@@ -79,8 +84,12 @@ export default function RouteList({
   const gradeIndex = gradeSystem === 'font' ? FONT_GRADE_INDEX : V_GRADE_INDEX;
 
   // Get routes for current view (all or playlist)
+  const isRecent = activePlaylist === RECENT_ID;
   let baseRoutes = routes;
-  if (activePlaylist) {
+  if (isRecent) {
+    // Guard: recentSession can be null (e.g. after switching wall) while Recent is selected
+    baseRoutes = (recentSession?.routeIds || []).map(id => routes.find(r => r.id === id)).filter(Boolean);
+  } else if (activePlaylist) {
     const pl = playlists.find(p => p.id === activePlaylist);
     if (pl) {
       baseRoutes = routes.filter(r => pl.routeIds.includes(r.id));
@@ -120,10 +129,13 @@ export default function RouteList({
     filtered = filtered.filter(r => r.setter && r.setter.toLowerCase().includes(q));
   }
 
-  // Sort
+  // Sort (in Recent view, "date" means the order the routes were logged)
+  const recentOrder = isRecent ? (recentSession?.routeIds || []) : null;
   const sorted = [...filtered].sort((a, b) => {
     let cmp = 0;
-    if (sortKey === 'date') {
+    if (sortKey === 'date' && recentOrder) {
+      cmp = recentOrder.indexOf(a.id) - recentOrder.indexOf(b.id);
+    } else if (sortKey === 'date') {
       cmp = new Date(a.createdAt || 0) - new Date(b.createdAt || 0);
     } else if (sortKey === 'grade') {
       cmp = (gradeIndex[a.grade] ?? -1) - (gradeIndex[b.grade] ?? -1);
@@ -327,6 +339,36 @@ export default function RouteList({
           </div>
         </button>
 
+        {/* "Recent" tile — routes from the last session on this wall */}
+        {showRecentTile && (() => {
+          const isActive = isRecent && !showBrowse;
+          return (
+            <button
+              onClick={() => { setActivePlaylist(isRecent ? null : RECENT_ID); setShowBrowse(false); }}
+              style={{
+                ...playlistTileStyle,
+                border: isActive ? '2px solid var(--accent)' : '1.5px solid var(--border)',
+                background: isActive ? 'var(--accent-dim)' : 'var(--bg-card)',
+              }}
+            >
+              <div style={{ fontSize: '20px', marginBottom: '2px' }}>↺</div>
+              <div style={{
+                fontSize: '10px', fontWeight: 700,
+                color: isActive ? 'var(--accent)' : 'var(--text-secondary)',
+              }}>Recent</div>
+              <div style={{
+                fontSize: '9px', fontFamily: 'var(--font-heading)',
+                color: recentSession?.live ? 'var(--accent)' : 'var(--text-dim)',
+                fontWeight: recentSession?.live ? 700 : 400,
+              }}>
+                {recentSession?.live
+                  ? 'Live'
+                  : `${recentSession?.routeIds.length || 0} route${recentSession?.routeIds.length === 1 ? '' : 's'}`}
+              </div>
+            </button>
+          );
+        })()}
+
         {/* Playlist tiles */}
         {playlists.map(pl => {
           const count = routes.filter(r => pl.routeIds.includes(r.id)).length;
@@ -449,8 +491,26 @@ export default function RouteList({
         ) : null;
       })()}
 
+      {/* Recent (last session) header — no rename/share/delete */}
+      {isRecent && (
+        <div style={{
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          marginBottom: '10px', padding: '6px 0', gap: '8px',
+        }}>
+          <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)', flex: 1 }}>
+            {recentSession?.live ? 'Session in progress' : 'Last session'}
+            {recentSession && (
+              <span style={{ marginLeft: '6px', fontSize: '11px', color: 'var(--text-dim)', fontWeight: 500 }}>
+                {new Date(recentSession.startTime).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })}
+                {' · '}{baseRoutes.length} route{baseRoutes.length !== 1 ? 's' : ''}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Active playlist header */}
-      {activePlaylist && (() => {
+      {activePlaylist && !isRecent && (() => {
         const pl = playlists.find(p => p.id === activePlaylist);
         const isRenaming = renamingPlaylist === pl?.id;
         return pl ? (
@@ -821,7 +881,16 @@ export default function RouteList({
         </div>
       ) : (
         /* Route cards */
-        baseRoutes.length === 0 && !activePlaylist ? (
+        baseRoutes.length === 0 && isRecent ? (
+          <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-dim)' }}>
+            <div style={{ fontSize: '14px', fontWeight: 500, color: 'var(--text-muted)' }}>
+              No session yet
+            </div>
+            <div style={{ fontSize: '12px', color: 'var(--text-dim)', marginTop: '4px' }}>
+              Press Start Session in the Sessions tab, then log tries and sends
+            </div>
+          </div>
+        ) : baseRoutes.length === 0 && !activePlaylist ? (
           <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-dim)' }}>
             <div style={{ fontSize: '40px', marginBottom: '12px', color: 'var(--yellow)', opacity: 0.4 }}>◇</div>
             <div style={{ fontSize: '14px', fontWeight: 500, color: 'var(--text-muted)' }}>
@@ -861,7 +930,7 @@ export default function RouteList({
               onRate={(rating) => onRateRoute(route.id, rating)}
               onToggleSent={() => onToggleSent(route.id)}
               missingHoldCount={getMissingHoldCount(route, holdIdSet)}
-              onRemoveFromPlaylist={activePlaylist ? () => onRemoveRouteFromPlaylist(route.id, activePlaylist) : null}
+              onRemoveFromPlaylist={activePlaylist && !isRecent ? () => onRemoveRouteFromPlaylist(route.id, activePlaylist) : null}
             />
           ))
         )

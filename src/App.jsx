@@ -44,6 +44,23 @@ function unionArrays(existing, additions) {
   return [...set];
 }
 
+// A session's routes in the order they were logged (for the Routes "Recent" tile).
+// Sends carry timestamps so they lead, oldest first; routesAttempted isn't complete
+// (a route sent without being tried first may only appear in sends), so every other
+// source is unioned in after, deduped by first appearance.
+function orderedSessionRouteIds(session) {
+  if (!session) return [];
+  const sends = [...(session.sends || [])].sort((a, b) => new Date(a.time || 0) - new Date(b.time || 0));
+  const ids = [
+    ...sends.map(s => s.routeId),
+    ...(session.routesAttempted || []),
+    ...(session.routesSent || []),
+    ...(session.flashedRouteIds || []),
+    ...(session.angleAttempts || []).map(a => a.routeId),
+  ];
+  return [...new Set(ids.filter(Boolean))];
+}
+
 // Derive, from a saved session, the per-route angle/boolean state that should be
 // additively forward-merged into lifetime userRouteData when a past session is
 // edited. Mirrors the read-side derivation in SessionRoutesCard.jsx /
@@ -1030,6 +1047,22 @@ export default function App() {
     if (!activeSession) return sessions;
     return [{ ...activeSession, _live: true }, ...sessions.filter(s => s.id !== activeSession.id)];
   }, [activeSession, sessions]);
+
+  // Routes tab "Recent" tile: the most recent session on the active wall that logged
+  // at least one (still-existing) route. An empty just-started live session falls back
+  // to the last completed one. Old local sessions with no boardId belong to The Barn.
+  const recentSession = useMemo(() => {
+    const isBarn = activeBoard?.slug === 'the-barn';
+    const routeIdSet = new Set(routes.map(r => r.id));
+    const candidates = sessionsWithLive
+      .filter(s => s.boardId === activeBoardId || (!s.boardId && isBarn))
+      .sort((a, b) => new Date(b.startTime || 0) - new Date(a.startTime || 0));
+    for (const s of candidates) {
+      const routeIds = orderedSessionRouteIds(s).filter(id => routeIdSet.has(id));
+      if (routeIds.length > 0) return { id: s.id, startTime: s.startTime, live: !!s._live, routeIds };
+    }
+    return null;
+  }, [sessionsWithLive, routes, activeBoardId, activeBoard]);
 
   // Starting or stopping a session re-anchors the Sessions tab to it: null makes
   // SessionsView pick the most recent session (the live one, or the one just ended).
@@ -2748,6 +2781,8 @@ export default function App() {
           onFetchSharedPlaylists={fetchSharedPlaylists}
           onTogglePlaylistShared={togglePlaylistShared}
           onAddSharedPlaylist={addSharedPlaylist}
+          recentSession={recentSession}
+          showRecentTile={settings.betaSessionLogger || !!recentSession}
           userId={user?.id}
         />
       )}
