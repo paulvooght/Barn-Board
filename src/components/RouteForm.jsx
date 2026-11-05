@@ -21,6 +21,7 @@ export default function RouteForm({
   onSave,
   onCancel,
   isEditing,
+  videoSlot,
 }) {
   const toggleTag = (list, setter, tag) => {
     setter(prev => prev.includes(tag) ? prev.filter(t => t !== tag) : [...prev, tag]);
@@ -120,6 +121,15 @@ export default function RouteForm({
           </div>
         )}
       </div>
+
+      {/* Route video (upload) — content supplied by App: the route's videos when
+          editing, or an "add a video" control when creating */}
+      {videoSlot && (
+        <div style={{ marginBottom: '14px' }}>
+          <label style={labelStyle}>Your video</label>
+          {videoSlot}
+        </div>
+      )}
 
       {/* Grade + Angle */}
       <div style={{ display: 'flex', gap: '12px', marginBottom: '14px' }}>

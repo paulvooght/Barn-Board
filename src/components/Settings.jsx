@@ -3,6 +3,7 @@ import { BOARD_SPECS, GRADE_CHART_ROWS } from '../utils/constants';
 import holdsData from '../data/holds.json';
 import { supabase } from '../lib/supabase';
 import WallsSettings from './WallsSettings';
+import VideoStorageSettings from './VideoStorageSettings';
 
 /**
  * Props:
@@ -371,6 +372,13 @@ export default function Settings({ settings, updateSettings, allHolds, onSetupBo
           >
             Update Board Image
           </button>
+        </div>
+      )}
+
+      {/* ── Video storage (active-wall admin, in admin mode) ── */}
+      {isAdmin && (settings.adminMode ?? 'climber') === 'admin' && (
+        <div style={{ marginBottom: '16px' }}>
+          <VideoStorageSettings boardId={activeBoardId} />
         </div>
       )}
 

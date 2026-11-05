@@ -4,6 +4,7 @@ import { HOLD_COLOR_DOT } from '../utils/constants';
 
 // Lazy-loaded so it doesn't inflate the initial bundle (same as App.jsx)
 const CommentsSection = lazy(() => import('./CommentsSection'));
+const RouteVideos = lazy(() => import('./RouteVideos'));
 
 /**
  * RouteViewCard — renders the full viewRoute presentation for one route.
@@ -19,6 +20,12 @@ export default function RouteViewCard({
   // Shared app data
   user,
   isAdmin,
+  // Video admin = admin of THIS wall and in admin mode. Not the same as `isAdmin`
+  // above, which is the global comment-moderation flag.
+  isVideoAdmin,
+  videoJobs,
+  videoLastFinished,
+  onAddVideo,
   settings,
   grades,
   allHolds,
@@ -303,7 +310,29 @@ export default function RouteViewCard({
         );
       })()}
 
-      {/* 3. Comments section */}
+      {/* 3. Videos — only the active card, so neighbour cards in the carousel never fetch */}
+      {isInteractive && (
+        <Suspense fallback={
+          <div style={{ padding: '8px 12px', fontSize: 12, color: 'rgba(26,10,0,0.4)' }}>
+            Loading videos…
+          </div>
+        }>
+          <RouteVideos
+            key={route.id}
+            routeId={route.id}
+            routeName={route.name}
+            currentUserId={user?.id}
+            isVideoAdmin={isVideoAdmin}
+            profilesById={profilesById}
+            jobs={videoJobs}
+            lastFinished={videoLastFinished}
+            onAddVideo={({ file, durationS }) =>
+              onAddVideo({ routeId: route.id, routeName: route.name, file, durationS })}
+          />
+        </Suspense>
+      )}
+
+      {/* 4. Comments section */}
       <Suspense fallback={
         <div style={{ padding: '12px', fontSize: 12, color: 'rgba(26,10,0,0.4)' }}>
           Loading comments…

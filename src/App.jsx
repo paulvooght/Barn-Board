@@ -6,6 +6,7 @@ import Icon from './components/Icon';
 import SentCycleButton from './components/SentCycleButton';
 import RouteViewCard from './components/RouteViewCard';
 import ErrorScreen from './components/ErrorScreen';
+import VideoUploadPill from './components/VideoUploadPill';
 
 const BoardSetupView = lazy(() => import('./components/BoardSetupView'));
 const RouteForm = lazy(() => import('./components/RouteForm'));
@@ -18,8 +19,11 @@ const AuthView = lazy(() => import('./components/AuthView'));
 const WallsSettings = lazy(() => import('./components/WallsSettings'));
 const BoardImageUpdateView = lazy(() => import('./components/BoardImageUpdateView'));
 const SessionEditView = lazy(() => import('./components/SessionEditView'));
+const RouteVideos = lazy(() => import('./components/RouteVideos'));
+const AddVideoButton = lazy(() => import('./components/AddVideoButton'));
 import { useLocalStorage } from './hooks/useLocalStorage';
 import { useCustomHolds } from './hooks/useCustomHolds';
+import useVideoUploads from './hooks/useVideoUploads';
 import holdsData from './data/holds.json';
 import { supabase, ADMIN_EMAIL, isRecoveryLink } from './lib/supabase';
 import * as db from './lib/db';
@@ -198,6 +202,9 @@ export default function App() {
   const [gradeRowsByRoute, setGradeRowsByRoute] = useState({}); // { [routeId]: { [userId]: { headline?, angles? } } }
   const [boardImageConfig, setBoardImageConfig] = useLocalStorage('barnboard_board_image_config', null);
   const [settings, setSettings] = useLocalStorage('barnboard_settings', { gradeSystem: 'V', adminMode: 'climber' });
+  // Admin of the active wall AND in admin mode: sees every video on a route and may
+  // publish/unpublish them. Not the same as `isAdmin` (global comment moderation).
+  const isVideoAdmin = isActiveBoardAdmin && (settings.adminMode ?? 'climber') === 'admin';
 
   // Active session state (persisted so it survives page reload)
   const [activeSession, setActiveSession] = useLocalStorage('barnboard_active_session', null);
@@ -236,6 +243,13 @@ export default function App() {
   // a legacy-rebuild safety net if its blob is ever missing (see useCustomHolds).
   const { allHolds, addHold, updateHold, deleteHold, saveAllHolds } = useCustomHolds(user, activeBoardId, activeBoard?.slug === 'the-barn');
 
+  // Route-video upload queue. Mounted ONCE here (not in a route page) so an upload
+  // keeps going while the climber swipes to other routes or leaves the page.
+  const videoUploads = useVideoUploads();
+  const { startUpload } = videoUploads;
+  const videoUploadsRef = useRef(videoUploads);
+  videoUploadsRef.current = videoUploads;
+
   // ─── Auth effect — listen for login/logout ─────────────────────────
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
@@ -269,6 +283,15 @@ export default function App() {
     });
     return () => subscription.unsubscribe();
   }, []);
+
+  // Signing out abandons any video uploads in flight (best-effort: the session is
+  // already gone, so removing the half-made rows may fail — the admin clean-up
+  // list in Settings picks those up).
+  useEffect(() => {
+    if (user) return;
+    const { jobs, cancelUpload } = videoUploadsRef.current;
+    jobs.forEach((j) => { cancelUpload(j.jobId).catch(() => {}); });
+  }, [user]);
 
   // ─── Data load — fetch routes + sessions + playlists from Supabase ──
   const hasLoadedOnce = useRef(false);
@@ -1133,6 +1156,9 @@ export default function App() {
   const [setter, setSetter]         = useState('');
   const [description, setDescription] = useState('');
   const [youtubeUrl, setYoutubeUrl] = useState('');
+  // A video picked (and consented to) while creating a NEW route: { file, durationS }.
+  // It can only upload once the route exists, so it waits here until Save.
+  const [pendingVideo, setPendingVideo] = useState(null);
 
   const grades = settings.gradeSystem === 'V' ? V_GRADES : FONT_GRADES;
   const gradeIndex = settings.gradeSystem === 'font' ? FONT_GRADE_INDEX : V_GRADE_INDEX;
@@ -1206,6 +1232,7 @@ export default function App() {
     setSetter('');
     setDescription('');
     setYoutubeUrl('');
+    setPendingVideo(null);
     setSelectionMode(SELECTION_MODES.HAND);
     setEditingRouteId(null);
   }, [settings.gradeSystem]);
@@ -1488,6 +1515,9 @@ export default function App() {
       console.warn('[saveRoute] Blocked: no holds selected', Object.keys(currentHolds).length);
       return;
     }
+    // Capture BEFORE resetCreate() below clears it. Only a NEW route takes the picked
+    // video; editing ignores it (an existing route's videos are added from its own list).
+    const videoToUpload = editingRouteId ? null : pendingVideo;
     console.log('[saveRoute] Saving with', Object.keys(currentHolds).length, 'holds:', currentHolds);
     // Snapshot hold geometry so ghost outlines survive hold deletion
     const holdSnapshots = {};
@@ -1560,9 +1590,19 @@ export default function App() {
     }
     // Flush to Supabase immediately — don't wait for debounce
     if (savedRoutes) flushRoutesToSupabase(savedRoutes, savedRouteId ? [savedRouteId] : null);
+    // The queue shrinks first, so the route has usually landed on the server by the
+    // time the video row is created (and it retries 'route_not_found' if not).
+    if (videoToUpload && savedRouteId) {
+      startUpload({
+        routeId: savedRouteId,
+        routeName: routeName.trim(),
+        file: videoToUpload.file,
+        durationS: videoToUpload.durationS,
+      });
+    }
     resetCreate();
     setView('routes');
-  }, [routeName, routeGrade, routeAngle, setter, description, youtubeUrl, holdTypes, techniques, styles, setRoutes, resetCreate, editingRouteId, logRouteCreated, allHolds, flushRoutesToSupabase]);
+  }, [routeName, routeGrade, routeAngle, setter, description, youtubeUrl, holdTypes, techniques, styles, setRoutes, resetCreate, editingRouteId, logRouteCreated, allHolds, flushRoutesToSupabase, pendingVideo, startUpload]);
 
   const viewRoute = useCallback((route, orderedIds) => {
     if (orderedIds !== undefined) setViewRouteOrder(orderedIds);
@@ -1795,13 +1835,26 @@ export default function App() {
     setView('routes');
     // Delete from Supabase (must be explicit — upsert sync won't remove deleted rows)
     if (user) {
-      db.deleteRoute(routeId).then(({ data, error }) => {
+      db.deleteRoute(routeId).then(async ({ data, error }) => {
         if (error) console.error('[Supabase] delete route error:', error);
         else if (!data || data.length === 0) console.warn('[Supabase] delete route: 0 rows affected — RLS may have blocked deletion for route', routeId);
-        else console.log('[Supabase] delete route OK:', routeId, data);
+        else {
+          console.log('[Supabase] delete route OK:', routeId, data);
+          // The route is gone for certain, so its videos can go too (no FK cascades).
+          // Only in THIS branch: a failed or 0-row delete must never touch videos.
+          try {
+            // An upload still in flight for this route would only orphan itself.
+            const { jobs, cancelUpload } = videoUploadsRef.current;
+            await Promise.all(jobs.filter((j) => j.routeId === routeId).map((j) => cancelUpload(j.jobId)));
+            const { error: videoError } = await db.deleteVideosForDeletedRoute(routeId, user.id, isActiveBoardAdmin);
+            if (videoError) console.warn('[Supabase] delete route videos error:', videoError);
+          } catch (err) {
+            console.warn('[Supabase] delete route videos error:', err);
+          }
+        }
       });
     }
-  }, [setRoutes, setPlaylists, user]);
+  }, [setRoutes, setPlaylists, user, isActiveBoardAdmin]);
 
   const updateRouteYoutubeUrl = useCallback((routeId, url) => {
     localRouteChange.current = true;
@@ -2658,6 +2711,10 @@ export default function App() {
         // Shared props passed to all RouteViewCard instances
         const sharedCardProps = {
           user, isAdmin, settings, grades, allHolds, playlists,
+          isVideoAdmin,
+          videoJobs: videoUploads.jobs,
+          videoLastFinished: videoUploads.lastFinished,
+          onAddVideo: videoUploads.startUpload,
           imgSrc, imgSrcSet, imgSizes,
           userRouteData, communityRatings, communityGrades,
           profilesById, displayName,
@@ -2774,6 +2831,40 @@ export default function App() {
           maxAngle={activeBoardSpecs.maxAngle}
           selectedCount={selectedCount}
           isEditing={!!editingRouteId}
+          videoSlot={editingRouteId ? (
+            <RouteVideos
+              key={editingRouteId}
+              embedded
+              routeId={editingRouteId}
+              routeName={routeName}
+              currentUserId={user?.id}
+              isVideoAdmin={isVideoAdmin}
+              profilesById={profilesById}
+              jobs={videoUploads.jobs}
+              lastFinished={videoUploads.lastFinished}
+              onAddVideo={({ file, durationS }) =>
+                videoUploads.startUpload({ routeId: editingRouteId, routeName, file, durationS })}
+            />
+          ) : pendingVideo ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+              <span style={{ flex: 1, minWidth: 0, fontSize: '13px', color: 'var(--text-secondary)' }}>
+                Video ready. It uploads when you save the route.
+              </span>
+              <button
+                type="button"
+                onClick={() => setPendingVideo(null)}
+                style={{
+                  minHeight: '44px', padding: '0 14px', borderRadius: '8px', fontSize: '12px', fontWeight: 700,
+                  cursor: 'pointer', border: '1px solid rgba(26,10,0,0.15)',
+                  background: 'rgba(26,10,0,0.06)', color: 'var(--text-secondary)',
+                }}
+              >
+                Remove
+              </button>
+            </div>
+          ) : (
+            <AddVideoButton onConsented={setPendingVideo} />
+          )}
           onSave={saveRoute}
           onCancel={() => { resetCreate(); setView('board'); }}
         />
@@ -3063,6 +3154,16 @@ export default function App() {
           </div>
         );
       })()}
+
+      {/* ── Route-video upload status (portalled; renders nothing when idle) ── */}
+      {user && (
+        <VideoUploadPill
+          jobs={videoUploads.jobs}
+          onRetry={videoUploads.retryUpload}
+          onCancel={videoUploads.cancelUpload}
+          onDismiss={videoUploads.dismissUpload}
+        />
+      )}
     </div>
   );
 }
@@ -3472,6 +3573,11 @@ function ViewRouteHeader({ route, sent, flashed, attempted, angleSends, angleFla
           </div>
         ))}
       </div>
+      {canEdit && confirmDelete && (
+        <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px' }}>
+          Any videos on this route are deleted too.
+        </div>
+      )}
 
       {/* Video thumbnail — only if beta toggle is on */}
       {hasVideo && showVideoThumbnail && getYouTubeThumbnail(route.youtubeUrl) && (
