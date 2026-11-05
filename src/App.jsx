@@ -272,6 +272,10 @@ export default function App() {
 
   // ─── Data load — fetch routes + sessions + playlists from Supabase ──
   const hasLoadedOnce = useRef(false);
+  // The playlists as last confirmed with Supabase (JSON). null = not confirmed yet
+  // (load failed or still pending), and the sync effect refuses to save in that state,
+  // because the in-memory list is not the user's real list.
+  const playlistsSyncedRef = useRef(null);
 
   const loadDataFromSupabase = useCallback(async (userId, isFirstLoad, boardId) => {
     // Fire all queries in parallel — biggest startup speedup.
@@ -407,14 +411,24 @@ export default function App() {
     }
 
     // f) Playlists
+    // supabase-js returns network failures as { data: null, error }, which must not be
+    // mistaken for "this user has no playlists" — that used to overwrite the real lists.
     const plData = plResult.data;
-    if (plData) {
+    if (plResult.error) {
+      console.error('[Supabase] playlists load failed, keeping saved lists:', plResult.error);
+    } else if (plData) {
+      playlistsSyncedRef.current = JSON.stringify(plData.data || []);
       setPlaylists(plData.data || []);
-    } else if (isFirstLoad) {
-      const local = JSON.parse(localStorage.getItem('barnboard_playlists') || '[]');
-      if (local.length > 0) {
-        setPlaylists(local);
-        await db.setBoardSetting(`playlists_${userId}`, local);
+    } else {
+      // Confirmed no row: a genuinely new user, so old localStorage lists may migrate.
+      playlistsSyncedRef.current ??= '[]';
+      if (isFirstLoad) {
+        const local = JSON.parse(localStorage.getItem('barnboard_playlists') || '[]');
+        if (local.length > 0) {
+          setPlaylists(local);
+          const { error } = await db.setBoardSetting(`playlists_${userId}`, local);
+          if (!error) localStorage.removeItem('barnboard_playlists');
+        }
       }
     }
 
@@ -567,6 +581,7 @@ export default function App() {
     setBoardsResolved(false);
     setBootError(null);
     hasLoadedOnce.current = false;
+    playlistsSyncedRef.current = null;
     let cancelled = false;
     let timeoutId;
     // Only the WALL RESOLVE is raced against a timeout, because it's the step
@@ -873,8 +888,13 @@ export default function App() {
   useEffect(() => {
     if (!user || !dataReady) return;
     clearTimeout(playlistsSyncTimer.current);
+    // Never save lists we haven't confirmed, and don't echo back what we just loaded
+    // (that echo could overwrite an edit made on another device in the meantime).
+    const json = JSON.stringify(playlists);
+    if (playlistsSyncedRef.current === null || playlistsSyncedRef.current === json) return;
     playlistsSyncTimer.current = setTimeout(async () => {
-      await db.setBoardSetting(`playlists_${user.id}`, playlists);
+      const { error } = await db.setBoardSetting(`playlists_${user.id}`, playlists);
+      if (!error) playlistsSyncedRef.current = json;
       // Keep shared_playlists in sync for any shared playlists
       const sharedOnes = playlists.filter(pl => pl.shared);
       for (const pl of sharedOnes) {
