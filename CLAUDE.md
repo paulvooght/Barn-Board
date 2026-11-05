@@ -19,6 +19,9 @@ Multiple users share one physical board. Any user can create routes, and all rou
 - **Hold data** — one physical board, hold positions/metadata shared by all users.
 - **Comments** — anyone can post on any route; everyone sees them. The route creator's name is highlighted yellow with a 'setter' pill. Admin can hard-delete; users can flag 'Neg' for admin review, or 'Like' with a thumb.
 
+**Uploaded videos (private until published):**
+- Any wall member can add a video to any route, after a per-video consent pop-up. A new video is visible only to its uploader and that wall's admins. A wall admin can make it public to the wall's members, and undo that. Uploaders can delete their own; wall admins can delete any. YouTube links (`youtubeUrl`) are separate and unchanged.
+
 ## Tech Stack
 - **React 18** + **Vite 6** — no router, no state library, single-page app with view state machine
 - **Supabase** — auth (email/password), database (routes, sessions, playlists, hold data)
@@ -75,8 +78,9 @@ wall starts empty). Per-board boardRegion lives in `boards.specs.boardRegion`.
 | `shared_playlists` | `id` | `user_id`, `name`, `creator_name`, `route_ids[]`, timestamps |
 | `boards` | `id` (uuid) | `name`, `slug`, `visibility` (public/private), `join_code`, `owner_id`, `specs` (jsonb — holds per-wall `boardRegion`), timestamps — **one row per wall** (multi-wall) |
 | `board_members` | (`board_id`, `user_id`) | `role` (admin/member), `joined_at` — **wall membership** (multi-wall) |
+| `route_videos` | `id` (uuid) | `route_id` (no FK), `board_id` (copied from the route by the server), `user_id`, `storage_path` (`<board_id>/<id>.<ext>`), `status` (uploading/ready), `is_public`, `consent_text`, `consented_at`, size/duration, timestamps — **read-only to clients; every write goes through a SECURITY DEFINER function** |
 
-**Storage:** `board-images` bucket — full + 800w/1200w/2000w variants per board image.
+**Storage:** `board-images` bucket (public) — full + 800w/1200w/2000w variants per board image. `route-videos` bucket (**private**, 50 MB per file, video types only) — reached only through 1-hour signed URLs. Backups don't cover storage files, so a deleted video is gone for good.
 
 **board_settings keys:**
 - **Per-board (multi-wall 2b-ii):** `holds_${boardId}` (the wall's full hold array), `board_image_config_${boardId}` (the wall's image config)
@@ -91,6 +95,7 @@ wall starts empty). Per-board boardRegion lives in `boards.specs.boardRegion`.
 - `006_yonder_board.sql` — **multi-wall Phase 2b-iii (applied to prod 2026-06-05):** stands up the **Yonder** wall — `boards` row (`275dfaa7-1df9-4fe7-8332-c2795eb9ebe7`, slug `yonder`, **public**, owner Paul) + `board_members` (Paul=admin, `claude-test`=member). Idempotent. Executable twin `scripts/seed_yonder.mjs` ALSO seeds Yonder's data (`holds_<id>` ← 108 detected holds, `boards.specs.boardRegion`); image via `publish_board_image.py --board yonder`.
 - `007_board_membership_fns.sql` — **multi-wall Phase 2b-iv (applied to prod 2026-06-07):** 5 SECURITY DEFINER fns (`join_board_by_code`, `get_board_members`, `set_member_role`, `leave_board`, `set_board_visibility`) — each re-checks perms internally (admin-gated; last-admin guard). The privileged-write path; 2c-forward-compatible.
 - `008_rls_tenant_isolation.sql` — **multi-wall Phase 2c (applied to prod 2026-06-08):** real per-wall tenant isolation + per-board admin enforcement. Adds `app_is_member`/`app_is_admin` helpers; routes/ratings → members-only reads, route admin → board admin (drops the hardcoded email), `board_settings` writes → board admin of the key, `board_members` self-join → public-only (private via the 007 code fn), `boards` → public-or-member read. Atomic (begin/commit) with a commented ROLLBACK block. Verified by `scripts/verify_2c_rls.mjs` (22/22). Backup `pre-2c`, rollback tag `v1.8-pre-multiwall-2c`.
+- `011_route_videos.sql` — **route videos (applied to prod 2026-11-05):** `route_videos` table, private `route-videos` bucket + storage policies, and the write functions (`create_route_video`, `finish_route_video`, `set_route_video_public`, `delete_route_video_row`, `list_orphan_route_videos`, `route_videos_usage`). Uploads stop at 800 MB in total (`route_videos_cap_bytes()`) because going over the Free plan's 1 GB can restrict the whole project. The consent wording is checked here and must match `CONSENT_TEXT` in `src/utils/routeVideos.js`. Verified by `scripts/verify_route_videos.mjs` (60 checks). Rollback tag `v1.11-pre-route-videos`.
 - `scripts/dump_schema.sql` — paste into the Supabase SQL editor to dump live RLS/defaults/FKs/indexes for reconciliation (the parts OpenAPI can't expose).
 
 ### Supabase Sync Pattern
@@ -118,6 +123,7 @@ wall starts empty). Per-board boardRegion lives in `boards.specs.boardRegion`.
   - **`board_settings` (hold data + image config):** writes now require **board admin of the key's `<boardId>`** (any key ending in a board uuid → that board's admin; `playlists_<uid>` → that user; legacy globals → Barn admin). Reads stay authenticated. The old "any authenticated user can write" hole is closed.
   - **Client `isAdmin`** (comment moderation) now **defaults to `false`** when there's no `profiles.is_admin` flag and no `VITE_ADMIN_EMAIL` (no longer fails open). The Hold-Manager/image gate uses the per-wall `isActiveBoardAdmin` (role on the active wall).
   - Verified by `scripts/verify_2c_rls.mjs` (22/22, member/admin/non-member, no lockout).
+  - **Route videos:** "admin" means **wall admin** (`app_is_admin(board_id)`), never `profiles.is_admin`, which isn't set on the owner's account. In the UI, seeing everyone's videos also needs Admin mode (`isVideoAdmin` = wall admin + `settings.adminMode`); the server doesn't look at that switch.
 
 ### Key Files
 *Line counts are approximate (rounded) — kept loosely in sync, don't treat as exact.*
@@ -147,6 +153,10 @@ wall starts empty). Per-board boardRegion lives in `boards.specs.boardRegion`.
 | `src/components/SessionEditView.jsx` | ~886 | Edit a past session (sends, angles, times) |
 | `src/components/CommentsSection.jsx` | ~315 | Comment thread on viewRoute — fetch, post, like, flag, admin-delete |
 | `src/components/CommentItem.jsx` | ~292 | Single comment row — name/setter pill, like/flag/delete |
+| `src/components/RouteVideos.jsx` | ~430 | "Videos (n)" dropdown on the route view and edit form — play, delete, make public/private. Keeps loading / failed / empty as three separate states |
+| `src/components/AddVideoButton.jsx` | ~230 | Record / choose sheet, 60-second check, consent pop-up. Portalled to `body` because the route carousel has a CSS transform |
+| `src/components/VideoUploadPill.jsx` | ~110 | Floating upload status with Retry / Cancel |
+| `src/components/VideoStorageSettings.jsx` | ~200 | Admin dropdown in Settings — storage gauge and clean-up of leftover videos |
 | `src/components/GuidedCameraStep.jsx` | ~426 | Camera-guidance overlay for board-image capture |
 | `src/components/AuthView.jsx` | ~88 | Email/password login + signup |
 | `src/components/ModeSelector.jsx` | ~28 | Hold-selection mode buttons |
@@ -155,6 +165,7 @@ wall starts empty). Per-board boardRegion lives in `boards.specs.boardRegion`.
 | `src/hooks/useCustomHolds.js` | ~120 | Per-board hold array (`holds_<boardId>`) + Supabase sync; IDs preserved; legacy-rebuild fallback for The Barn |
 | `src/hooks/useLocalStorage.js` | ~27 | localStorage-backed React state |
 | `src/hooks/useUndoRedo.js` | ~106 | Undo/redo state snapshots (max 50) |
+| `src/hooks/useVideoUploads.js` | ~330 | App-level upload queue, one job at a time: shrink → create row → resumable upload → finish. Mounted once in `App` so uploads survive swiping or leaving the route |
 | `src/lib/supabase.js` | ~12 | Supabase client init + `ADMIN_EMAIL` export |
 | `src/utils/constants.js` | ~195 | Grades, grade conversion, modes, colours, hold types, board specs, YouTube helpers, default board image |
 | `src/utils/sessionStats.js` | ~701 | Pure stats engine for Sessions/Climber Card (periods, deltas, heat) |
@@ -162,6 +173,7 @@ wall starts empty). Per-board boardRegion lives in `boards.specs.boardRegion`.
 | `src/utils/polygonUtils.js` | ~272 | Polygon math — centroid, bbox, translate, rotate, hit-test |
 | `src/utils/nameGenerator.js` | ~36 | Random route-name suggestions |
 | `src/utils/pendingRouteSync.js` | ~67 | localStorage offline queue for unsynced routes |
+| `src/utils/routeVideos.js` | ~430 | Consent text, limits, shrink on the phone (mediabunny: H.264, 720p, ~2 Mbps), resumable upload (tus). Both libraries load only when uploading; mediabunny is kept out of the service-worker precache |
 | `src/data/holds.json` | — | Base hold positions + polygons + `boardRegion` |
 | `scripts/detect_holds.py` | — | Python hold detection from board photo. Colour palette (cyan/yellow/purple/black **+ red/orange/green/blue/pink** for vivid walls) + per-component **watershed split** for touching holds. `--image` accepts a direct path (e.g. `board-assets/<slug>/x.jpg`); legacy white-bg auto-pick only when no `--image`. |
 | `scripts/align_board_image.py` | — | Measures the camera homography between two board photos (SIFT+RANSAC). **Measuring instrument only — its warped image is a diagnostic, never published.** |

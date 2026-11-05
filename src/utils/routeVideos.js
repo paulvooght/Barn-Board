@@ -25,6 +25,7 @@ export const MAX_VIDEO_BYTES = 52428800;
 const TARGET_BITRATE = 2_000_000;
 const MAX_SHORT_SIDE = 720;
 const MAX_FPS = 30;
+const STALL_TIMEOUT_MS = 30000; // no progress for this long, while visible, counts as stuck
 
 const VIDEO_MIME_TYPES = ['video/mp4', 'video/quicktime', 'video/webm'];
 
@@ -277,19 +278,43 @@ export async function shrinkVideo(file, { onProgress, onCancelHandle } = {}) {
       }
       if (cancelled) throw new VideoError('cancelled'); // cancelled while it was being set up
 
+      // Safety net: if encoding stops moving WITHOUT throwing, give up so the caller
+      // can fall back to the original, instead of sitting on "Shrinking 12%" forever.
+      // Only visible time counts: Safari pauses conversion while the page is hidden
+      // and carries on when you come back, and that isn't a stall. It's a race rather
+      // than relying on cancel(), because a stuck decoder may never let execute() end.
+      let lastProgressAt = Date.now();
+      const stalledError = new Error('shrinking stalled');
+      let watchdog;
+      const stall = new Promise((_, reject) => {
+        watchdog = setInterval(() => {
+          if (document.visibilityState !== 'visible') { lastProgressAt = Date.now(); return; }
+          if (Date.now() - lastProgressAt > STALL_TIMEOUT_MS) {
+            conversion.cancel().catch(() => {});
+            reject(stalledError);
+          }
+        }, 2000);
+      });
+
       conversion.onProgress = (p) => {
+        lastProgressAt = Date.now();
         if (onProgress && Number.isFinite(p)) onProgress(Math.min(1, Math.max(0, p)));
       };
 
       try {
-        await conversion.execute();
+        const executing = conversion.execute();
+        executing.catch(() => {}); // if the stall wins the race, this may still reject later
+        await Promise.race([executing, stall]);
       } catch (err) {
         if (cancelled) throw new VideoError('cancelled');
+        if (err === stalledError) throw err; // straight to the fallback: don't wait another 30 s
         if (hardwareAcceleration === 'prefer-hardware') {
           console.warn('[routeVideos] hardware encode failed, retrying without it:', err);
           continue; // `finally` below still disposes this attempt's input
         }
         throw err;
+      } finally {
+        clearInterval(watchdog);
       }
 
       if (cancelled) throw new VideoError('cancelled');

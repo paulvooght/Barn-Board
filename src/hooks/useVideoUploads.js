@@ -94,8 +94,9 @@ export default function useVideoUploads() {
     const merged = { ...list[i], ...patch };
     if ('progress' in patch) {
       merged.progress = Number.isFinite(patch.progress) ? Math.min(1, Math.max(0, patch.progress)) : 0;
-      // Upload progress fires many times a second; only re-render on a visible step.
-      if (Object.keys(patch).length === 1 && merged.progress < 1 && Math.abs(merged.progress - list[i].progress) < 0.01) return;
+      // Progress fires many times a second and these jobs live in App state, so each
+      // update re-renders the whole app, board included. Only re-render every 5%.
+      if (Object.keys(patch).length === 1 && merged.progress < 1 && Math.abs(merged.progress - list[i].progress) < 0.05) return;
     }
     const next = list.slice();
     next[i] = merged;
