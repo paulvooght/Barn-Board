@@ -300,6 +300,145 @@ export function deleteComment(commentId) {
   return supabase.from('route_comments').delete().eq('id', commentId);
 }
 
+// ─── route_videos (migration 011) ────────────────────────────────────────────
+// The table is READ-ONLY to clients: every write goes through a SECURITY DEFINER
+// rpc that re-checks permissions. The files live in the PRIVATE `route-videos`
+// bucket and are only reachable through short-lived signed URLs. The resumable
+// upload itself is in src/utils/routeVideos.js (it needs the session token).
+//
+// Error codes arrive as the rpc error's `.message` (e.g. 'route_not_found',
+// 'storage_full', 'file_missing') — see videoErrorMessage() for the wording.
+//
+// Rule for callers: a FAILED fetch is an error, never "no videos". Nothing here
+// decides to delete from a result it could not read.
+
+const ROUTE_VIDEOS_BUCKET = 'route-videos';
+
+/** Videos on one route that finished uploading and that this user may see
+ *  (RLS: their own, a wall admin's view of all, or ones made public). Newest first. */
+export function fetchRouteVideos(routeId) {
+  return supabase
+    .from('route_videos')
+    .select('*')
+    .eq('route_id', routeId)
+    .eq('status', 'ready')
+    .order('created_at', { ascending: false });
+}
+
+/** Start an upload: creates the row (status 'uploading') after the server checks
+ *  membership, consent wording, type, size and the storage cap. */
+export async function createRouteVideo({ routeId, mimeType, sizeBytes, durationS, consentText }) {
+  const { data, error } = await supabase.rpc('create_route_video', {
+    p_route_id: routeId,
+    p_mime_type: mimeType,
+    p_size_bytes: sizeBytes,
+    p_duration_s: durationS,
+    p_consent_text: consentText,
+  });
+  if (error) console.error('[db] createRouteVideo error:', error);
+  return { video: error ? null : data, error };
+}
+
+/** Mark an upload ready once the file really exists. Safe to call twice, so a
+ *  lost response can simply be retried. */
+export async function finishRouteVideo(videoId) {
+  const { data, error } = await supabase.rpc('finish_route_video', { p_video: videoId });
+  if (error) console.error('[db] finishRouteVideo error:', error);
+  return { video: error ? null : data, error };
+}
+
+/** Make a video public to the wall's members, or private again (wall admin only). */
+export async function setRouteVideoPublic(videoId, isPublic) {
+  const { data, error } = await supabase.rpc('set_route_video_public', { p_video: videoId, p_public: isPublic });
+  if (error) console.error('[db] setRouteVideoPublic error:', error);
+  return { video: error ? null : data, error };
+}
+
+/** Signed playback URLs (1 hour) for several storage paths at once. Returns
+ *  { urls: { [path]: signedUrl }, error }. A path the user may not read comes back
+ *  with its own error and is simply left out of `urls`. */
+export async function getRouteVideoUrls(paths) {
+  if (!paths || paths.length === 0) return { urls: {}, error: null };
+  const { data, error } = await supabase.storage.from(ROUTE_VIDEOS_BUCKET).createSignedUrls(paths, 3600);
+  if (error) {
+    console.error('[db] getRouteVideoUrls error:', error);
+    return { urls: {}, error };
+  }
+  const urls = {};
+  for (const item of data || []) {
+    if (!item.error && item.path && item.signedUrl) urls[item.path] = item.signedUrl;
+  }
+  return { urls, error: null };
+}
+
+/**
+ * Delete one video: the FILE first (Storage API), then the row. Never SQL-delete
+ * storage.objects — that would orphan the file in the bucket.
+ *
+ * remove() returns no error when RLS silently removed nothing; the row delete then
+ * raises 'file_still_exists' and that error is returned, so the row is never
+ * dropped while its file survives.
+ */
+export async function deleteRouteVideo(video) {
+  const { error: removeError } = await supabase.storage.from(ROUTE_VIDEOS_BUCKET).remove([video.storage_path]);
+  if (removeError) {
+    console.error('[db] deleteRouteVideo file error:', removeError);
+    return { error: removeError };
+  }
+  const { error } = await supabase.rpc('delete_route_video_row', { p_video: video.id });
+  if (error) console.error('[db] deleteRouteVideo row error:', error);
+  return { error };
+}
+
+/**
+ * Clean up a route's videos right after its row has been CONFIRMED deleted
+ * (routes have no FK to route_videos, so nothing cascades). Looks at ANY status,
+ * so half-finished uploads go too.
+ *
+ * Deletes only what this user is allowed to: their own, or everything if they are
+ * the wall's admin. RLS means a non-admin setter only sees their own and public
+ * videos anyway; whatever can't be deleted is left for the admin clean-up
+ * (fetchOrphanRouteVideos) on purpose. Rows are deleted one at a time and one
+ * failure doesn't stop the rest; the first failure is returned.
+ *
+ * If the lookup itself fails, NOTHING is deleted and the error is returned.
+ */
+export async function deleteVideosForDeletedRoute(routeId, userId, isBoardAdmin) {
+  const { data, error: fetchError } = await supabase.from('route_videos').select('*').eq('route_id', routeId);
+  if (fetchError || !Array.isArray(data)) {
+    const error = fetchError || new Error('route_videos lookup returned no rows array');
+    console.error('[db] deleteVideosForDeletedRoute lookup error:', error);
+    return { error };
+  }
+  let firstError = null;
+  for (const video of data) {
+    if (video.user_id !== userId && !isBoardAdmin) continue;
+    const { error } = await deleteRouteVideo(video);
+    if (error && !firstError) firstError = error;
+  }
+  return { error: firstError };
+}
+
+/** Admin clean-up list: videos whose route has gone, plus uploads dead for 24h+.
+ *  Decided server-side. `videos` is null (NOT []) when the call failed, so a
+ *  failure can't be mistaken for "nothing to clean". */
+export async function fetchOrphanRouteVideos(boardId) {
+  const { data, error } = await supabase.rpc('list_orphan_route_videos', { p_board: boardId });
+  if (error) {
+    console.error('[db] fetchOrphanRouteVideos error:', error);
+    return { videos: null, error };
+  }
+  return { videos: data || [], error: null };
+}
+
+/** Storage gauge for wall admins: { used_bytes, cap_bytes, video_count }. `usage`
+ *  is null when the call failed or returned nothing. */
+export async function fetchRouteVideosUsage() {
+  const { data, error } = await supabase.rpc('route_videos_usage');
+  if (error) console.error('[db] fetchRouteVideosUsage error:', error);
+  return { usage: error ? null : (data && data[0]) || null, error };
+}
+
 // ─── storage: board images ───────────────────────────────────────────────────
 
 const BOARD_IMAGES_BUCKET = 'board-images';
