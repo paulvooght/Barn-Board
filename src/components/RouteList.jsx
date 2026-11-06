@@ -875,7 +875,7 @@ export default function RouteList({
             <button
               onClick={clearFilters}
               style={{
-                marginTop: '10px', padding: '6px 14px', borderRadius: '8px',
+                marginTop: '10px', marginLeft: showAdvanced ? 0 : '8px', padding: '6px 14px', borderRadius: '8px',
                 border: '1px solid rgba(255,82,82,0.3)', background: 'rgba(255,82,82,0.06)',
                 color: '#FF5252', fontSize: '11px', fontWeight: 700, cursor: 'pointer',
               }}

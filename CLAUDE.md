@@ -20,7 +20,8 @@ Multiple users share one physical board. Any user can create routes, and all rou
 - **Comments** — anyone can post on any route; everyone sees them. The route creator's name is highlighted yellow with a 'setter' pill. Admin can hard-delete; users can flag 'Neg' for admin review, or 'Like' with a thumb.
 
 **Uploaded videos (private until published):**
-- Any wall member can add a video to any route, after a per-video consent pop-up. A new video is visible only to its uploader and that wall's admins. A wall admin can make it public to the wall's members, and undo that. Uploaders can delete their own; wall admins can delete any. YouTube links (`youtubeUrl`) are separate and unchanged.
+- Any wall member can add a video to any route, after a per-video consent pop-up that also asks for the board angle it was climbed at. A new video is visible only to its uploader and that wall's admins. A wall admin can make it public to the wall's members, and undo that. Uploaders can delete their own; wall admins can delete any. The uploader or an admin can set or correct the angle later. YouTube links (`youtubeUrl`) are stored separately, but count as public videos for the route-card icon and the video filters.
+- **Route-card camera icon** (`VideoBadge`): blue = public, yellow = private. Private wins on a route with both, so anything still to review stands out. Climbers see it for public videos and their own private ones; Admin mode sees it for every video on the wall.
 
 ## Tech Stack
 - **React 18** + **Vite 6** — no router, no state library, single-page app with view state machine
@@ -78,7 +79,7 @@ wall starts empty). Per-board boardRegion lives in `boards.specs.boardRegion`.
 | `shared_playlists` | `id` | `user_id`, `name`, `creator_name`, `route_ids[]`, timestamps |
 | `boards` | `id` (uuid) | `name`, `slug`, `visibility` (public/private), `join_code`, `owner_id`, `specs` (jsonb — holds per-wall `boardRegion`), timestamps — **one row per wall** (multi-wall) |
 | `board_members` | (`board_id`, `user_id`) | `role` (admin/member), `joined_at` — **wall membership** (multi-wall) |
-| `route_videos` | `id` (uuid) | `route_id` (no FK), `board_id` (copied from the route by the server), `user_id`, `storage_path` (`<board_id>/<id>.<ext>`), `status` (uploading/ready), `is_public`, `consent_text`, `consented_at`, size/duration, timestamps — **read-only to clients; every write goes through a SECURITY DEFINER function** |
+| `route_videos` | `id` (uuid) | `route_id` (no FK), `board_id` (copied from the route by the server), `user_id`, `storage_path` (`<board_id>/<id>.<ext>`), `status` (uploading/ready), `is_public`, `angle` (nullable: older videos may have none), `consent_text`, `consented_at`, size/duration, timestamps — **read-only to clients; every write goes through a SECURITY DEFINER function** |
 
 **Storage:** `board-images` bucket (public) — full + 800w/1200w/2000w variants per board image. `route-videos` bucket (**private**, 50 MB per file, video types only) — reached only through 1-hour signed URLs. Backups don't cover storage files, so a deleted video is gone for good.
 
@@ -96,6 +97,7 @@ wall starts empty). Per-board boardRegion lives in `boards.specs.boardRegion`.
 - `007_board_membership_fns.sql` — **multi-wall Phase 2b-iv (applied to prod 2026-06-07):** 5 SECURITY DEFINER fns (`join_board_by_code`, `get_board_members`, `set_member_role`, `leave_board`, `set_board_visibility`) — each re-checks perms internally (admin-gated; last-admin guard). The privileged-write path; 2c-forward-compatible.
 - `008_rls_tenant_isolation.sql` — **multi-wall Phase 2c (applied to prod 2026-06-08):** real per-wall tenant isolation + per-board admin enforcement. Adds `app_is_member`/`app_is_admin` helpers; routes/ratings → members-only reads, route admin → board admin (drops the hardcoded email), `board_settings` writes → board admin of the key, `board_members` self-join → public-only (private via the 007 code fn), `boards` → public-or-member read. Atomic (begin/commit) with a commented ROLLBACK block. Verified by `scripts/verify_2c_rls.mjs` (22/22). Backup `pre-2c`, rollback tag `v1.8-pre-multiwall-2c`.
 - `011_route_videos.sql` — **route videos (applied to prod 2026-11-05):** `route_videos` table, private `route-videos` bucket + storage policies, and the write functions (`create_route_video`, `finish_route_video`, `set_route_video_public`, `delete_route_video_row`, `list_orphan_route_videos`, `route_videos_usage`). Uploads stop at 800 MB in total (`route_videos_cap_bytes()`) because going over the Free plan's 1 GB can restrict the whole project. The consent wording is checked here and must match `CONSENT_TEXT` in `src/utils/routeVideos.js`. Verified by `scripts/verify_route_videos.mjs` (60 checks). Rollback tag `v1.11-pre-route-videos`.
+- `012_route_video_angle.sql` — **video angle (applied to prod 2026-11-06):** nullable `route_videos.angle` (0–90 sanity check; the app's slider holds the wall's real range), `create_route_video` gains `p_angle` (with a default, so phones on the previous app version keep uploading), `set_route_video_angle` for the uploader or a wall admin. Verified by `scripts/verify_route_videos.mjs` (74 checks). Rollback tag `v1.12-pre-video-angle`.
 - `scripts/dump_schema.sql` — paste into the Supabase SQL editor to dump live RLS/defaults/FKs/indexes for reconciliation (the parts OpenAPI can't expose).
 
 ### Supabase Sync Pattern
@@ -136,7 +138,9 @@ wall starts empty). Per-board boardRegion lives in `boards.specs.boardRegion`.
 | `src/components/BoardImageUpdateView.jsx` | ~1790 | Board-image wizard: upload → crop → align → fine-tune → confirm, with perspective warp |
 | `src/components/HoldEditorView.jsx` | ~810 | Individual hold polygon + metadata editor |
 | `src/components/HoldOverlay.jsx` | ~126 | SVG per-hold render for route view (outlines + labels) |
-| `src/components/RouteList.jsx` | ~890 | Routes list: sort, filter (incl. setter search), hide-sent, playlists + shared-playlist browse |
+| `src/components/RouteList.jsx` | ~1010 | Routes list: sort, filter (two-handle grade slider, video filters, setter search under Advanced), hide-sent, playlists + shared-playlist browse. Filters survive opening a route via `filterMemory`, a ref held in App, because this component unmounts while a route is open |
+| `src/components/GradeRange.jsx` | ~37 | One-bar, two-handle grade slider: two stacked native range inputs. CSS in `App.css` |
+| `src/components/VideoBadge.jsx` | ~29 | Camera badge for route cards and filters: blue public, yellow private |
 | `src/components/RouteCard.jsx` | ~182 | Route card (grade, angle, 4-state send, rating, missing-hold indicator) |
 | `src/components/RouteViewCard.jsx` | ~319 | Full viewRoute presentation for one route (used by the swipe carousel) |
 | `src/components/RouteForm.jsx` | ~226 | Route create/edit form with auto hold-type collection |
@@ -153,8 +157,8 @@ wall starts empty). Per-board boardRegion lives in `boards.specs.boardRegion`.
 | `src/components/SessionEditView.jsx` | ~886 | Edit a past session (sends, angles, times) |
 | `src/components/CommentsSection.jsx` | ~315 | Comment thread on viewRoute — fetch, post, like, flag, admin-delete |
 | `src/components/CommentItem.jsx` | ~292 | Single comment row — name/setter pill, like/flag/delete |
-| `src/components/RouteVideos.jsx` | ~430 | "Videos (n)" dropdown on the route view and edit form — play, delete, make public/private. Keeps loading / failed / empty as three separate states |
-| `src/components/AddVideoButton.jsx` | ~230 | Record / choose sheet, 60-second check, consent pop-up. Portalled to `body` because the route carousel has a CSS transform |
+| `src/components/RouteVideos.jsx` | ~520 | "Videos (n)" dropdown on the route view and edit form — play, make public/private; Change angle and Delete sit in a "⋯" menu (`VideoMenu`). Each video's row leads with its angle and has no date, and no name on your own. Keeps loading / failed / empty as three separate states |
+| `src/components/AddVideoButton.jsx` | ~270 | Record / choose sheet, 60-second check, consent pop-up with the angle slider (`AngleSlider`, also used by the Change angle editor). Portalled to `body` because the route carousel has a CSS transform |
 | `src/components/VideoUploadPill.jsx` | ~110 | Floating upload status with Retry / Cancel |
 | `src/components/VideoStorageSettings.jsx` | ~200 | Admin dropdown in Settings — storage gauge and clean-up of leftover videos |
 | `src/components/GuidedCameraStep.jsx` | ~426 | Camera-guidance overlay for board-image capture |

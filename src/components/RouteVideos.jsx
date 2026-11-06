@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import * as db from '../lib/db';
 import { videoErrorCode, clampBoardAngle } from '../utils/routeVideos';
 import AddVideoButton, { AngleSlider } from './AddVideoButton';
+import Icon from './Icon';
 import { BOARD_SPECS } from '../utils/constants';
 
 const ACTIVE_STAGES = ['waiting', 'shrinking', 'uploading', 'finishing'];
@@ -251,7 +252,7 @@ export default function RouteVideos({
               isMine={v.user_id === currentUserId}
               uploader={
                 v.user_id === currentUserId
-                  ? 'You'
+                  ? null
                   : (profilesById && profilesById[v.user_id]?.display_name) || 'Climber'
               }
               isVideoAdmin={isVideoAdmin}
@@ -270,7 +271,9 @@ export default function RouteVideos({
   );
 }
 
-// One video: player, who/when/angle/visibility, and the delete / publish / angle controls.
+// One video: player, then one row with the angle first, who can see it and whose it
+// is (no name on your own). Change angle and Delete live in the "⋯" menu; only a video
+// with no angle yet keeps an "Add angle" button out in the open.
 function VideoItem({
   video, url, linkFailed, label, isMine, uploader, isVideoAdmin, defaultAngle, minAngle, maxAngle,
   onRefreshUrl, onDelete, onSetPublic, onSetAngle,
@@ -338,9 +341,11 @@ function VideoItem({
     else setEditingAngle(false);
   };
 
+  // Same colours as the camera badge on the route card: blue public, yellow private.
   const badge = video.is_public
-    ? { text: 'Public', bg: 'rgba(34,168,112,0.16)', color: '#14724b' }
-    : { text: isMine ? 'Only you and admins' : 'Private', bg: 'rgba(255,171,0,0.22)', color: '#8a5a00' };
+    ? { text: 'Public', bg: 'var(--accent-dim)', color: 'var(--accent)' }
+    : { text: isMine && !isVideoAdmin ? 'Only you and admins' : 'Private', bg: 'var(--yellow-dim)', color: '#1A0A00' };
+  const showActions = canDelete && !editingAngle && !confirming;
 
   return (
     <div style={{ marginBottom: '16px' }}>
@@ -376,19 +381,47 @@ function VideoItem({
 
       <div style={{
         display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap',
-        marginTop: '6px', fontSize: '12px', color: 'var(--text-secondary)',
+        marginTop: '6px', minHeight: '44px', fontSize: '12px', color: 'var(--text-secondary)',
       }}>
-        <span style={{ fontWeight: 700 }}>{uploader}</span>
-        <span style={{ color: 'var(--text-muted)' }}>{shortDate(video.created_at)}</span>
-        {video.angle != null && (
-          <span style={{ fontFamily: 'var(--font-heading)', fontSize: '12px', fontWeight: 800, color: 'var(--accent)' }}>
+        {video.angle != null ? !editingAngle && (
+          <span style={{ fontFamily: 'var(--font-heading)', fontSize: '22px', fontWeight: 800, color: 'var(--accent)', lineHeight: 1 }}>
             {video.angle}°
           </span>
+        ) : showActions && (
+          <button
+            type="button" onClick={openAngleEditor} disabled={busy !== null}
+            style={{ ...ctrlBtn, border: '1.5px solid var(--accent)', background: 'var(--accent-dim)', color: 'var(--accent)' }}
+          >
+            Add angle
+          </button>
         )}
         <span style={{
-          padding: '2px 8px', borderRadius: '8px', fontSize: '10px', fontWeight: 700,
+          padding: '2px 8px', borderRadius: '8px', fontSize: '11px', fontWeight: 700, whiteSpace: 'nowrap',
           background: badge.bg, color: badge.color,
         }}>{badge.text}</span>
+        {uploader && (
+          <span style={{
+            fontWeight: 700, maxWidth: '96px',
+            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          }}>{uploader}</span>
+        )}
+        {showActions && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '2px', marginLeft: 'auto' }}>
+            {isVideoAdmin && (
+              <button
+                type="button" onClick={doSetPublic} disabled={busy !== null}
+                style={{ ...ctrlBtn, padding: '0 10px', border: '1.5px solid var(--accent)', background: 'var(--accent-dim)', color: 'var(--accent)' }}
+              >
+                {busy === 'visibility' ? 'Saving…' : video.is_public ? 'Make private' : 'Make public'}
+              </button>
+            )}
+            <VideoMenu
+              disabled={busy !== null}
+              onChangeAngle={video.angle != null ? openAngleEditor : null}
+              onDelete={() => { setError(''); setConfirming(true); }}
+            />
+          </div>
+        )}
       </div>
 
       {canDelete && editingAngle && (
@@ -411,54 +444,23 @@ function VideoItem({
         </div>
       )}
 
-      {canDelete && !editingAngle && (
+      {canDelete && confirming && (
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginTop: '8px' }}>
-          {confirming ? (
-            <>
-              <span style={{ fontSize: '12px', fontWeight: 600, color: '#1A0A00' }}>
-                Delete this video permanently?
-              </span>
-              <button
-                type="button" onClick={doDelete} disabled={busy === 'delete'}
-                style={{ ...ctrlBtn, border: 'none', background: '#FF5252', color: '#fff' }}
-              >
-                {busy === 'delete' ? 'Deleting…' : 'Delete'}
-              </button>
-              <button
-                type="button" onClick={() => setConfirming(false)} disabled={busy === 'delete'}
-                style={{ ...ctrlBtn, border: '1px solid rgba(26,10,0,0.15)', background: 'rgba(26,10,0,0.06)', color: 'var(--text-secondary)' }}
-              >
-                Keep
-              </button>
-            </>
-          ) : (
-            <>
-              {isVideoAdmin && (
-                <button
-                  type="button" onClick={doSetPublic} disabled={busy !== null}
-                  style={{ ...ctrlBtn, border: '1.5px solid var(--accent)', background: 'var(--accent-dim)', color: 'var(--accent)' }}
-                >
-                  {busy === 'visibility' ? 'Saving…' : video.is_public ? 'Make private' : 'Make public'}
-                </button>
-              )}
-              {canDelete && (
-                <button
-                  type="button" onClick={openAngleEditor} disabled={busy !== null}
-                  style={{ ...ctrlBtn, border: '1.5px solid var(--accent)', background: 'var(--accent-dim)', color: 'var(--accent)' }}
-                >
-                  {video.angle == null ? 'Add angle' : 'Change angle'}
-                </button>
-              )}
-              {canDelete && (
-                <button
-                  type="button" onClick={() => { setError(''); setConfirming(true); }} disabled={busy !== null}
-                  style={{ ...ctrlBtn, marginLeft: 'auto', border: '1px solid rgba(255,82,82,0.3)', background: 'rgba(255,82,82,0.06)', color: '#FF5252' }}
-                >
-                  Delete
-                </button>
-              )}
-            </>
-          )}
+          <span style={{ fontSize: '12px', fontWeight: 600, color: '#1A0A00' }}>
+            Delete this video permanently?
+          </span>
+          <button
+            type="button" onClick={doDelete} disabled={busy === 'delete'}
+            style={{ ...ctrlBtn, border: 'none', background: '#FF5252', color: '#fff' }}
+          >
+            {busy === 'delete' ? 'Deleting…' : 'Delete'}
+          </button>
+          <button
+            type="button" onClick={() => setConfirming(false)} disabled={busy === 'delete'}
+            style={{ ...ctrlBtn, border: '1px solid rgba(26,10,0,0.15)', background: 'rgba(26,10,0,0.06)', color: 'var(--text-secondary)' }}
+          >
+            Keep
+          </button>
         </div>
       )}
 
@@ -467,17 +469,63 @@ function VideoItem({
   );
 }
 
-function actionErrorText(error, fallback) {
-  return videoErrorCode(error) === 'not_allowed' ? "You aren't allowed to do that." : fallback;
+// The "⋯" button and its small drop-down. A tap anywhere else, or Escape, closes it.
+// Solid white, because the menu can sit over the next video's player.
+function VideoMenu({ disabled, onChangeAngle, onDelete }) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onPointerDown = (e) => {
+      if (rootRef.current && !rootRef.current.contains(e.target)) setOpen(false);
+    };
+    const onKeyDown = (e) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [open]);
+
+  const choose = (action) => { setOpen(false); action(); };
+
+  return (
+    <div ref={rootRef} style={{ position: 'relative', flexShrink: 0 }}>
+      <button
+        type="button" onClick={() => setOpen((prev) => !prev)} disabled={disabled}
+        aria-label="More options for this video" aria-haspopup="menu" aria-expanded={open}
+        style={{
+          width: '44px', height: '44px', padding: 0, border: 'none', borderRadius: '8px', cursor: 'pointer',
+          background: open ? 'rgba(26,10,0,0.06)' : 'transparent', color: 'var(--text-secondary)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}
+      >
+        <Icon name="dots" size={22} />
+      </button>
+      {open && (
+        <div role="menu" style={{
+          position: 'absolute', top: '100%', right: 0, marginTop: '2px', zIndex: 20, minWidth: '150px',
+          background: '#fff', borderRadius: '10px', overflow: 'hidden',
+          border: '1px solid var(--border)', boxShadow: '0 4px 16px rgba(26,10,0,0.18)',
+        }}>
+          {onChangeAngle && (
+            <button type="button" role="menuitem" onClick={() => choose(onChangeAngle)} style={menuItem}>
+              Change angle
+            </button>
+          )}
+          <button type="button" role="menuitem" onClick={() => choose(onDelete)} style={{ ...menuItem, color: '#FF5252' }}>
+            Delete
+          </button>
+        </div>
+      )}
+    </div>
+  );
 }
 
-function shortDate(iso) {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  return d.toLocaleDateString(undefined, {
-    day: 'numeric', month: 'short',
-    year: d.getFullYear() === new Date().getFullYear() ? undefined : 'numeric',
-  });
+function actionErrorText(error, fallback) {
+  return videoErrorCode(error) === 'not_allowed' ? "You aren't allowed to do that." : fallback;
 }
 
 const quietStyle = { fontSize: '12px', color: 'rgba(26,10,0,0.5)', padding: '8px 0' };
@@ -489,6 +537,11 @@ const smallBtn = {
 
 const ctrlBtn = {
   minHeight: '44px', padding: '0 14px', borderRadius: '8px', fontSize: '12px', fontWeight: 700, cursor: 'pointer',
+};
+
+const menuItem = {
+  display: 'block', width: '100%', minHeight: '44px', padding: '0 14px', border: 'none', background: 'transparent',
+  fontSize: '13px', fontWeight: 600, color: '#1A0A00', cursor: 'pointer', textAlign: 'left', whiteSpace: 'nowrap',
 };
 
 // Same footprint as a 16:9 player, so the list doesn't jump when the link arrives.
