@@ -1,11 +1,13 @@
 import { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { CONSENT_TEXT, MAX_VIDEO_SECONDS, readVideoInfo } from '../utils/routeVideos';
+import { CONSENT_TEXT, MAX_VIDEO_SECONDS, readVideoInfo, clampBoardAngle } from '../utils/routeVideos';
+import { BOARD_SPECS } from '../utils/constants';
 
 /**
  * AddVideoButton — "+ Add video" button, the pick-a-video sheet and the consent
- * pop-up. It uploads NOTHING itself: it hands { file, durationS } to
+ * pop-up. It uploads NOTHING itself: it hands { file, durationS, angle } to
  * onConsented once the climber has agreed, and the caller decides what to do.
+ * The pop-up asks which board angle the video was climbed at (a slider).
  *
  * Steps: closed → menu → checking → (tooLong | consent) → closed.
  *
@@ -21,14 +23,20 @@ import { CONSENT_TEXT, MAX_VIDEO_SECONDS, readVideoInfo } from '../utils/routeVi
  * they can't reach whatever the button is nested in.
  *
  * Props:
- *   onConsented({ file, durationS })  – durationS is null when it couldn't be read
- *   label                             – button text
- *   style                             – merged over the button's default style
+ *   onConsented({ file, durationS, angle }) – durationS is null when it couldn't be read
+ *   defaultAngle                            – where the angle slider starts (number, or
+ *                                             null/undefined); clamped to the board's range, 30 if not a number
+ *   label                                   – button text
+ *   style                                   – merged over the button's default style
+ *
+ * Also exports AngleSlider (label + big value + touch-sized slider), shared with
+ * the "Change angle" editor in RouteVideos.
  */
-export default function AddVideoButton({ onConsented, label = '+ Add video', style }) {
+export default function AddVideoButton({ onConsented, defaultAngle, label = '+ Add video', style }) {
   const [step, setStep] = useState('closed'); // closed | menu | checking | tooLong | consent
   const [tooLongSeconds, setTooLongSeconds] = useState(0);
   const [picked, setPicked] = useState(null); // { file, durationS } waiting for consent
+  const [angle, setAngle] = useState(() => clampBoardAngle(defaultAngle)); // the slider in the consent pop-up
   const recordRef = useRef(null);
   const chooseRef = useRef(null);
   const checkRef = useRef(0); // bumped on cancel/unmount so a late duration check is ignored
@@ -64,13 +72,14 @@ export default function AddVideoButton({ onConsented, label = '+ Add video', sty
       return;
     }
     setPicked({ file, durationS });
+    setAngle(clampBoardAngle(defaultAngle)); // start from the session / route angle each time
     setStep('consent');
   };
 
   const confirm = () => {
     const chosen = picked;
     close();
-    if (chosen) onConsented(chosen);
+    if (chosen) onConsented({ ...chosen, angle });
   };
 
   return (
@@ -129,7 +138,7 @@ export default function AddVideoButton({ onConsented, label = '+ Add video', sty
 
       {step === 'consent' && picked && (
         <Overlay align="center">
-          <ConsentDialog file={picked.file} onCancel={close} onConfirm={confirm} />
+          <ConsentDialog file={picked.file} angle={angle} onAngleChange={setAngle} onCancel={close} onConfirm={confirm} />
         </Overlay>
       )}
     </>
@@ -161,7 +170,7 @@ function Overlay({ children, align, onBackdrop }) {
 
 // Preview + the consent wording. Owns the preview's object URL so it is revoked
 // the moment the pop-up closes.
-function ConsentDialog({ file, onCancel, onConfirm }) {
+function ConsentDialog({ file, angle, onAngleChange, onCancel, onConfirm }) {
   const [url, setUrl] = useState(null);
   const [previewFailed, setPreviewFailed] = useState(false);
 
@@ -189,6 +198,10 @@ function ConsentDialog({ file, onCancel, onConfirm }) {
         />
       ) : null}
 
+      <div style={{ marginTop: '12px' }}>
+        <AngleSlider value={angle} onChange={onAngleChange} />
+      </div>
+
       <h2 style={{
         margin: '14px 0 14px', fontSize: '16px', fontWeight: 700, lineHeight: 1.35,
         color: '#1A0A00', fontFamily: 'var(--font-body)',
@@ -199,6 +212,34 @@ function ConsentDialog({ file, onCancel, onConfirm }) {
       <div style={{ display: 'flex', gap: '10px' }}>
         <button type="button" style={{ ...cancelBtn, flex: 1, marginTop: 0 }} onClick={onCancel}>Cancel</button>
         <button type="button" style={{ ...primaryBtn, flex: 2, marginTop: 0 }} onClick={onConfirm}>I consent, upload</button>
+      </div>
+    </div>
+  );
+}
+
+// "Angle climbed at   35°" + a 44px-tall slider + the slab / steep end labels.
+// Used in the consent pop-up and in the "Change angle" editor on a saved video.
+export function AngleSlider({ value, onChange }) {
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '8px' }}>
+        <span style={{ fontSize: '13px', fontWeight: 700, color: '#1A0A00' }}>Angle climbed at</span>
+        <span style={{ fontFamily: 'var(--font-heading)', fontSize: '18px', fontWeight: 800, color: 'var(--accent)' }}>
+          {value}°
+        </span>
+      </div>
+      <input
+        type="range" className="range-touch" aria-label="Angle climbed at"
+        min={BOARD_SPECS.minAngle} max={BOARD_SPECS.maxAngle} step={1} value={value}
+        aria-valuetext={`${value} degrees`}
+        onChange={(e) => onChange(parseInt(e.target.value, 10))}
+      />
+      <div style={{
+        display: 'flex', justifyContent: 'space-between',
+        fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)',
+      }}>
+        <span>{BOARD_SPECS.minAngle}° slab</span>
+        <span>{BOARD_SPECS.maxAngle}° steep</span>
       </div>
     </div>
   );

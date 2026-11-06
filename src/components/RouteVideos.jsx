@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import * as db from '../lib/db';
-import { videoErrorCode } from '../utils/routeVideos';
-import AddVideoButton from './AddVideoButton';
+import { videoErrorCode, clampBoardAngle } from '../utils/routeVideos';
+import AddVideoButton, { AngleSlider } from './AddVideoButton';
 
 const ACTIVE_STAGES = ['waiting', 'shrinking', 'uploading', 'finishing'];
 
@@ -21,7 +21,9 @@ const ACTIVE_STAGES = ['waiting', 'shrinking', 'uploading', 'finishing'];
  *   isVideoAdmin         – admin of this wall AND in admin mode (NOT the global comment-moderation flag)
  *   profilesById         – { [user_id]: { display_name } }
  *   jobs, lastFinished   – from useVideoUploads (this component only reads them)
- *   onAddVideo({ file, durationS })
+ *   defaultAngle         – where the angle sliders start (the live session's angle, else the route's);
+ *                          used for the Add-video pop-up and for "Add angle" on a video with none
+ *   onAddVideo({ file, durationS, angle })
  *   embedded             – drop the outer padding when it sits inside the route form
  */
 export default function RouteVideos({
@@ -33,6 +35,7 @@ export default function RouteVideos({
   jobs,
   lastFinished,
   onAddVideo,
+  defaultAngle,
   embedded = false,
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -138,7 +141,7 @@ export default function RouteVideos({
     return null;
   }, []);
 
-  // Both writes wait for the server before touching the list (no optimistic update).
+  // All three writes wait for the server before touching the list (no optimistic update).
   const handleDelete = useCallback(async (video) => {
     const { error } = await db.deleteRouteVideo(video);
     if (!error) {
@@ -162,11 +165,23 @@ export default function RouteVideos({
     return { error: null };
   }, [load]);
 
+  const handleSetAngle = useCallback(async (video, angle) => {
+    const { video: returned, error } = await db.setRouteVideoAngle(video.id, angle);
+    if (error) return { error };
+    const row = Array.isArray(returned) ? returned[0] : returned;
+    if (row && row.id === video.id) {
+      setVideos((prev) => (prev ? prev.map((v) => (v.id === row.id ? { ...v, ...row } : v)) : prev));
+    } else {
+      load(); // the reply wasn't the row we expected: don't guess, look again
+    }
+    return { error: null };
+  }, [load]);
+
   const retryLoad = () => { setLoadFailed(false); load(); };
 
-  const handleAdd = ({ file, durationS }) => {
+  const handleAdd = ({ file, durationS, angle }) => {
     setExpanded(true);
-    onAddVideo({ file, durationS });
+    onAddVideo({ file, durationS, angle });
   };
 
   const uploading = (jobs || []).some((j) => j.routeId === routeId && ACTIVE_STAGES.includes(j.stage));
@@ -190,7 +205,7 @@ export default function RouteVideos({
           <span>{expanded ? '▾' : '▸'}</span>
           <span>Videos{countText}</span>
         </button>
-        <AddVideoButton onConsented={handleAdd} />
+        <AddVideoButton onConsented={handleAdd} defaultAngle={defaultAngle} />
       </div>
 
       {expanded && (
@@ -235,9 +250,11 @@ export default function RouteVideos({
                   : (profilesById && profilesById[v.user_id]?.display_name) || 'Climber'
               }
               isVideoAdmin={isVideoAdmin}
+              defaultAngle={defaultAngle}
               onRefreshUrl={refreshUrl}
               onDelete={handleDelete}
               onSetPublic={handleSetPublic}
+              onSetAngle={handleSetAngle}
             />
           ))}
         </div>
@@ -246,14 +263,16 @@ export default function RouteVideos({
   );
 }
 
-// One video: player, who/when/visibility, and the delete / publish controls.
+// One video: player, who/when/angle/visibility, and the delete / publish / angle controls.
 function VideoItem({
-  video, url, linkFailed, label, isMine, uploader, isVideoAdmin,
-  onRefreshUrl, onDelete, onSetPublic,
+  video, url, linkFailed, label, isMine, uploader, isVideoAdmin, defaultAngle,
+  onRefreshUrl, onDelete, onSetPublic, onSetAngle,
 }) {
   const [playFailed, setPlayFailed] = useState(false);
   const [confirming, setConfirming] = useState(false);
-  const [busy, setBusy] = useState(null); // null | 'delete' | 'visibility' | 'link'
+  const [busy, setBusy] = useState(null); // null | 'delete' | 'visibility' | 'angle' | 'link'
+  const [editingAngle, setEditingAngle] = useState(false);
+  const [angleDraft, setAngleDraft] = useState(30); // the slider while editingAngle
   const [error, setError] = useState('');
   const triedRefreshRef = useRef(false); // links expire after an hour: one automatic fresh link per failure
 
@@ -295,6 +314,21 @@ function VideoItem({
     const { error: err } = await onSetPublic(video, !video.is_public);
     setBusy(null);
     if (err) setError(actionErrorText(err, "Couldn't change who can see this video. Try again."));
+  };
+
+  const openAngleEditor = () => {
+    setError('');
+    setAngleDraft(Number.isFinite(video.angle) ? clampBoardAngle(video.angle) : clampBoardAngle(defaultAngle));
+    setEditingAngle(true);
+  };
+
+  const doSaveAngle = async () => {
+    setBusy('angle');
+    setError('');
+    const { error: err } = await onSetAngle(video, angleDraft);
+    setBusy(null);
+    if (err) setError(actionErrorText(err, "Couldn't save the angle. Check your signal and try again."));
+    else setEditingAngle(false);
   };
 
   const badge = video.is_public
@@ -339,13 +373,38 @@ function VideoItem({
       }}>
         <span style={{ fontWeight: 700 }}>{uploader}</span>
         <span style={{ color: 'var(--text-muted)' }}>{shortDate(video.created_at)}</span>
+        {video.angle != null && (
+          <span style={{ fontFamily: 'var(--font-heading)', fontSize: '12px', fontWeight: 800, color: 'var(--accent)' }}>
+            {video.angle}°
+          </span>
+        )}
         <span style={{
           padding: '2px 8px', borderRadius: '8px', fontSize: '10px', fontWeight: 700,
           background: badge.bg, color: badge.color,
         }}>{badge.text}</span>
       </div>
 
-      {canDelete && (
+      {canDelete && editingAngle && (
+        <div style={{ marginTop: '8px' }}>
+          <AngleSlider value={angleDraft} onChange={setAngleDraft} />
+          <div style={{ display: 'flex', gap: '8px', marginTop: '6px' }}>
+            <button
+              type="button" onClick={doSaveAngle} disabled={busy === 'angle'}
+              style={{ ...ctrlBtn, flex: 2, border: 'none', background: 'var(--accent)', color: '#fff' }}
+            >
+              {busy === 'angle' ? 'Saving…' : 'Save'}
+            </button>
+            <button
+              type="button" onClick={() => { setError(''); setEditingAngle(false); }} disabled={busy === 'angle'}
+              style={{ ...ctrlBtn, flex: 1, border: '1px solid rgba(26,10,0,0.15)', background: 'rgba(26,10,0,0.06)', color: 'var(--text-secondary)' }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {canDelete && !editingAngle && (
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginTop: '8px' }}>
           {confirming ? (
             <>
@@ -373,6 +432,14 @@ function VideoItem({
                   style={{ ...ctrlBtn, border: '1.5px solid var(--accent)', background: 'var(--accent-dim)', color: 'var(--accent)' }}
                 >
                   {busy === 'visibility' ? 'Saving…' : video.is_public ? 'Make private' : 'Make public'}
+                </button>
+              )}
+              {canDelete && (
+                <button
+                  type="button" onClick={openAngleEditor} disabled={busy !== null}
+                  style={{ ...ctrlBtn, border: '1.5px solid var(--accent)', background: 'var(--accent-dim)', color: 'var(--accent)' }}
+                >
+                  {video.angle == null ? 'Add angle' : 'Change angle'}
                 </button>
               )}
               {canDelete && (

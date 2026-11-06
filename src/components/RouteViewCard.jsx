@@ -26,6 +26,8 @@ export default function RouteViewCard({
   videoJobs,
   videoLastFinished,
   onAddVideo,
+  // Board angle of the live session (null when none); the video angle slider starts here, else at the route's angle
+  videoSessionAngle,
   settings,
   grades,
   allHolds,
@@ -326,8 +328,9 @@ export default function RouteViewCard({
             profilesById={profilesById}
             jobs={videoJobs}
             lastFinished={videoLastFinished}
-            onAddVideo={({ file, durationS }) =>
-              onAddVideo({ routeId: route.id, routeName: route.name, file, durationS })}
+            defaultAngle={videoSessionAngle ?? route.angle}
+            onAddVideo={({ file, durationS, angle }) =>
+              onAddVideo({ routeId: route.id, routeName: route.name, file, durationS, angle })}
           />
         </Suspense>
       )}

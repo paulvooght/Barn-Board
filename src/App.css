@@ -100,6 +100,37 @@ input[type="range"]::-webkit-slider-thumb {
   border: 2px solid #fff;
 }
 
+/* Range slider with a proper touch target: 44px tall, 28px thumb, 6px track */
+input[type="range"].range-touch {
+  width: 100%;
+  height: 44px;
+  background: transparent;
+  cursor: pointer;
+}
+input[type="range"].range-touch::-webkit-slider-runnable-track {
+  height: 6px;
+  background: rgba(26,10,0,0.15);
+  border-radius: 3px;
+}
+input[type="range"].range-touch::-moz-range-track {
+  height: 6px;
+  background: rgba(26,10,0,0.15);
+  border-radius: 3px;
+}
+input[type="range"].range-touch::-webkit-slider-thumb {
+  width: 28px;
+  height: 28px;
+  margin-top: -11px; /* centres the thumb on the 6px track */
+}
+input[type="range"].range-touch::-moz-range-thumb {
+  width: 28px;
+  height: 28px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid #fff;
+}
+
 /* Session timer pulse animation */
 @keyframes pulse {
   0%, 100% { opacity: 1; }

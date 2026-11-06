@@ -55,6 +55,7 @@ async function createRowWithRetry(work) {
       sizeBytes: work.prepared.blob.size,
       durationS: work.durationS,
       consentText: CONSENT_TEXT,
+      angle: work.angle,
     });
     if (!error && video) return video;
 
@@ -230,7 +231,7 @@ export default function useVideoUploads() {
 
   // ─── public actions ─────────────────────────────────────────────────────────
 
-  const startUpload = useCallback(({ routeId, routeName, file, durationS }) => {
+  const startUpload = useCallback(({ routeId, routeName, file, durationS, angle }) => {
     if (!routeId || !file) return null;
     const jobId = (typeof crypto !== 'undefined' && crypto.randomUUID)
       ? crypto.randomUUID()
@@ -239,6 +240,7 @@ export default function useVideoUploads() {
       routeId,
       file,
       durationS: Number.isFinite(durationS) ? durationS : null, // null = unknown
+      angle: Number.isFinite(angle) ? angle : null, // board angle climbed at; kept for retries
       prepared: null,     // { blob, mimeType, shrunk } once shrinking is done
       row: null,          // the route_videos row once created
       upload: null,       // the tus wrapper, kept so a retry resumes

@@ -9,6 +9,14 @@
 // static import of either here.
 
 import { supabase } from '../lib/supabase';
+import { BOARD_SPECS } from './constants';
+
+/** A whole board angle inside the board's range, for the angle sliders' starting
+ *  position. Anything that isn't a number (no session, no angle) gives 30. */
+export function clampBoardAngle(angle) {
+  const n = Number.isFinite(angle) ? Math.round(angle) : 30;
+  return Math.min(BOARD_SPECS.maxAngle, Math.max(BOARD_SPECS.minAngle, n));
+}
 
 // The server compares this to the exact same string in create_route_video()
 // (migration 011) and rejects anything else with 'consent_required'. Change both
@@ -46,6 +54,7 @@ const ERROR_MESSAGES = {
   unsupported_type: "That file type isn't supported. Choose an MP4 or MOV video.",
   route_not_found: "This route hasn't finished saving. Try again in a moment.",
   consent_required: 'Consent is needed before uploading.',
+  bad_angle: "That angle isn't one this board goes to. Pick another and try again.",
 };
 const GENERIC_ERROR_MESSAGE = 'Upload failed. Check your signal and try again.';
 

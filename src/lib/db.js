@@ -327,13 +327,14 @@ export function fetchRouteVideos(routeId) {
 
 /** Start an upload: creates the row (status 'uploading') after the server checks
  *  membership, consent wording, type, size and the storage cap. */
-export async function createRouteVideo({ routeId, mimeType, sizeBytes, durationS, consentText }) {
+export async function createRouteVideo({ routeId, mimeType, sizeBytes, durationS, consentText, angle }) {
   const { data, error } = await supabase.rpc('create_route_video', {
     p_route_id: routeId,
     p_mime_type: mimeType,
     p_size_bytes: sizeBytes,
     p_duration_s: durationS,
     p_consent_text: consentText,
+    p_angle: angle,
   });
   if (error) console.error('[db] createRouteVideo error:', error);
   return { video: error ? null : data, error };
@@ -351,6 +352,13 @@ export async function finishRouteVideo(videoId) {
 export async function setRouteVideoPublic(videoId, isPublic) {
   const { data, error } = await supabase.rpc('set_route_video_public', { p_video: videoId, p_public: isPublic });
   if (error) console.error('[db] setRouteVideoPublic error:', error);
+  return { video: error ? null : data, error };
+}
+
+/** Set or correct the board angle a video was climbed at (uploader or wall admin). */
+export async function setRouteVideoAngle(videoId, angle) {
+  const { data, error } = await supabase.rpc('set_route_video_angle', { p_video: videoId, p_angle: angle });
+  if (error) console.error('[db] setRouteVideoAngle error:', error);
   return { video: error ? null : data, error };
 }
 

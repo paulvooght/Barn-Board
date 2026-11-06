@@ -1598,6 +1598,7 @@ export default function App() {
         routeName: routeName.trim(),
         file: videoToUpload.file,
         durationS: videoToUpload.durationS,
+        angle: videoToUpload.angle,
       });
     }
     resetCreate();
@@ -2715,6 +2716,7 @@ export default function App() {
           videoJobs: videoUploads.jobs,
           videoLastFinished: videoUploads.lastFinished,
           onAddVideo: videoUploads.startUpload,
+          videoSessionAngle: activeSession?.boardAngle ?? null,
           imgSrc, imgSrcSet, imgSizes,
           userRouteData, communityRatings, communityGrades,
           profilesById, displayName,
@@ -2842,13 +2844,14 @@ export default function App() {
               profilesById={profilesById}
               jobs={videoUploads.jobs}
               lastFinished={videoUploads.lastFinished}
-              onAddVideo={({ file, durationS }) =>
-                videoUploads.startUpload({ routeId: editingRouteId, routeName, file, durationS })}
+              defaultAngle={activeSession?.boardAngle ?? routeAngle}
+              onAddVideo={({ file, durationS, angle }) =>
+                videoUploads.startUpload({ routeId: editingRouteId, routeName, file, durationS, angle })}
             />
           ) : pendingVideo ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
               <span style={{ flex: 1, minWidth: 0, fontSize: '13px', color: 'var(--text-secondary)' }}>
-                Video ready. It uploads when you save the route.
+                Video ready ({pendingVideo.angle}°). It uploads when you save the route.
               </span>
               <button
                 type="button"
@@ -2863,7 +2866,7 @@ export default function App() {
               </button>
             </div>
           ) : (
-            <AddVideoButton onConsented={setPendingVideo} />
+            <AddVideoButton onConsented={setPendingVideo} defaultAngle={activeSession?.boardAngle ?? routeAngle} />
           )}
           onSave={saveRoute}
           onCancel={() => { resetCreate(); setView('board'); }}
