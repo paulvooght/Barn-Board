@@ -4,7 +4,7 @@
  */
 
 import {
-  V_GRADES, FONT_GRADES, V_GRADE_INDEX, FONT_GRADE_INDEX,
+  V_GRADES, FONT_GRADES, V_GRADE_INDEX, FONT_GRADE_INDEX, displayGrade,
 } from './constants';
 
 // ─── Period helpers ──────────────────────────────────────────────────────────
@@ -205,15 +205,17 @@ export function filterSends(sessions, period) {
 
 /**
  * Get the numeric index of a grade string (grade system–agnostic).
+ * A send holds whichever system its grade was saved in, so convert first.
  * Returns -1 if unknown.
  */
 function getGradeIndex(gradeStr, gradeSystem) {
   if (!gradeStr) return -1;
+  const grade = displayGrade(gradeStr, gradeSystem);
   if (gradeSystem === 'Font') {
-    const idx = FONT_GRADE_INDEX[gradeStr];
+    const idx = FONT_GRADE_INDEX[grade];
     return idx !== undefined ? idx : -1;
   }
-  const idx = V_GRADE_INDEX[gradeStr];
+  const idx = V_GRADE_INDEX[grade];
   return idx !== undefined ? idx : -1;
 }
 
@@ -352,7 +354,7 @@ export function computeStats(sessions, routes, userRouteData, period, gradeSyste
       topGradeIndex = idx;
       const route = safeRoutes.find(r => r.id === send.routeId);
       topGradeRoute = {
-        grade: send.grade,
+        grade: displayGrade(send.grade, gradeSystem),
         routeId: send.routeId,
         name: route?.name || null,
       };

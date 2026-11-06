@@ -112,8 +112,9 @@ export default function RouteList({
   };
 
   const gradeIndex = gradeSystem === 'Font' ? FONT_GRADE_INDEX : V_GRADE_INDEX;
-  // A route can hold a grade from the other system (it's stored as its setter chose it),
-  // so anything comparing grades converts to the viewer's system first.
+  // A route is saved with the grade its setter chose, in either system. App passes routes
+  // already converted for the viewer, so converting again here is harmless and keeps
+  // grade comparisons right if a raw grade ever reaches this screen.
   const gradeRank = (grade) => gradeIndex[displayGrade(grade, gradeSystem)] ?? -1;
 
   // A remembered grade from the other grade system (the owner can switch V/Font in Settings)

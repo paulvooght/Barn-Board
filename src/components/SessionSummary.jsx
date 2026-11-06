@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { V_GRADE_INDEX, FONT_GRADE_INDEX } from '../utils/constants';
+import { V_GRADE_INDEX, FONT_GRADE_INDEX, displayGrade } from '../utils/constants';
 
 function formatDuration(ms) {
   const totalSec = Math.floor(ms / 1000);
@@ -12,11 +12,16 @@ function formatDuration(ms) {
 }
 
 export default function SessionSummary({ session, routes, grades, allSessions, onClose }) {
-  const gradeIndex = grades[0] === 'VB' ? V_GRADE_INDEX : FONT_GRADE_INDEX;
+  const gradeSystem = grades[0] === 'VB' ? 'V' : 'Font';
+  const gradeIndex = gradeSystem === 'V' ? V_GRADE_INDEX : FONT_GRADE_INDEX;
   const duration = new Date(session.endTime) - new Date(session.startTime);
 
-  // Detailed sends — includes angle + grade from when the send was logged
-  const sends = session.sends || [];
+  // Detailed sends — includes angle + grade from when the send was logged.
+  // A send keeps the system its grade was saved in, so convert it for this viewer.
+  const sends = useMemo(
+    () => (session.sends || []).map(s => (s.grade ? { ...s, grade: displayGrade(s.grade, gradeSystem) } : s)),
+    [session.sends, gradeSystem]
+  );
 
   // Routes sent & attempted during this session
   const sentRoutes = useMemo(() =>
@@ -112,7 +117,7 @@ export default function SessionSummary({ session, routes, grades, allSessions, o
       for (const ps of prevSessions) {
         const psSends = ps.sends || [];
         const psGrades = psSends.length > 0
-          ? psSends.map(s => s.grade).filter(Boolean)
+          ? psSends.map(s => displayGrade(s.grade, gradeSystem)).filter(Boolean)
           : routes.filter(r => ps.routesSent.includes(r.id)).map(r => r.grade);
         for (const g of psGrades) {
           const idx = gradeIndex[g] ?? -1;
@@ -133,7 +138,7 @@ export default function SessionSummary({ session, routes, grades, allSessions, o
     }
 
     return results;
-  }, [session, allSessions, duration, hardestGrade, grades, routes]);
+  }, [session, allSessions, duration, hardestGrade, grades, gradeSystem, routes]);
 
   return (
     <div style={{

@@ -163,6 +163,19 @@ export function displayGrade(grade, targetSystem) {
   return convertGrade(grade, from, targetSystem);
 }
 
+/** A route with its grades converted for someone viewing in `system`. For screens only:
+ *  never save the result, because a route keeps the grade its setter saved.
+ *  Returns the same object when nothing changes. */
+export function routeForDisplay(route, system) {
+  if (!route) return route;
+  const grade = displayGrade(route.grade, system);
+  const angleGrades = route.angleGrades?.some(ag => displayGrade(ag.grade, system) !== ag.grade)
+    ? route.angleGrades.map(ag => ({ ...ag, grade: displayGrade(ag.grade, system) }))
+    : route.angleGrades;
+  if (grade === route.grade && angleGrades === route.angleGrades) return route;
+  return { ...route, grade, angleGrades };
+}
+
 /**
  * Extract YouTube video ID from various URL formats:
  * https://www.youtube.com/watch?v=abc123

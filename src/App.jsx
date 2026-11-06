@@ -27,7 +27,7 @@ import useVideoUploads from './hooks/useVideoUploads';
 import holdsData from './data/holds.json';
 import { supabase, ADMIN_EMAIL, isRecoveryLink } from './lib/supabase';
 import * as db from './lib/db';
-import { V_GRADES, FONT_GRADES, V_GRADE_INDEX, FONT_GRADE_INDEX, SELECTION_MODES, HANDED_ROLES, MODE_COLORS, MODE_LABELS, BOARD_SPECS, HOLD_COLOR_DOT, HOLD_TYPE_SINGULAR_TO_PLURAL, convertGrade, displayGrade, getYouTubeId, getYouTubeThumbnail, DEFAULT_BOARD_IMAGE, DEFAULT_BOARD_SRCSET, DEFAULT_BOARD_SIZES } from './utils/constants';
+import { V_GRADES, FONT_GRADES, V_GRADE_INDEX, FONT_GRADE_INDEX, SELECTION_MODES, HANDED_ROLES, MODE_COLORS, MODE_LABELS, BOARD_SPECS, HOLD_COLOR_DOT, HOLD_TYPE_SINGULAR_TO_PLURAL, displayGrade, routeForDisplay, getYouTubeId, getYouTubeThumbnail, DEFAULT_BOARD_IMAGE, DEFAULT_BOARD_SRCSET, DEFAULT_BOARD_SIZES } from './utils/constants';
 import { enqueueRoute, dequeueRoute, recordFailure, getPendingRoutes } from './utils/pendingRouteSync';
 import { enqueueSession, dequeueSession, recordFailure as recordSessionFailure, getPendingSessions, getPendingSessionIds } from './utils/pendingSessionSync';
 
@@ -1238,6 +1238,17 @@ export default function App() {
   const grades = settings.gradeSystem === 'V' ? V_GRADES : FONT_GRADES;
   const gradeIndex = settings.gradeSystem === 'Font' ? FONT_GRADE_INDEX : V_GRADE_INDEX;
 
+  // What screens show: routes with grades converted to this user's system. `routes` itself
+  // always holds the grades as saved, and everything that writes works from `routes`.
+  const displayRoutes = useMemo(
+    () => routes.map(r => routeForDisplay(r, settings.gradeSystem)),
+    [routes, settings.gradeSystem]
+  );
+  const displayAllRoutes = useMemo(
+    () => allRoutes.map(r => routeForDisplay(r, settings.gradeSystem)),
+    [allRoutes, settings.gradeSystem]
+  );
+
   // Derive community grade consensus from raw rows. Recomputes whenever the user
   // changes their grade system so every vote is normalised into the active system
   // (e.g. V3 + 6A votes merge into one bucket) before consensus is picked.
@@ -1610,7 +1621,9 @@ export default function App() {
       const updated = (rt) => ({
         ...rt,
         name: routeName.trim(),
-        grade: routeGrade,
+        // The form shows the grade converted to this user's system. Only replace the saved
+        // grade if they actually picked a different one.
+        grade: displayGrade(rt.grade, settings.gradeSystem) === routeGrade ? rt.grade : routeGrade,
         angle: routeAngle,
         setter: setter.trim(),
         description: description.trim() || undefined,
@@ -1678,7 +1691,7 @@ export default function App() {
     }
     resetCreate();
     setView('routes');
-  }, [routeName, routeGrade, routeAngle, setter, description, youtubeUrl, holdTypes, techniques, styles, setRoutes, resetCreate, editingRouteId, logRouteCreated, allHolds, flushRoutesToSupabase, pendingVideo, startUpload]);
+  }, [routeName, routeGrade, routeAngle, setter, description, youtubeUrl, holdTypes, techniques, styles, setRoutes, resetCreate, editingRouteId, logRouteCreated, allHolds, flushRoutesToSupabase, pendingVideo, startUpload, settings.gradeSystem]);
 
   const viewRoute = useCallback((route, orderedIds) => {
     if (orderedIds !== undefined) setViewRouteOrder(orderedIds);
@@ -1770,7 +1783,8 @@ export default function App() {
       const fresh = prev.find(r => r.id === route.id);
       const r = fresh || route;
       setRouteName(r.name);
-      setRouteGrade(r.grade);
+      // The form's select only lists this user's system, so show the grade converted
+      setRouteGrade(displayGrade(r.grade, settings.gradeSystem));
       setRouteAngle(r.angle);
       setHoldTypes(r.holdTypes || []);
       setTechniques(r.techniques || []);
@@ -1788,27 +1802,12 @@ export default function App() {
       setView('create');
       return prev; // no mutation
     });
-  }, [setRoutes]);
+  }, [setRoutes, settings.gradeSystem]);
 
+  // The V/Font choice only changes what screens show. Saved route grades are never rewritten.
   const updateSettings = useCallback((key, val) => {
-    setSettings(prev => {
-      const next = { ...prev, [key]: val };
-      // When grade system changes, convert all existing route grades
-      if (key === 'gradeSystem' && val !== prev.gradeSystem) {
-        const oldSystem = prev.gradeSystem;
-        localRouteChange.current = true;
-        setRoutes(prevRoutes => prevRoutes.map(r => ({
-          ...r,
-          grade: convertGrade(r.grade, oldSystem, val),
-          // Convert angle-specific grades too
-          angleGrades: r.angleGrades
-            ? r.angleGrades.map(ag => ({ ...ag, grade: convertGrade(ag.grade, oldSystem, val) }))
-            : undefined,
-        })));
-      }
-      return next;
-    });
-  }, [setSettings, setRoutes]);
+    setSettings(prev => ({ ...prev, [key]: val }));
+  }, [setSettings]);
 
   const rateRoute = useCallback((routeId, newRating) => {
     if (!user) return;
@@ -2106,6 +2105,9 @@ export default function App() {
       const oldGrade = r.grade;
       const angleGrades = [...(r.angleGrades || [])];
 
+      // newGrade comes from the screen, so it may be converted. Keep the grade saved for that angle.
+      const promoted = angleGrades.find(ag => ag.angle === newAngle);
+
       // Remove the promoted entry from angleGrades (it becomes the headline)
       const filtered = angleGrades.filter(ag => ag.angle !== newAngle);
 
@@ -2121,7 +2123,7 @@ export default function App() {
       return {
         ...r,
         angle: newAngle,
-        grade: newGrade,
+        grade: promoted?.grade ?? newGrade,
         angleGrades: filtered,
         updatedAt: new Date().toISOString(),
       };
@@ -2830,7 +2832,7 @@ export default function App() {
             }}>
               {/* Current card — always rendered, in document flow (drives wrapper height) */}
               <RouteViewCard
-                route={viewingRoute}
+                route={routeForDisplay(viewingRoute, settings.gradeSystem)}
                 isInteractive={true}
                 holdSelection={holdSelection}
                 holdDataMode={holdDataMode}
@@ -2850,7 +2852,7 @@ export default function App() {
                   width: '100%',
                 }}>
                   <RouteViewCard
-                    route={prevRoute}
+                    route={routeForDisplay(prevRoute, settings.gradeSystem)}
                     isInteractive={false}
                     holdSelection={prevRoute.holds || {}}
                     holdDataMode={false}
@@ -2871,7 +2873,7 @@ export default function App() {
                   width: '100%',
                 }}>
                   <RouteViewCard
-                    route={nextRoute}
+                    route={routeForDisplay(nextRoute, settings.gradeSystem)}
                     isInteractive={false}
                     holdSelection={nextRoute.holds || {}}
                     holdDataMode={false}
@@ -2958,7 +2960,7 @@ export default function App() {
       {/* ── Routes list ── */}
       {view === 'routes' && (
         <RouteList
-          routes={routes}
+          routes={displayRoutes}
           grades={grades}
           gradeSystem={settings.gradeSystem}
           playlists={playlists}
@@ -2992,7 +2994,7 @@ export default function App() {
       {view === 'sessionSummary' && completedSession && (
         <SessionSummary
           session={completedSession}
-          routes={routes}
+          routes={displayRoutes}
           grades={grades}
           allSessions={sessions}
           onClose={() => { setCompletedSession(null); setView('board'); }}
@@ -3012,8 +3014,8 @@ export default function App() {
             settings={settings}
             displayName={displayName}
             userRouteData={userRouteData}
-            routes={routes}
-            allRoutes={allRoutes}
+            routes={displayRoutes}
+            allRoutes={displayAllRoutes}
             myBoards={myBoards}
             activeBoardId={activeBoardId}
             boardImageSrc={imgSrc}
@@ -3036,7 +3038,7 @@ export default function App() {
           allHolds={allHolds}
           onSetupBoard={handleSetupBoard}
           sessions={sessions}
-          routes={routes}
+          routes={displayRoutes}
           isAdmin={isActiveBoardAdmin}
           user={user}
           myBoards={myBoards}
@@ -3089,7 +3091,7 @@ export default function App() {
             session={editingSession}
             allSessions={sessions}
             gradeSystem={settings.gradeSystem}
-            routes={routes}
+            routes={displayRoutes}
             playlists={playlists}
             onSave={updateSession}
             onCancel={() => {
