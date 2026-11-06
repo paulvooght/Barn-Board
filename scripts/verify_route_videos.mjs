@@ -127,6 +127,8 @@ const run = async () => {
     ok('A6 cannot put a file in by resumable upload either', !!r.error, r.error ? 'blocked' : 'LEAK');
     r = await anon.storage.from(BUCKET).list(wallA);
     ok('A7 cannot list the wall\'s files', !r.error && r.data.length === 0, `files=${r.data?.length}`);
+    r = await anon.rpc('set_route_video_angle', { p_video: paulPublic.id, p_angle: 30 });
+    ok('A8 cannot change a video\'s angle', rpcErr(r).includes('not_allowed'), rpcErr(r) || 'ALLOWED');
 
     // ── Phase B: other MEMBER of wall A (and admin of a DIFFERENT wall) ──────
     console.log('\n— Phase B: other member —');
@@ -183,6 +185,16 @@ const run = async () => {
     ok('B19 a file over 50 MB is refused', rpcErr(r).includes('file_too_large'), rpcErr(r) || 'ALLOWED');
     r = await start({ p_mime_type: 'application/pdf' });
     ok('B20 a non-video type is refused', rpcErr(r).includes('unsupported_type'), rpcErr(r) || 'ALLOWED');
+    r = await start({ p_angle: 91 });
+    ok('B21 an impossible angle is refused', rpcErr(r).includes('bad_angle'), rpcErr(r) || 'ALLOWED');
+    r = await anon.rpc('set_route_video_angle', { p_video: paulPrivate.id, p_angle: 30 });
+    ok('B22 cannot change the angle on someone\'s video', rpcErr(r).includes('not_allowed'), rpcErr(r) || 'ALLOWED');
+    r = await anon.rpc('set_route_video_angle', { p_video: paulPublic.id, p_angle: 30 });
+    ok('B23 cannot change the angle on someone\'s public video either', rpcErr(r).includes('not_allowed'), rpcErr(r) || 'ALLOWED');
+    // The same query the route-card icons use: a private video must not show up,
+    // or a climber's card would give away that someone else uploaded one.
+    r = await anon.from('route_videos').select('route_id, is_public, user_id').eq('board_id', wallA).eq('status', 'ready');
+    ok('B24 the wall-wide video list leaves out other climbers\' private videos', !r.error && r.data.length === 1 && r.data[0].is_public === true, rpcErr(r) || `rows=${r.data?.length}`);
 
     // ── Phase C: UPLOADER ────────────────────────────────────────────────────
     console.log('\n— Phase C: uploader —');
@@ -191,6 +203,7 @@ const run = async () => {
     ok('C1 a member can start an upload', !r.error && !!mine?.id, rpcErr(r) || 'started');
     ok('C2 it starts private and unfinished', mine?.is_public === false && mine?.status === 'uploading');
     ok('C3 the wall comes from the route', mine?.board_id === wallA && mine?.user_id === uid);
+    ok('C3b a call from the previous app version still works, with no angle', mine?.angle === null, `angle=${mine?.angle}`);
     r = await anon.rpc('finish_route_video', { p_video: mine.id });
     ok('C4 cannot finish before the file exists', rpcErr(r).includes('file_missing'), rpcErr(r) || 'ALLOWED');
     r = await anon.rpc('finish_route_video', { p_video: paulPrivate.id });
@@ -230,6 +243,20 @@ const run = async () => {
     ok('C17 the bucket refuses a file over 50 MB', !!r.error, r.error ? 'blocked' : 'LEAK');
     r = await anon.rpc('delete_route_video_row', { p_video: typeTest.id });
     ok('C18 a cancelled upload can be cleared', !r.error, rpcErr(r) || 'cleared');
+
+    // Angle, on the uploader's own video
+    r = await start({ p_size_bytes: 1024, p_angle: 35 });
+    const angled = r.data;
+    ok('C19 the angle is saved with the upload', !r.error && angled?.angle === 35, rpcErr(r) || `angle=${angled?.angle}`);
+    r = await anon.rpc('set_route_video_angle', { p_video: angled.id, p_angle: 40 });
+    ok('C20 uploader can correct their angle', !r.error && r.data?.angle === 40, rpcErr(r) || `angle=${r.data?.angle}`);
+    ok('C21 changing the angle does not publish it', r.data?.is_public === false);
+    r = await anon.rpc('set_route_video_angle', { p_video: angled.id, p_angle: null });
+    ok('C22 the angle cannot be blanked', rpcErr(r).includes('bad_angle'), rpcErr(r) || 'ALLOWED');
+    r = await anon.rpc('set_route_video_angle', { p_video: angled.id, p_angle: -1 });
+    ok('C23 an impossible angle is refused', rpcErr(r).includes('bad_angle'), rpcErr(r) || 'ALLOWED');
+    r = await anon.rpc('delete_route_video_row', { p_video: angled.id });
+    ok('C24 the angle test row clears', !r.error, rpcErr(r) || 'cleared');
 
     // ── Phase D: wall ADMIN ──────────────────────────────────────────────────
     console.log('\n— Phase D: wall admin —');
@@ -271,6 +298,10 @@ const run = async () => {
     r = await anon.rpc('route_videos_usage');
     const usage = r.data?.[0];
     ok('D11 storage gauge works', !r.error && Number(usage?.cap_bytes) === 838860800 && Number(usage?.used_bytes) >= 0, rpcErr(r) || `used=${usage?.used_bytes} count=${usage?.video_count}`);
+    r = await anon.rpc('set_route_video_angle', { p_video: paulPrivate.id, p_angle: 30 });
+    ok('D12 admin can set the angle on anyone\'s video', !r.error && r.data?.angle === 30, rpcErr(r) || `angle=${r.data?.angle}`);
+    r = await anon.from('route_videos').select('id').eq('board_id', wallA).eq('status', 'ready');
+    ok('D13 the wall-wide video list includes private videos for an admin', !r.error && r.data.some(v => v.id === paulPrivate.id), rpcErr(r) || `rows=${r.data?.length}`);
 
     // ── Phase E: real walls unaffected ───────────────────────────────────────
     console.log('\n— Phase E: real walls —');
