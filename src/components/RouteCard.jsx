@@ -1,10 +1,8 @@
-import { getYouTubeId } from '../utils/constants';
-import Icon from './Icon';
 import SentCycleButton from './SentCycleButton';
+import VideoBadge from './VideoBadge';
 
-export default function RouteCard({ route, sent, flashed, attempted, communityRating, ratingCount, communityGrade, onView, onRate, onToggleSent, missingHoldCount, onRemoveFromPlaylist }) {
+export default function RouteCard({ route, sent, flashed, attempted, communityRating, ratingCount, communityGrade, videoState, onView, onRate, onToggleSent, missingHoldCount, onRemoveFromPlaylist }) {
   const displayRating = Math.round(communityRating || 0);
-  const hasVideo  = !!getYouTubeId(route.youtubeUrl);
   const hasAngleGrades = (route.angleGrades || []).length > 0;
   const hasMissing = (missingHoldCount || 0) > 0;
 
@@ -87,7 +85,8 @@ export default function RouteCard({ route, sent, flashed, attempted, communityRa
             >
               {route.name}
             </span>
-            {hasVideo && <Icon name="video" size={13} style={{ opacity: 0.4, flexShrink: 0, marginTop: '2px' }}/>}
+            {/* videoState: 'private' | 'public' | null (private wins when a route has both) */}
+            {videoState && <span style={{ marginTop: '-1px', display: 'inline-flex', flexShrink: 0 }}><VideoBadge state={videoState} /></span>}
           </div>
         </div>
       </div>

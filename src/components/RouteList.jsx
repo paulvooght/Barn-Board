@@ -1,7 +1,9 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import RouteCard from './RouteCard';
 import Icon from './Icon';
-import { HOLD_TYPES, STYLES, V_GRADE_INDEX, FONT_GRADE_INDEX } from '../utils/constants';
+import VideoBadge from './VideoBadge';
+import GradeRange from './GradeRange';
+import { HOLD_TYPES, STYLES, V_GRADE_INDEX, FONT_GRADE_INDEX, displayGrade, getYouTubeId } from '../utils/constants';
 
 const SORT_OPTIONS = [
   { key: 'date',   label: 'Date' },
@@ -24,12 +26,25 @@ export default function RouteList({
   onCreatePlaylist, onDeletePlaylist, onRenamePlaylist, onRemoveRouteFromPlaylist,
   onFetchSharedPlaylists, onTogglePlaylistShared, onAddSharedPlaylist, userId,
   recentSession, showRecentTile,
+  // Video icons + filters. routeVideoFlags is { [routeId]: { private, public } }, or null
+  // until the first fetch lands (null is "not loaded", never "no videos").
+  isVideoAdmin, routeVideoFlags, videoFlagsFailed, onRetryVideoFlags,
+  // A ref owned by App: where the filters are kept while a route is open (see below).
+  filterMemory,
 }) {
   const urd = userRouteData || {};
   const cr = communityRatings || {};
   const cg = communityGrades || {};
+  // This list unmounts whenever a route is opened, which would reset every filter on the way back
+  // (an admin reviewing private videos would have to set the Private filter again after each one).
+  // So the filters are saved into filterMemory as they change and read back here on mount.
+  // The panel being open, the sort and the active playlist are deliberately NOT remembered.
+  const [saved] = useState(() => filterMemory?.current || {});
   const [showFilters, setShowFilters] = useState(false);
-  const [showAdvanced, setShowAdvanced] = useState(false);
+  // Open straight away when a setter / hold-type / style filter is active, so none is ever hidden.
+  const [showAdvanced, setShowAdvanced] = useState(
+    () => !!saved.filterSetter?.trim() || !!saved.filterHoldTypes?.length || !!saved.filterStyles?.length
+  );
   const [showSortMenu, setShowSortMenu] = useState(false);
   const [activePlaylist, setActivePlaylist] = useState(null);
   const [showNewPlaylist, setShowNewPlaylist] = useState(false);
@@ -53,18 +68,33 @@ export default function RouteList({
   const holdIdSet = useMemo(() => new Set((allHolds || []).map(h => h.id)), [allHolds]);
 
   // Hide sends toggle (top-level, not inside filter panel)
-  const [hideSent, setHideSent] = useState(false);
+  const [hideSent, setHideSent] = useState(saved.hideSent ?? false);
 
   // Show hidden angle grades in filter results
-  const [showHiddenAngles, setShowHiddenAngles] = useState(false);
+  const [showHiddenAngles, setShowHiddenAngles] = useState(saved.showHiddenAngles ?? false);
 
-  // Filter state
-  const [filterGradeFrom, setFilterGradeFrom] = useState('');
-  const [filterGradeTo, setFilterGradeTo] = useState('');
-  const [filterRating, setFilterRating] = useState(0);
-  const [filterHoldTypes, setFilterHoldTypes] = useState([]);
-  const [filterStyles, setFilterStyles] = useState([]);
-  const [filterSetter, setFilterSetter] = useState('');
+  // Filter state. A grade of '' means no limit at that end of the slider.
+  const [filterGradeFrom, setFilterGradeFrom] = useState(saved.filterGradeFrom ?? '');
+  const [filterGradeTo, setFilterGradeTo] = useState(saved.filterGradeTo ?? '');
+  const [filterRating, setFilterRating] = useState(saved.filterRating ?? 0);
+  const [filterHoldTypes, setFilterHoldTypes] = useState(saved.filterHoldTypes ?? []);
+  const [filterStyles, setFilterStyles] = useState(saved.filterStyles ?? []);
+  const [filterSetter, setFilterSetter] = useState(saved.filterSetter ?? '');
+  // Video filter: an admin has Private / Public, a climber has one "Has a video" switch.
+  // Each mode ignores the other's states (the mode can change in Settings while one is remembered).
+  const [filterVideoPrivate, setFilterVideoPrivate] = useState(saved.filterVideoPrivate ?? false);
+  const [filterVideoPublic, setFilterVideoPublic] = useState(saved.filterVideoPublic ?? false);
+  const [filterVideoAny, setFilterVideoAny] = useState(saved.filterVideoAny ?? false);
+
+  useEffect(() => {
+    if (!filterMemory) return;
+    filterMemory.current = {
+      hideSent, showHiddenAngles, filterGradeFrom, filterGradeTo, filterRating,
+      filterHoldTypes, filterStyles, filterSetter,
+      filterVideoPrivate, filterVideoPublic, filterVideoAny,
+    };
+  }, [filterMemory, hideSent, showHiddenAngles, filterGradeFrom, filterGradeTo, filterRating,
+    filterHoldTypes, filterStyles, filterSetter, filterVideoPrivate, filterVideoPublic, filterVideoAny]);
 
   const toggleFilter = (list, setter, val) => {
     setter(prev => prev.includes(val) ? prev.filter(v => v !== val) : [...prev, val]);
@@ -83,6 +113,34 @@ export default function RouteList({
 
   const gradeIndex = gradeSystem === 'font' ? FONT_GRADE_INDEX : V_GRADE_INDEX;
 
+  // The grade slider. Settings stores the system as 'V' or 'Font', so it normalises for itself
+  // instead of using gradeIndex above (which only matches a lowercase 'font').
+  const gradeSys = gradeSystem === 'V' ? 'V' : 'font';
+  const filterGradeIndex = gradeSys === 'V' ? V_GRADE_INDEX : FONT_GRADE_INDEX;
+  // A remembered grade from the other grade system (the owner can switch V/Font in Settings)
+  // isn't on this slider, so it counts as no limit.
+  const activeFrom = filterGradeIndex[filterGradeFrom] != null ? filterGradeFrom : '';
+  const activeTo = filterGradeIndex[filterGradeTo] != null ? filterGradeTo : '';
+  // Slider stops run up to V10 (or its Font equivalent). The top stop means "that grade
+  // and harder": few routes go higher, and more stops wouldn't fit a phone.
+  const sliderTop = filterGradeIndex[displayGrade('V10', gradeSys)] ?? grades.length - 1;
+  const sliderGrades = grades.slice(0, sliderTop + 1);
+  const sliderLabels = sliderGrades.map((g, i) => (i === sliderTop ? (g.endsWith('+') ? `${g}↑` : `${g}+`) : g));
+  const sliderLo = activeFrom ? filterGradeIndex[activeFrom] : 0;
+  const sliderHi = activeTo ? filterGradeIndex[activeTo] : sliderTop;
+
+  // A YouTube link is public by nature, so it counts as a public video.
+  const videoFlagsOf = (route) => {
+    const f = routeVideoFlags?.[route.id];
+    return { private: !!f?.private, public: !!f?.public || !!getYouTubeId(route.youtubeUrl) };
+  };
+  // The icon on a card. Private wins on a route with both, so anything still to be reviewed stands out.
+  const videoStateOf = (route) => {
+    const f = videoFlagsOf(route);
+    return f.private ? 'private' : f.public ? 'public' : null;
+  };
+  const videoFilterOn = isVideoAdmin ? (filterVideoPrivate || filterVideoPublic) : filterVideoAny;
+
   // Get routes for current view (all or playlist)
   const isRecent = activePlaylist === RECENT_ID;
   let baseRoutes = routes;
@@ -99,22 +157,15 @@ export default function RouteList({
   // Apply hide-sent toggle
   let filtered = hideSent ? baseRoutes.filter(r => !urd[r.id]?.sent) : baseRoutes;
 
-  // Grade range filter — optionally checks angleGrades too
-  if (filterGradeFrom || filterGradeTo) {
-    const fromIdx = filterGradeFrom ? (gradeIndex[filterGradeFrom] ?? -1) : 0;
-    const toIdx = filterGradeTo ? (gradeIndex[filterGradeTo] ?? -1) : grades.length - 1;
-    const lo = Math.min(fromIdx, toIdx);
-    const hi = Math.max(fromIdx, toIdx);
-    const validGrades = grades.slice(lo, hi + 1);
-    filtered = filtered.filter(r => {
-      // Always match headline grade
-      if (validGrades.includes(r.grade)) return true;
-      // If toggle is on, also check hidden angle grades
-      if (showHiddenAngles && r.angleGrades?.length > 0) {
-        return r.angleGrades.some(ag => validGrades.includes(ag.grade));
-      }
-      return false;
-    });
+  // Grade range filter — the headline grade, and optionally the angle grades too
+  if (activeFrom || activeTo) {
+    const lo = activeFrom ? filterGradeIndex[activeFrom] : 0;
+    const hi = activeTo ? filterGradeIndex[activeTo] : Infinity; // no upper limit at the slider's top stop
+    const inRange = (g) => {
+      const i = filterGradeIndex[displayGrade(g, gradeSys)];
+      return i != null && i >= lo && i <= hi;
+    };
+    filtered = filtered.filter(r => inRange(r.grade) || (showHiddenAngles && (r.angleGrades || []).some(ag => inRange(ag.grade))));
   }
 
   if (filterRating > 0) filtered = filtered.filter(r => (cr[r.id]?.avg || 0) >= filterRating);
@@ -127,6 +178,15 @@ export default function RouteList({
   if (filterSetter.trim()) {
     const q = filterSetter.trim().toLowerCase();
     filtered = filtered.filter(r => r.setter && r.setter.toLowerCase().includes(q));
+  }
+  // Video filter. Skipped until the video list has loaded; the list area says "Loading videos…" meanwhile.
+  if (videoFilterOn && routeVideoFlags) {
+    filtered = filtered.filter(r => {
+      const f = videoFlagsOf(r);
+      return isVideoAdmin
+        ? (filterVideoPrivate && f.private) || (filterVideoPublic && f.public)
+        : f.private || f.public;
+    });
   }
 
   // Sort (in Recent view, "date" means the order the routes were logged)
@@ -145,12 +205,26 @@ export default function RouteList({
     return sortAsc ? cmp : -cmp;
   });
 
-  const hasActiveFilters = filterGradeFrom || filterGradeTo || filterRating > 0 || filterHoldTypes.length > 0 || filterStyles.length > 0 || showHiddenAngles || filterSetter.trim();
+  const hasActiveFilters = activeFrom || activeTo || filterRating > 0 || filterHoldTypes.length > 0 || filterStyles.length > 0 || showHiddenAngles || filterSetter.trim() || videoFilterOn;
+  // Setter, hold types and style live in the Advanced section: flag it when one of them is on
+  const advancedActive = !!filterSetter.trim() || filterHoldTypes.length > 0 || filterStyles.length > 0;
+  // Video filter on but the video list hasn't loaded: the list can't be filtered honestly yet
+  const videoUnloaded = videoFilterOn && routeVideoFlags === null;
+  // How many routes in the current view have each kind of video (admin buttons)
+  const videoCounts = showFilters && isVideoAdmin && routeVideoFlags
+    ? baseRoutes.reduce((acc, r) => {
+        const f = videoFlagsOf(r);
+        if (f.private) acc.private++;
+        if (f.public) acc.public++;
+        return acc;
+      }, { private: 0, public: 0 })
+    : null;
 
   const clearFilters = () => {
     setFilterGradeFrom(''); setFilterGradeTo(''); setFilterRating(0);
     setFilterHoldTypes([]); setFilterStyles([]); setShowHiddenAngles(false);
     setFilterSetter('');
+    setFilterVideoPrivate(false); setFilterVideoPublic(false); setFilterVideoAny(false);
   };
 
   const handleCreatePlaylist = () => {
@@ -621,47 +695,18 @@ export default function RouteList({
           background: 'var(--bg-card)', border: '1px solid var(--border)',
           boxShadow: '0 2px 8px rgba(26,10,0,0.06)',
         }}>
-          {/* Setter filter */}
+          {/* Grade range filter — two handles on one bar. '' = no limit at that end. */}
           <div style={{ marginBottom: '10px' }}>
-            <div style={filterLabelStyle}>Setter</div>
-            <input
-              type="text"
-              value={filterSetter}
-              onChange={e => setFilterSetter(e.target.value)}
-              placeholder="Search setter name..."
-              style={{
-                width: '100%', padding: '7px 10px', borderRadius: '8px', boxSizing: 'border-box',
-                border: filterSetter.trim()
-                  ? '1.5px solid var(--accent)'
-                  : '1.5px solid rgba(26,10,0,0.15)',
-                background: filterSetter.trim() ? 'var(--accent-dim)' : 'var(--bg-input)',
-                color: 'var(--text-primary)', fontSize: '12px',
+            <div style={filterLabelStyle}>Grade {sliderLabels[sliderLo]} – {sliderLabels[sliderHi]}</div>
+            <GradeRange
+              labels={sliderLabels}
+              lo={sliderLo}
+              hi={sliderHi}
+              onChange={(lo, hi) => {
+                setFilterGradeFrom(lo === 0 ? '' : sliderGrades[lo]);
+                setFilterGradeTo(hi === sliderTop ? '' : sliderGrades[hi]);
               }}
             />
-          </div>
-
-          {/* Grade range filter */}
-          <div style={{ marginBottom: '10px' }}>
-            <div style={filterLabelStyle}>Grade Range</div>
-            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-              <select
-                value={filterGradeFrom}
-                onChange={e => setFilterGradeFrom(e.target.value)}
-                style={{ ...filterSelectStyle, flex: 1 }}
-              >
-                <option value="">From</option>
-                {grades.map(g => <option key={g} value={g}>{g}</option>)}
-              </select>
-              <span style={{ fontSize: '12px', color: 'var(--text-dim)', fontWeight: 700 }}>→</span>
-              <select
-                value={filterGradeTo}
-                onChange={e => setFilterGradeTo(e.target.value)}
-                style={{ ...filterSelectStyle, flex: 1 }}
-              >
-                <option value="">To</option>
-                {grades.map(g => <option key={g} value={g}>{g}</option>)}
-              </select>
-            </div>
           </div>
 
           {/* Show Hidden Angles toggle */}
@@ -693,6 +738,38 @@ export default function RouteList({
             </div>
           </div>
 
+          {/* Video filter — admin: Private / Public (with counts); climber: one "Has a video" switch */}
+          <div style={{ marginBottom: '10px' }}>
+            <div style={filterLabelStyle}>Videos</div>
+            {isVideoAdmin ? (
+              <div style={{ display: 'flex', gap: '8px' }}>
+                {[
+                  { key: 'private', label: 'Private', on: filterVideoPrivate, toggle: () => setFilterVideoPrivate(prev => !prev) },
+                  { key: 'public', label: 'Public', on: filterVideoPublic, toggle: () => setFilterVideoPublic(prev => !prev) },
+                ].map(({ key, label, on, toggle }) => (
+                  <button
+                    key={key} type="button" aria-pressed={on} onClick={toggle}
+                    style={{ ...videoToggleStyle(on), flex: 1 }}
+                  >
+                    <span aria-hidden="true" style={{ display: 'inline-flex' }}><VideoBadge state={key} /></span>
+                    <span>{label}</span>
+                    {videoCounts && (
+                      <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 800 }}>{videoCounts[key]}</span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <button
+                type="button" aria-pressed={filterVideoAny} onClick={() => setFilterVideoAny(prev => !prev)}
+                style={{ ...videoToggleStyle(filterVideoAny), width: '100%' }}
+              >
+                <Icon name="video" size={16} />
+                <span>Has a video</span>
+              </button>
+            )}
+          </div>
+
           {/* Rating filter */}
           <div style={{ marginBottom: showAdvanced ? '10px' : 0 }}>
             <div style={filterLabelStyle}>Min Rating</div>
@@ -721,13 +798,32 @@ export default function RouteList({
               color: 'var(--accent)', fontSize: '11px', fontWeight: 700, cursor: 'pointer',
             }}
           >
-            {showAdvanced ? '▾ Hide advanced' : '▸ Advanced filters'}
+            {showAdvanced ? '▾ Hide advanced' : `▸ Advanced filters${advancedActive ? ' ●' : ''}`}
           </button>
 
           {showAdvanced && (
             <>
-              {/* Hold type filter */}
+              {/* Setter filter */}
               <div style={{ marginTop: '8px', marginBottom: '10px' }}>
+                <div style={filterLabelStyle}>Setter</div>
+                <input
+                  type="text"
+                  value={filterSetter}
+                  onChange={e => setFilterSetter(e.target.value)}
+                  placeholder="Search setter name..."
+                  style={{
+                    width: '100%', padding: '7px 10px', borderRadius: '8px', boxSizing: 'border-box',
+                    border: filterSetter.trim()
+                      ? '1.5px solid var(--accent)'
+                      : '1.5px solid rgba(26,10,0,0.15)',
+                    background: filterSetter.trim() ? 'var(--accent-dim)' : 'var(--bg-input)',
+                    color: 'var(--text-primary)', fontSize: '12px',
+                  }}
+                />
+              </div>
+
+              {/* Hold type filter */}
+              <div style={{ marginBottom: '10px' }}>
                 <div style={filterLabelStyle}>Hold Types</div>
                 <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
                   {HOLD_TYPES.map(ht => {
@@ -790,10 +886,21 @@ export default function RouteList({
         </div>
       )}
 
-      {/* Filtered/sorted count */}
-      {(hasActiveFilters || hideSent) && (
+      {/* Filtered/sorted count (not while the video list is missing: the number would be wrong) */}
+      {(hasActiveFilters || hideSent) && !videoUnloaded && (
         <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '8px', fontWeight: 600 }}>
           Showing {sorted.length} of {baseRoutes.length} routes
+        </div>
+      )}
+
+      {/* A refresh of the video list failed: the list below is the last good one */}
+      {!showBrowse && videoFilterOn && routeVideoFlags !== null && videoFlagsFailed && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap',
+          fontSize: '11px', color: 'var(--text-muted)', marginBottom: '8px', fontWeight: 600,
+        }}>
+          <span>Couldn't refresh videos.</span>
+          <button type="button" onClick={onRetryVideoFlags} style={videoRetryStyle}>Retry</button>
         </div>
       )}
 
@@ -879,6 +986,16 @@ export default function RouteList({
             ));
           })()}
         </div>
+      ) : videoUnloaded ? (
+        /* Video filter is on but the video list isn't here yet (or failed): never show "no videos" */
+        <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-dim)' }}>
+          <div style={{ fontSize: '14px', fontWeight: 500, color: 'var(--text-muted)' }}>
+            {videoFlagsFailed ? "Couldn't load videos." : 'Loading videos…'}
+          </div>
+          {videoFlagsFailed && (
+            <button type="button" onClick={onRetryVideoFlags} style={{ ...videoRetryStyle, marginTop: '10px' }}>Retry</button>
+          )}
+        </div>
       ) : (
         /* Route cards */
         baseRoutes.length === 0 && isRecent ? (
@@ -926,6 +1043,7 @@ export default function RouteList({
               communityRating={cr[route.id]?.avg || 0}
               ratingCount={cr[route.id]?.count || 0}
               communityGrade={cg[route.id]?.headline?.consensus || null}
+              videoState={videoStateOf(route)}
               onView={() => onViewRoute(route, sorted.map(r => r.id))}
               onRate={(rating) => onRateRoute(route.id, rating)}
               onToggleSent={() => onToggleSent(route.id)}
@@ -952,8 +1070,16 @@ const filterLabelStyle = {
   letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '6px',
 };
 
-const filterSelectStyle = {
-  padding: '6px 10px', borderRadius: '8px',
-  border: '1.5px solid rgba(26,10,0,0.15)', background: 'var(--bg-input)',
-  color: 'var(--text-primary)', fontSize: '13px', fontFamily: 'var(--font-heading)',
+// A video-filter toggle: at least 44px tall; "on" matches the other filter buttons
+const videoToggleStyle = (on) => ({
+  minHeight: '44px', padding: '0 12px', borderRadius: '8px', fontSize: '12px', fontWeight: 700,
+  cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
+  border: on ? '1.5px solid var(--accent)' : '1.5px solid rgba(26,10,0,0.1)',
+  background: on ? 'var(--accent-dim)' : 'transparent',
+  color: on ? 'var(--accent)' : 'var(--text-muted)',
+});
+
+const videoRetryStyle = {
+  minHeight: '44px', padding: '0 16px', borderRadius: '8px', fontSize: '12px', fontWeight: 700,
+  cursor: 'pointer', border: '1.5px solid var(--accent)', background: 'var(--accent-dim)', color: 'var(--accent)',
 };

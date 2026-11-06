@@ -250,6 +250,49 @@ export default function App() {
   const videoUploadsRef = useRef(videoUploads);
   videoUploadsRef.current = videoUploads;
 
+  // Camera icons + video filters on the route list. null = not loaded yet. A failed
+  // fetch keeps the last good list and raises the flag; it never means "no videos".
+  const [videoSummaryRows, setVideoSummaryRows] = useState(null);
+  const [videoSummaryFailed, setVideoSummaryFailed] = useState(false);
+  const videoSummaryReqRef = useRef(0); // newest fetch wins; older replies are dropped
+  const refreshVideoSummary = useCallback(async () => {
+    const boardId = activeBoardIdRef.current;
+    if (!boardId) return;
+    const mine = ++videoSummaryReqRef.current;
+    let data = null;
+    let error = null;
+    try {
+      ({ data, error } = await db.fetchRouteVideoSummary(boardId));
+    } catch (err) {
+      error = err;
+    }
+    if (mine !== videoSummaryReqRef.current) return;
+    if (error || !Array.isArray(data)) {
+      console.error('[Videos] could not load the video summary:', error);
+      setVideoSummaryFailed(true);
+      return;
+    }
+    setVideoSummaryRows(data);
+    setVideoSummaryFailed(false);
+  }, []);
+
+  // { [routeId]: { private, public } } for the cards and filters. Climber mode only
+  // counts what a normal climber can see, the same rule as RouteVideos. The server
+  // already sends a non-admin only their own + public; this is not the security boundary.
+  const routeVideoFlags = useMemo(() => {
+    if (!videoSummaryRows) return null;
+    const flags = {};
+    for (const v of videoSummaryRows) {
+      if (!isVideoAdmin && !v.is_public && v.user_id !== user?.id) continue;
+      const f = flags[v.route_id] || (flags[v.route_id] = { private: false, public: false });
+      if (v.is_public) f.public = true; else f.private = true;
+    }
+    return flags;
+  }, [videoSummaryRows, isVideoAdmin, user?.id]);
+
+  // The route list's filters, remembered while a route is open (RouteList unmounts then).
+  const routeListFiltersRef = useRef(null);
+
   // ─── Auth effect — listen for login/logout ─────────────────────────
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
@@ -1079,6 +1122,38 @@ export default function App() {
   const [swipeDx, setSwipeDx] = useState(0);
   const [transitionMode, setTransitionMode] = useState('snap'); // 'none' | 'snap' | 'slide'
   const [carouselActive, setCarouselActive] = useState(false); // true when neighbour cards should be mounted
+
+  // ─── Video summary refresh (display only — nothing writes based on it) ───
+  // New user or wall: forget the old list and filters, then fetch for the new wall.
+  // (With no user or wall, bumping the counter drops any reply still on its way.)
+  useEffect(() => {
+    setVideoSummaryRows(null);
+    setVideoSummaryFailed(false);
+    routeListFiltersRef.current = null; // filters don't carry between walls
+    if (user?.id && activeBoardId) refreshVideoSummary();
+    else videoSummaryReqRef.current++;
+  }, [user?.id, activeBoardId, refreshVideoSummary]);
+
+  // Coming back to the list is how a publish, delete or angle change on a route shows up.
+  useEffect(() => {
+    if (view === 'routes' && user?.id) refreshVideoSummary();
+  }, [view, user?.id, refreshVideoSummary]);
+
+  // An upload just finished: its route now has a video.
+  useEffect(() => {
+    if (videoUploads.lastFinished && user?.id) refreshVideoSummary();
+  }, [videoUploads.lastFinished, user?.id, refreshVideoSummary]);
+
+  // Tab becomes visible again. Its OWN listener on purpose: the sync handler above
+  // is protected (see CLAUDE.md) and stays untouched.
+  useEffect(() => {
+    if (!user?.id) return;
+    const handleVisible = () => {
+      if (document.visibilityState === 'visible') refreshVideoSummary();
+    };
+    document.addEventListener('visibilitychange', handleVisible);
+    return () => document.removeEventListener('visibilitychange', handleVisible);
+  }, [user?.id, refreshVideoSummary]);
 
   // Lifted period state for Sessions tab — persists across navigation
   const [sessionsPeriod, setSessionsPeriod] = useState(null);
@@ -2845,6 +2920,8 @@ export default function App() {
               jobs={videoUploads.jobs}
               lastFinished={videoUploads.lastFinished}
               defaultAngle={activeSession?.boardAngle ?? routeAngle}
+              minAngle={activeBoardSpecs.minAngle}
+              maxAngle={activeBoardSpecs.maxAngle}
               onAddVideo={({ file, durationS, angle }) =>
                 videoUploads.startUpload({ routeId: editingRouteId, routeName, file, durationS, angle })}
             />
@@ -2866,7 +2943,12 @@ export default function App() {
               </button>
             </div>
           ) : (
-            <AddVideoButton onConsented={setPendingVideo} defaultAngle={activeSession?.boardAngle ?? routeAngle} />
+            <AddVideoButton
+              onConsented={setPendingVideo}
+              defaultAngle={activeSession?.boardAngle ?? routeAngle}
+              minAngle={activeBoardSpecs.minAngle}
+              maxAngle={activeBoardSpecs.maxAngle}
+            />
           )}
           onSave={saveRoute}
           onCancel={() => { resetCreate(); setView('board'); }}
@@ -2895,6 +2977,11 @@ export default function App() {
           onFetchSharedPlaylists={fetchSharedPlaylists}
           onTogglePlaylistShared={togglePlaylistShared}
           onAddSharedPlaylist={addSharedPlaylist}
+          isVideoAdmin={isVideoAdmin}
+          routeVideoFlags={routeVideoFlags}
+          videoFlagsFailed={videoSummaryFailed}
+          onRetryVideoFlags={refreshVideoSummary}
+          filterMemory={routeListFiltersRef}
           recentSession={recentSession}
           showRecentTile={settings.betaSessionLogger || !!recentSession}
           userId={user?.id}

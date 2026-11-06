@@ -329,6 +329,8 @@ export default function RouteViewCard({
             jobs={videoJobs}
             lastFinished={videoLastFinished}
             defaultAngle={videoSessionAngle ?? route.angle}
+            minAngle={minAngle}
+            maxAngle={maxAngle}
             onAddVideo={({ file, durationS, angle }) =>
               onAddVideo({ routeId: route.id, routeName: route.name, file, durationS, angle })}
           />

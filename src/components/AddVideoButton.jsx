@@ -25,18 +25,23 @@ import { BOARD_SPECS } from '../utils/constants';
  * Props:
  *   onConsented({ file, durationS, angle }) – durationS is null when it couldn't be read
  *   defaultAngle                            – where the angle slider starts (number, or
- *                                             null/undefined); clamped to the board's range, 30 if not a number
+ *                                             null/undefined); clamped to the wall's range, 30 if not a number
+ *   minAngle, maxAngle                      – the active WALL's angle range (Yonder 12–45, The Barn
+ *                                             18–55); default to the global BOARD_SPECS
  *   label                                   – button text
  *   style                                   – merged over the button's default style
  *
  * Also exports AngleSlider (label + big value + touch-sized slider), shared with
  * the "Change angle" editor in RouteVideos.
  */
-export default function AddVideoButton({ onConsented, defaultAngle, label = '+ Add video', style }) {
+export default function AddVideoButton({
+  onConsented, defaultAngle, minAngle = BOARD_SPECS.minAngle, maxAngle = BOARD_SPECS.maxAngle,
+  label = '+ Add video', style,
+}) {
   const [step, setStep] = useState('closed'); // closed | menu | checking | tooLong | consent
   const [tooLongSeconds, setTooLongSeconds] = useState(0);
   const [picked, setPicked] = useState(null); // { file, durationS } waiting for consent
-  const [angle, setAngle] = useState(() => clampBoardAngle(defaultAngle)); // the slider in the consent pop-up
+  const [angle, setAngle] = useState(() => clampBoardAngle(defaultAngle, minAngle, maxAngle)); // the slider in the consent pop-up
   const recordRef = useRef(null);
   const chooseRef = useRef(null);
   const checkRef = useRef(0); // bumped on cancel/unmount so a late duration check is ignored
@@ -72,7 +77,7 @@ export default function AddVideoButton({ onConsented, defaultAngle, label = '+ A
       return;
     }
     setPicked({ file, durationS });
-    setAngle(clampBoardAngle(defaultAngle)); // start from the session / route angle each time
+    setAngle(clampBoardAngle(defaultAngle, minAngle, maxAngle)); // start from the session / route angle each time
     setStep('consent');
   };
 
@@ -138,7 +143,10 @@ export default function AddVideoButton({ onConsented, defaultAngle, label = '+ A
 
       {step === 'consent' && picked && (
         <Overlay align="center">
-          <ConsentDialog file={picked.file} angle={angle} onAngleChange={setAngle} onCancel={close} onConfirm={confirm} />
+          <ConsentDialog
+            file={picked.file} angle={angle} minAngle={minAngle} maxAngle={maxAngle}
+            onAngleChange={setAngle} onCancel={close} onConfirm={confirm}
+          />
         </Overlay>
       )}
     </>
@@ -170,7 +178,7 @@ function Overlay({ children, align, onBackdrop }) {
 
 // Preview + the consent wording. Owns the preview's object URL so it is revoked
 // the moment the pop-up closes.
-function ConsentDialog({ file, angle, onAngleChange, onCancel, onConfirm }) {
+function ConsentDialog({ file, angle, minAngle, maxAngle, onAngleChange, onCancel, onConfirm }) {
   const [url, setUrl] = useState(null);
   const [previewFailed, setPreviewFailed] = useState(false);
 
@@ -199,7 +207,7 @@ function ConsentDialog({ file, angle, onAngleChange, onCancel, onConfirm }) {
       ) : null}
 
       <div style={{ marginTop: '12px' }}>
-        <AngleSlider value={angle} onChange={onAngleChange} />
+        <AngleSlider value={angle} onChange={onAngleChange} min={minAngle} max={maxAngle} />
       </div>
 
       <h2 style={{
@@ -219,7 +227,7 @@ function ConsentDialog({ file, angle, onAngleChange, onCancel, onConfirm }) {
 
 // "Angle climbed at   35°" + a 44px-tall slider + the slab / steep end labels.
 // Used in the consent pop-up and in the "Change angle" editor on a saved video.
-export function AngleSlider({ value, onChange }) {
+export function AngleSlider({ value, onChange, min = BOARD_SPECS.minAngle, max = BOARD_SPECS.maxAngle }) {
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '8px' }}>
@@ -230,7 +238,7 @@ export function AngleSlider({ value, onChange }) {
       </div>
       <input
         type="range" className="range-touch" aria-label="Angle climbed at"
-        min={BOARD_SPECS.minAngle} max={BOARD_SPECS.maxAngle} step={1} value={value}
+        min={min} max={max} step={1} value={value}
         aria-valuetext={`${value} degrees`}
         onChange={(e) => onChange(parseInt(e.target.value, 10))}
       />
@@ -238,8 +246,8 @@ export function AngleSlider({ value, onChange }) {
         display: 'flex', justifyContent: 'space-between',
         fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)',
       }}>
-        <span>{BOARD_SPECS.minAngle}° slab</span>
-        <span>{BOARD_SPECS.maxAngle}° steep</span>
+        <span>{min}° slab</span>
+        <span>{max}° steep</span>
       </div>
     </div>
   );

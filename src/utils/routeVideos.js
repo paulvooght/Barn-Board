@@ -11,11 +11,12 @@
 import { supabase } from '../lib/supabase';
 import { BOARD_SPECS } from './constants';
 
-/** A whole board angle inside the board's range, for the angle sliders' starting
- *  position. Anything that isn't a number (no session, no angle) gives 30. */
-export function clampBoardAngle(angle) {
+/** A whole board angle inside a wall's range (pass the active wall's min/max; the
+ *  defaults are the global BOARD_SPECS), for the angle sliders' starting position.
+ *  Anything that isn't a number (no session, no angle) gives 30, clamped into the range. */
+export function clampBoardAngle(angle, min = BOARD_SPECS.minAngle, max = BOARD_SPECS.maxAngle) {
   const n = Number.isFinite(angle) ? Math.round(angle) : 30;
-  return Math.min(BOARD_SPECS.maxAngle, Math.max(BOARD_SPECS.minAngle, n));
+  return Math.min(max, Math.max(min, n));
 }
 
 // The server compares this to the exact same string in create_route_video()

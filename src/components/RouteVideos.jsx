@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import * as db from '../lib/db';
 import { videoErrorCode, clampBoardAngle } from '../utils/routeVideos';
 import AddVideoButton, { AngleSlider } from './AddVideoButton';
+import { BOARD_SPECS } from '../utils/constants';
 
 const ACTIVE_STAGES = ['waiting', 'shrinking', 'uploading', 'finishing'];
 
@@ -23,6 +24,8 @@ const ACTIVE_STAGES = ['waiting', 'shrinking', 'uploading', 'finishing'];
  *   jobs, lastFinished   – from useVideoUploads (this component only reads them)
  *   defaultAngle         – where the angle sliders start (the live session's angle, else the route's);
  *                          used for the Add-video pop-up and for "Add angle" on a video with none
+ *   minAngle, maxAngle   – the active WALL's angle range (Yonder 12–45, The Barn 18–55) for every
+ *                          angle slider here; default to the global BOARD_SPECS
  *   onAddVideo({ file, durationS, angle })
  *   embedded             – drop the outer padding when it sits inside the route form
  */
@@ -36,6 +39,8 @@ export default function RouteVideos({
   lastFinished,
   onAddVideo,
   defaultAngle,
+  minAngle = BOARD_SPECS.minAngle,
+  maxAngle = BOARD_SPECS.maxAngle,
   embedded = false,
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -205,7 +210,7 @@ export default function RouteVideos({
           <span>{expanded ? '▾' : '▸'}</span>
           <span>Videos{countText}</span>
         </button>
-        <AddVideoButton onConsented={handleAdd} defaultAngle={defaultAngle} />
+        <AddVideoButton onConsented={handleAdd} defaultAngle={defaultAngle} minAngle={minAngle} maxAngle={maxAngle} />
       </div>
 
       {expanded && (
@@ -251,6 +256,8 @@ export default function RouteVideos({
               }
               isVideoAdmin={isVideoAdmin}
               defaultAngle={defaultAngle}
+              minAngle={minAngle}
+              maxAngle={maxAngle}
               onRefreshUrl={refreshUrl}
               onDelete={handleDelete}
               onSetPublic={handleSetPublic}
@@ -265,7 +272,7 @@ export default function RouteVideos({
 
 // One video: player, who/when/angle/visibility, and the delete / publish / angle controls.
 function VideoItem({
-  video, url, linkFailed, label, isMine, uploader, isVideoAdmin, defaultAngle,
+  video, url, linkFailed, label, isMine, uploader, isVideoAdmin, defaultAngle, minAngle, maxAngle,
   onRefreshUrl, onDelete, onSetPublic, onSetAngle,
 }) {
   const [playFailed, setPlayFailed] = useState(false);
@@ -318,7 +325,7 @@ function VideoItem({
 
   const openAngleEditor = () => {
     setError('');
-    setAngleDraft(Number.isFinite(video.angle) ? clampBoardAngle(video.angle) : clampBoardAngle(defaultAngle));
+    setAngleDraft(clampBoardAngle(Number.isFinite(video.angle) ? video.angle : defaultAngle, minAngle, maxAngle));
     setEditingAngle(true);
   };
 
@@ -386,7 +393,7 @@ function VideoItem({
 
       {canDelete && editingAngle && (
         <div style={{ marginTop: '8px' }}>
-          <AngleSlider value={angleDraft} onChange={setAngleDraft} />
+          <AngleSlider value={angleDraft} onChange={setAngleDraft} min={minAngle} max={maxAngle} />
           <div style={{ display: 'flex', gap: '8px', marginTop: '6px' }}>
             <button
               type="button" onClick={doSaveAngle} disabled={busy === 'angle'}

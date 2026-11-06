@@ -325,6 +325,16 @@ export function fetchRouteVideos(routeId) {
     .order('created_at', { ascending: false });
 }
 
+/** One light row per finished video this user may see on a wall (RLS decides which):
+ *  feeds the camera icons and video filters on the route list. */
+export function fetchRouteVideoSummary(boardId) {
+  return supabase
+    .from('route_videos')
+    .select('route_id, is_public, user_id')
+    .eq('board_id', boardId)
+    .eq('status', 'ready');
+}
+
 /** Start an upload: creates the row (status 'uploading') after the server checks
  *  membership, consent wording, type, size and the storage cap. */
 export async function createRouteVideo({ routeId, mimeType, sizeBytes, durationS, consentText, angle }) {
