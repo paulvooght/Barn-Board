@@ -215,6 +215,7 @@ wall starts empty). Per-board boardRegion lives in `boards.specs.boardRegion`.
 }
 ```
 *Only the creator (matched by `creatorId`) can edit the route.*
+*`grade` and `angleGrades[].grade` are saved as the setter chose them, in either V or Font. `settings.gradeSystem` only changes what's shown: App gives screens a converted copy (`routeForDisplay`) and writes from the saved `routes`. Never save a value from a converted copy.*
 
 ### Per-User Route Data (one row per user per route — `user_route_data` table)
 ```json
@@ -551,4 +552,5 @@ When something isn't working:
 - **Multi-device sync** — data re-fetched on tab visibility change, not real-time. Must switch tabs or refresh.
 - **Board photo shadows** — detection picks up edge shadows. Filter by position and area.
 - **Touch targets** — minimum 44px equivalent for mobile.
+- **Grades on screens are converted** — `displayRoutes` and `routeForDisplay` are for showing only. Writing from them would rewrite other people's saved grades in the viewer's system.
 - **Hold ID stability** — NEVER re-run detection and overwrite holds.json directly. IDs are sequential by position — adding holds between existing ones scrambles every ID after the insertion. Use `merge_holds.py` to preserve IDs. See "Board Image Updates" section.
