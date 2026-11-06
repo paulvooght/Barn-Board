@@ -1236,7 +1236,7 @@ export default function App() {
   const [pendingVideo, setPendingVideo] = useState(null);
 
   const grades = settings.gradeSystem === 'V' ? V_GRADES : FONT_GRADES;
-  const gradeIndex = settings.gradeSystem === 'font' ? FONT_GRADE_INDEX : V_GRADE_INDEX;
+  const gradeIndex = settings.gradeSystem === 'Font' ? FONT_GRADE_INDEX : V_GRADE_INDEX;
 
   // Derive community grade consensus from raw rows. Recomputes whenever the user
   // changes their grade system so every vote is normalised into the active system

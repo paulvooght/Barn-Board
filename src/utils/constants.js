@@ -146,11 +146,12 @@ export function convertGrade(grade, fromSystem, toSystem) {
   return FONT_TO_V[grade] || grade;
 }
 
-/** Detect which system a grade string belongs to ('V', 'font', or null if unknown) */
+/** Detect which system a grade string belongs to ('V', 'Font', or null if unknown).
+ *  'Font' with a capital F, the same spelling Settings saves as settings.gradeSystem. */
 export function gradeSystemOf(grade) {
   if (grade == null) return null;
   if (grade in V_GRADE_INDEX) return 'V';
-  if (grade in FONT_GRADE_INDEX) return 'font';
+  if (grade in FONT_GRADE_INDEX) return 'Font';
   return null;
 }
 

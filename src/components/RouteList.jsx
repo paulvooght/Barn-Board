@@ -41,9 +41,9 @@ export default function RouteList({
   // The panel being open, the sort and the active playlist are deliberately NOT remembered.
   const [saved] = useState(() => filterMemory?.current || {});
   const [showFilters, setShowFilters] = useState(false);
-  // Open straight away when a setter / hold-type / style filter is active, so none is ever hidden.
+  // Open straight away when an Advanced filter is active, so none is ever hidden.
   const [showAdvanced, setShowAdvanced] = useState(
-    () => !!saved.filterSetter?.trim() || !!saved.filterHoldTypes?.length || !!saved.filterStyles?.length
+    () => !!saved.filterSetter?.trim() || !!saved.filterRatings?.length || !!saved.filterHoldTypes?.length || !!saved.filterStyles?.length
   );
   const [showSortMenu, setShowSortMenu] = useState(false);
   const [activePlaylist, setActivePlaylist] = useState(null);
@@ -76,7 +76,7 @@ export default function RouteList({
   // Filter state. A grade of '' means no limit at that end of the slider.
   const [filterGradeFrom, setFilterGradeFrom] = useState(saved.filterGradeFrom ?? '');
   const [filterGradeTo, setFilterGradeTo] = useState(saved.filterGradeTo ?? '');
-  const [filterRating, setFilterRating] = useState(saved.filterRating ?? 0);
+  const [filterRatings, setFilterRatings] = useState(saved.filterRatings ?? []); // star counts, any mix
   const [filterHoldTypes, setFilterHoldTypes] = useState(saved.filterHoldTypes ?? []);
   const [filterStyles, setFilterStyles] = useState(saved.filterStyles ?? []);
   const [filterSetter, setFilterSetter] = useState(saved.filterSetter ?? '');
@@ -89,11 +89,11 @@ export default function RouteList({
   useEffect(() => {
     if (!filterMemory) return;
     filterMemory.current = {
-      hideSent, showHiddenAngles, filterGradeFrom, filterGradeTo, filterRating,
+      hideSent, showHiddenAngles, filterGradeFrom, filterGradeTo, filterRatings,
       filterHoldTypes, filterStyles, filterSetter,
       filterVideoPrivate, filterVideoPublic, filterVideoAny,
     };
-  }, [filterMemory, hideSent, showHiddenAngles, filterGradeFrom, filterGradeTo, filterRating,
+  }, [filterMemory, hideSent, showHiddenAngles, filterGradeFrom, filterGradeTo, filterRatings,
     filterHoldTypes, filterStyles, filterSetter, filterVideoPrivate, filterVideoPublic, filterVideoAny]);
 
   const toggleFilter = (list, setter, val) => {
@@ -111,23 +111,22 @@ export default function RouteList({
     setShowSortMenu(false);
   };
 
-  const gradeIndex = gradeSystem === 'font' ? FONT_GRADE_INDEX : V_GRADE_INDEX;
+  const gradeIndex = gradeSystem === 'Font' ? FONT_GRADE_INDEX : V_GRADE_INDEX;
+  // A route can hold a grade from the other system (it's stored as its setter chose it),
+  // so anything comparing grades converts to the viewer's system first.
+  const gradeRank = (grade) => gradeIndex[displayGrade(grade, gradeSystem)] ?? -1;
 
-  // The grade slider. Settings stores the system as 'V' or 'Font', so it normalises for itself
-  // instead of using gradeIndex above (which only matches a lowercase 'font').
-  const gradeSys = gradeSystem === 'V' ? 'V' : 'font';
-  const filterGradeIndex = gradeSys === 'V' ? V_GRADE_INDEX : FONT_GRADE_INDEX;
   // A remembered grade from the other grade system (the owner can switch V/Font in Settings)
   // isn't on this slider, so it counts as no limit.
-  const activeFrom = filterGradeIndex[filterGradeFrom] != null ? filterGradeFrom : '';
-  const activeTo = filterGradeIndex[filterGradeTo] != null ? filterGradeTo : '';
+  const activeFrom = gradeIndex[filterGradeFrom] != null ? filterGradeFrom : '';
+  const activeTo = gradeIndex[filterGradeTo] != null ? filterGradeTo : '';
   // Slider stops run up to V10 (or its Font equivalent). The top stop means "that grade
   // and harder": few routes go higher, and more stops wouldn't fit a phone.
-  const sliderTop = filterGradeIndex[displayGrade('V10', gradeSys)] ?? grades.length - 1;
+  const sliderTop = gradeIndex[displayGrade('V10', gradeSystem)] ?? grades.length - 1;
   const sliderGrades = grades.slice(0, sliderTop + 1);
   const sliderLabels = sliderGrades.map((g, i) => (i === sliderTop ? (g.endsWith('+') ? `${g}↑` : `${g}+`) : g));
-  const sliderLo = activeFrom ? filterGradeIndex[activeFrom] : 0;
-  const sliderHi = activeTo ? filterGradeIndex[activeTo] : sliderTop;
+  const sliderLo = activeFrom ? gradeIndex[activeFrom] : 0;
+  const sliderHi = activeTo ? gradeIndex[activeTo] : sliderTop;
 
   // A YouTube link is public by nature, so it counts as a public video.
   const videoFlagsOf = (route) => {
@@ -159,16 +158,18 @@ export default function RouteList({
 
   // Grade range filter — the headline grade, and optionally the angle grades too
   if (activeFrom || activeTo) {
-    const lo = activeFrom ? filterGradeIndex[activeFrom] : 0;
-    const hi = activeTo ? filterGradeIndex[activeTo] : Infinity; // no upper limit at the slider's top stop
+    const lo = activeFrom ? gradeIndex[activeFrom] : 0;
+    const hi = activeTo ? gradeIndex[activeTo] : Infinity; // no upper limit at the slider's top stop
     const inRange = (g) => {
-      const i = filterGradeIndex[displayGrade(g, gradeSys)];
-      return i != null && i >= lo && i <= hi;
+      const i = gradeRank(g);
+      return i >= 0 && i >= lo && i <= hi;
     };
     filtered = filtered.filter(r => inRange(r.grade) || (showHiddenAngles && (r.angleGrades || []).some(ag => inRange(ag.grade))));
   }
 
-  if (filterRating > 0) filtered = filtered.filter(r => (cr[r.id]?.avg || 0) >= filterRating);
+  // Rounded the same way the card rounds its stars, so a route showing 4 stars matches 4★.
+  // Unrated routes round to 0, which no button matches.
+  if (filterRatings.length > 0) filtered = filtered.filter(r => filterRatings.includes(Math.round(cr[r.id]?.avg || 0)));
   if (filterHoldTypes.length > 0) filtered = filtered.filter(r =>
     filterHoldTypes.every(ht => r.holdTypes?.includes(ht))
   );
@@ -198,16 +199,16 @@ export default function RouteList({
     } else if (sortKey === 'date') {
       cmp = new Date(a.createdAt || 0) - new Date(b.createdAt || 0);
     } else if (sortKey === 'grade') {
-      cmp = (gradeIndex[a.grade] ?? -1) - (gradeIndex[b.grade] ?? -1);
+      cmp = gradeRank(a.grade) - gradeRank(b.grade);
     } else if (sortKey === 'rating') {
       cmp = (cr[a.id]?.avg || 0) - (cr[b.id]?.avg || 0);
     }
     return sortAsc ? cmp : -cmp;
   });
 
-  const hasActiveFilters = activeFrom || activeTo || filterRating > 0 || filterHoldTypes.length > 0 || filterStyles.length > 0 || showHiddenAngles || filterSetter.trim() || videoFilterOn;
+  const hasActiveFilters = activeFrom || activeTo || filterRatings.length > 0 || filterHoldTypes.length > 0 || filterStyles.length > 0 || showHiddenAngles || filterSetter.trim() || videoFilterOn;
   // Setter, hold types and style live in the Advanced section: flag it when one of them is on
-  const advancedActive = !!filterSetter.trim() || filterHoldTypes.length > 0 || filterStyles.length > 0;
+  const advancedActive = !!filterSetter.trim() || filterRatings.length > 0 || filterHoldTypes.length > 0 || filterStyles.length > 0;
   // Video filter on but the video list hasn't loaded: the list can't be filtered honestly yet
   const videoUnloaded = videoFilterOn && routeVideoFlags === null;
   // How many routes in the current view have each kind of video (admin buttons)
@@ -221,7 +222,7 @@ export default function RouteList({
     : null;
 
   const clearFilters = () => {
-    setFilterGradeFrom(''); setFilterGradeTo(''); setFilterRating(0);
+    setFilterGradeFrom(''); setFilterGradeTo(''); setFilterRatings([]);
     setFilterHoldTypes([]); setFilterStyles([]); setShowHiddenAngles(false);
     setFilterSetter('');
     setFilterVideoPrivate(false); setFilterVideoPublic(false); setFilterVideoAny(false);
@@ -709,60 +710,36 @@ export default function RouteList({
             />
           </div>
 
-          {/* Show Hidden Angles toggle */}
-          <div style={{ marginBottom: '10px' }}>
+          {/* One row: include angle grades, then the video filter
+              (admin: Private / Public with counts; climber: "Has a video") */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '10px' }}>
             <button
-              onClick={() => setShowHiddenAngles(prev => !prev)}
-              style={{
-                padding: '6px 12px', borderRadius: '8px', fontSize: '11px',
-                fontWeight: 700, cursor: 'pointer', width: '100%', textAlign: 'left',
-                border: showHiddenAngles ? '1.5px solid var(--accent)' : '1.5px solid rgba(26,10,0,0.1)',
-                background: showHiddenAngles ? 'var(--accent-dim)' : 'transparent',
-                color: showHiddenAngles ? 'var(--accent)' : 'var(--text-muted)',
-                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-              }}
+              type="button" aria-pressed={showHiddenAngles} onClick={() => setShowHiddenAngles(prev => !prev)}
+              title="Also match routes where an angle-grade entry fits the grade range"
+              style={{ ...videoToggleStyle(showHiddenAngles), ...filterRowItem, lineHeight: 1.15 }}
             >
-              <span>Include Hidden Angle Grades</span>
-              <span style={{
-                width: '16px', height: '16px', borderRadius: '4px',
-                border: showHiddenAngles ? '2px solid var(--accent)' : '2px solid rgba(26,10,0,0.2)',
-                background: showHiddenAngles ? 'var(--accent)' : 'transparent',
-                color: '#fff', fontSize: '10px', fontWeight: 900,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-              }}>
-                {showHiddenAngles ? '✓' : ''}
-              </span>
+              Include angle grades
             </button>
-            <div style={{ fontSize: '9px', color: 'var(--text-dim)', marginTop: '3px', paddingLeft: '2px' }}>
-              Also match routes where an angle-grade entry fits the grade range
-            </div>
-          </div>
-
-          {/* Video filter — admin: Private / Public (with counts); climber: one "Has a video" switch */}
-          <div style={{ marginBottom: '10px' }}>
-            <div style={filterLabelStyle}>Videos</div>
             {isVideoAdmin ? (
-              <div style={{ display: 'flex', gap: '8px' }}>
-                {[
-                  { key: 'private', label: 'Private', on: filterVideoPrivate, toggle: () => setFilterVideoPrivate(prev => !prev) },
-                  { key: 'public', label: 'Public', on: filterVideoPublic, toggle: () => setFilterVideoPublic(prev => !prev) },
-                ].map(({ key, label, on, toggle }) => (
-                  <button
-                    key={key} type="button" aria-pressed={on} onClick={toggle}
-                    style={{ ...videoToggleStyle(on), flex: 1 }}
-                  >
-                    <span aria-hidden="true" style={{ display: 'inline-flex' }}><VideoBadge state={key} /></span>
-                    <span>{label}</span>
-                    {videoCounts && (
-                      <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 800 }}>{videoCounts[key]}</span>
-                    )}
-                  </button>
-                ))}
-              </div>
+              [
+                { key: 'private', label: 'Private', on: filterVideoPrivate, toggle: () => setFilterVideoPrivate(prev => !prev) },
+                { key: 'public', label: 'Public', on: filterVideoPublic, toggle: () => setFilterVideoPublic(prev => !prev) },
+              ].map(({ key, label, on, toggle }) => (
+                <button
+                  key={key} type="button" aria-pressed={on} onClick={toggle}
+                  style={{ ...videoToggleStyle(on), ...filterRowItem }}
+                >
+                  <span aria-hidden="true" style={{ display: 'inline-flex' }}><VideoBadge state={key} size={20} /></span>
+                  <span>{label}</span>
+                  {videoCounts && (
+                    <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 800 }}>{videoCounts[key]}</span>
+                  )}
+                </button>
+              ))
             ) : (
               <button
                 type="button" aria-pressed={filterVideoAny} onClick={() => setFilterVideoAny(prev => !prev)}
-                style={{ ...videoToggleStyle(filterVideoAny), width: '100%' }}
+                style={{ ...videoToggleStyle(filterVideoAny), ...filterRowItem }}
               >
                 <Icon name="video" size={16} />
                 <span>Has a video</span>
@@ -770,41 +747,33 @@ export default function RouteList({
             )}
           </div>
 
-          {/* Rating filter */}
-          <div style={{ marginBottom: showAdvanced ? '10px' : 0 }}>
-            <div style={filterLabelStyle}>Min Rating</div>
-            <div style={{ display: 'flex', gap: '4px' }}>
-              {[0, 1, 2, 3, 4, 5].map(r => (
-                <button key={r} onClick={() => setFilterRating(r)}
-                  style={{
-                    padding: '4px 10px', borderRadius: '8px', fontSize: '12px',
-                    border: filterRating === r ? '1.5px solid var(--accent)' : '1.5px solid rgba(26,10,0,0.1)',
-                    background: filterRating === r ? 'var(--accent-dim)' : 'transparent',
-                    color: filterRating === r ? 'var(--accent)' : 'var(--text-muted)',
-                    cursor: 'pointer', fontWeight: 600,
-                  }}
-                >
-                  {r === 0 ? 'Any' : `${r}★+`}
-                </button>
-              ))}
-            </div>
+          {/* Advanced on the left, Clear filters on the right */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+            <button
+              type="button" aria-expanded={showAdvanced} onClick={() => setShowAdvanced(prev => !prev)}
+              style={{
+                ...filterPill,
+                border: showAdvanced || advancedActive ? '1.5px solid var(--accent)' : '1.5px solid rgba(26,10,0,0.15)',
+                background: showAdvanced || advancedActive ? 'var(--accent-dim)' : 'transparent',
+                color: showAdvanced || advancedActive ? 'var(--accent)' : 'var(--text-secondary)',
+              }}
+            >
+              {showAdvanced ? '▾' : '▸'} Advanced{!showAdvanced && advancedActive ? ' ●' : ''}
+            </button>
+            {hasActiveFilters && (
+              <button
+                type="button" onClick={clearFilters}
+                style={{ ...filterPill, border: '1.5px solid rgba(255,82,82,0.3)', background: 'rgba(255,82,82,0.06)', color: '#FF5252' }}
+              >
+                ✕ Clear filters
+              </button>
+            )}
           </div>
-
-          {/* Advanced toggle */}
-          <button
-            onClick={() => setShowAdvanced(prev => !prev)}
-            style={{
-              marginTop: '8px', padding: '4px 0', border: 'none', background: 'none',
-              color: 'var(--accent)', fontSize: '11px', fontWeight: 700, cursor: 'pointer',
-            }}
-          >
-            {showAdvanced ? '▾ Hide advanced' : `▸ Advanced filters${advancedActive ? ' ●' : ''}`}
-          </button>
 
           {showAdvanced && (
             <>
               {/* Setter filter */}
-              <div style={{ marginTop: '8px', marginBottom: '10px' }}>
+              <div style={{ marginTop: '12px', marginBottom: '10px' }}>
                 <div style={filterLabelStyle}>Setter</div>
                 <input
                   type="text"
@@ -820,6 +789,31 @@ export default function RouteList({
                     color: 'var(--text-primary)', fontSize: '12px',
                   }}
                 />
+              </div>
+
+              {/* Rating filter — any mix, e.g. 3, 4 and 5 stars */}
+              <div style={{ marginBottom: '10px' }}>
+                <div style={filterLabelStyle}>Rating</div>
+                <div style={{ display: 'flex', gap: '4px' }}>
+                  {[1, 2, 3, 4, 5].map(r => {
+                    const on = filterRatings.includes(r);
+                    return (
+                      <button
+                        key={r} type="button" aria-pressed={on} aria-label={`${r} star${r > 1 ? 's' : ''}`}
+                        onClick={() => toggleFilter(filterRatings, setFilterRatings, r)}
+                        style={{
+                          flex: 1, minHeight: '44px', borderRadius: '8px', fontSize: '12px',
+                          border: on ? '1.5px solid var(--accent)' : '1.5px solid rgba(26,10,0,0.1)',
+                          background: on ? 'var(--accent-dim)' : 'transparent',
+                          color: on ? 'var(--accent)' : 'var(--text-muted)',
+                          cursor: 'pointer', fontWeight: 600,
+                        }}
+                      >
+                        {r}★
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 
               {/* Hold type filter */}
@@ -870,19 +864,6 @@ export default function RouteList({
             </>
           )}
 
-          {/* Clear filters */}
-          {hasActiveFilters && (
-            <button
-              onClick={clearFilters}
-              style={{
-                marginTop: '10px', marginLeft: showAdvanced ? 0 : '8px', padding: '6px 14px', borderRadius: '8px',
-                border: '1px solid rgba(255,82,82,0.3)', background: 'rgba(255,82,82,0.06)',
-                color: '#FF5252', fontSize: '11px', fontWeight: 700, cursor: 'pointer',
-              }}
-            >
-              ✕ Clear all filters
-            </button>
-          )}
         </div>
       )}
 
@@ -1063,6 +1044,15 @@ const playlistTileStyle = {
   display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
   cursor: 'pointer', flexShrink: 0,
   boxShadow: '0 2px 6px rgba(26,10,0,0.06)',
+};
+
+// One button in the "Include angle grades + video" row: an equal share of the row,
+// wrapping to a second line only on the narrowest phones.
+const filterRowItem = { flex: '1 1 84px', minWidth: 0, padding: '0 6px', fontSize: '11px', textAlign: 'center' };
+
+const filterPill = {
+  minHeight: '40px', padding: '0 14px', borderRadius: '20px', fontSize: '12px', fontWeight: 700,
+  cursor: 'pointer', whiteSpace: 'nowrap',
 };
 
 const filterLabelStyle = {

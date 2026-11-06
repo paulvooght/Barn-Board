@@ -131,36 +131,37 @@ input[type="range"].range-touch::-moz-range-thumb {
   border: 2px solid #fff;
 }
 
-/* Two-handle grade slider. The thumb's hit area is 34×44 with a 26px circle drawn in
-   the middle: wider would steal touches from a neighbouring handle one grade away. */
+/* Two-handle grade slider. The handles are true circles: a rectangular thumb with a
+   circle drawn inside showed up as a box around each dot. */
 .grade-range { margin: 2px 0 4px; }
 .grade-range-bar { position: relative; height: 44px; }
 .grade-range-track, .grade-range-fill { position: absolute; top: 19px; height: 6px; border-radius: 3px; }
-.grade-range-track { left: 4px; right: 4px; background: rgba(26,10,0,0.15); }
+.grade-range-track { left: 0; right: 0; background: rgba(26,10,0,0.15); }
 .grade-range-fill {
-  left: calc(17px + (100% - 34px) * var(--a));
-  right: calc(17px + (100% - 34px) * (1 - var(--b)));
+  left: calc(14px + (100% - 28px) * var(--a));
+  right: calc(14px + (100% - 28px) * (1 - var(--b)));
   background: var(--accent);
 }
 .grade-range input[type="range"] {
   position: absolute; inset: 0; width: 100%; height: 44px; margin: 0;
-  background: none; pointer-events: none;
+  background: none; pointer-events: none; outline: none;
   -webkit-appearance: none; appearance: none;
+  -webkit-tap-highlight-color: transparent;
 }
 .grade-range input[type="range"]::-webkit-slider-runnable-track { background: none; height: 44px; }
 .grade-range input[type="range"]::-moz-range-track { background: none; }
 .grade-range input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none; box-sizing: border-box; pointer-events: auto;
-  width: 34px; height: 44px; margin-top: 0; border: none; border-radius: 0; cursor: grab;
-  background: radial-gradient(circle at center, #fff 0 9.5px, var(--accent) 10px 12.5px, transparent 13px);
+  width: 28px; height: 28px; margin-top: 8px; border-radius: 50%; cursor: grab;
+  background: #fff; border: 3px solid var(--accent); box-shadow: 0 1px 4px rgba(26,10,0,0.25);
 }
 .grade-range input[type="range"]::-moz-range-thumb {
   box-sizing: border-box; pointer-events: auto;
-  width: 34px; height: 44px; border: none; border-radius: 0; cursor: grab;
-  background: radial-gradient(circle at center, #fff 0 9.5px, var(--accent) 10px 12.5px, transparent 13px);
+  width: 28px; height: 28px; border-radius: 50%; cursor: grab;
+  background: #fff; border: 3px solid var(--accent); box-shadow: 0 1px 4px rgba(26,10,0,0.25);
 }
-.grade-range input[type="range"]:focus-visible::-webkit-slider-thumb { outline: 2px solid #1A0A00; outline-offset: -2px; }
-.grade-range-ticks { display: flex; justify-content: space-between; padding: 0 17px; }
+.grade-range input[type="range"]:focus-visible::-webkit-slider-thumb { outline: 2px solid #1A0A00; outline-offset: 2px; }
+.grade-range-ticks { display: flex; justify-content: space-between; padding: 0 14px; }
 .grade-range-ticks span { width: 0; display: flex; justify-content: center; white-space: nowrap; font-size: 11px; color: var(--text-muted); }
 .grade-range-ticks span.in { color: var(--text-primary); font-weight: 700; }
 

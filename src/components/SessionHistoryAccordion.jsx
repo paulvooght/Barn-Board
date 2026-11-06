@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { makePeriod } from '../utils/sessionStats';
+import { displayGrade } from '../utils/constants';
 
 const V_GRADES = ['VB','V0-','V0','V0+','V1','V2','V3','V4','V5','V6','V7','V8','V9','V10','V11','V12','V13','V14','V15'];
 const FONT_GRADES = ['3','3+','4','4+','5','5+','6A','6A+','6B','6B+','6C','6C+','7A','7A+','7B','7B+','7C','7C+','8A','8A+','8B','8B+','8C'];
@@ -11,7 +12,7 @@ const FONT_GRADES = ['3','3+','4','4+','5','5+','6A','6A+','6B','6B+','6C','6C+'
  * Props:
  *   sessions      — all sessions array
  *   routes        — all routes array
- *   gradeSystem   — 'V' | 'font'
+ *   gradeSystem   — 'V' | 'Font'
  *   onSelectSession — (sessionId) => void
  *   selectedSessionId — currently selected session id (highlights the row)
  */
@@ -29,7 +30,8 @@ export default function SessionHistoryAccordion({
 
   const safeSessions = sessions || [];
   const safeRoutes   = routes   || [];
-  const gradeList    = gradeSystem === 'font' ? FONT_GRADES : V_GRADES;
+  const gradeList    = gradeSystem === 'Font' ? FONT_GRADES : V_GRADES;
+  const gradeRank    = (grade) => gradeList.indexOf(displayGrade(grade, gradeSystem));
 
   const sorted = [...safeSessions].sort(
     (a, b) => new Date(b.startTime) - new Date(a.startTime)
@@ -104,7 +106,7 @@ export default function SessionHistoryAccordion({
                 const sentRoutes = safeRoutes.filter(r => (s.routesSent || []).includes(r.id));
                 const hardest = sentRoutes.length > 0
                   ? sentRoutes.reduce((best, r) =>
-                      gradeList.indexOf(r.grade) > gradeList.indexOf(best.grade) ? r : best
+                      gradeRank(r.grade) > gradeRank(best.grade) ? r : best
                     )
                   : null;
 
