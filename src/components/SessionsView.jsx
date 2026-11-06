@@ -14,6 +14,8 @@ import {
   previousPeriod,
   computeHoldHeat,
 } from '../utils/sessionStats';
+import { BOARD_SPECS } from '../utils/constants';
+import { clampBoardAngle } from '../utils/routeVideos';
 
 // Build a fresh default period for a given session set: most recent session, else all-time.
 function freshDefaultPeriod(sess) {
@@ -62,6 +64,13 @@ export default function SessionsView({
   }, [myBoards]);
   const boardName = (id) => boardsById[id]?.name || 'Unknown wall';
   const showBoardTags = boardFilter === 'all';
+
+  // The live session's angle slider uses the range of the wall the session started on,
+  // which doesn't change if you switch walls mid-session. A wall with no range of its own
+  // falls back to BOARD_SPECS, like App's activeBoardSpecs. Clamped so the number always
+  // matches the dot: a session can hold an angle from before its wall's range applied.
+  const { minAngle, maxAngle } = { ...BOARD_SPECS, ...(boardsById[activeSession?.boardId || activeBoardId]?.specs || {}) };
+  const sessionAngle = clampBoardAngle(activeSession?.boardAngle, minAngle, maxAngle);
 
   // Sessions in view = all, or just the selected wall's.
   const safeSessions = useMemo(
@@ -263,14 +272,14 @@ export default function SessionsView({
                 fontFamily: 'var(--font-heading)',
                 color: '#7DD3E8',
               }}>
-                {activeSession.boardAngle || 30}°
+                {sessionAngle}°
               </span>
             </div>
             <input
               type="range"
-              min="18"
-              max="55"
-              value={activeSession.boardAngle || 30}
+              min={minAngle}
+              max={maxAngle}
+              value={sessionAngle}
               onChange={(e) => setSessionAngle(parseInt(e.target.value))}
               style={{ width: '100%', accentColor: '#7DD3E8', cursor: 'pointer' }}
             />
@@ -282,18 +291,18 @@ export default function SessionsView({
               fontWeight: 600,
               marginTop: '2px',
             }}>
-              <span>18° slab</span>
-              <span>55° steep</span>
+              <span>{minAngle}° slab</span>
+              <span>{maxAngle}° steep</span>
             </div>
             <button
-              onClick={() => logAngleClimbed(activeSession.boardAngle || 30)}
+              onClick={() => logAngleClimbed(sessionAngle)}
               style={{
                 marginTop: '8px',
                 width: '100%',
                 padding: '8px',
                 borderRadius: '8px',
                 border: '1.5px solid rgba(125,211,232,0.4)',
-                background: (activeSession.anglesClimbed || []).includes(activeSession.boardAngle || 30)
+                background: (activeSession.anglesClimbed || []).includes(sessionAngle)
                   ? 'rgba(125,211,232,0.15)'
                   : 'transparent',
                 color: '#3BA8C4',
@@ -302,9 +311,9 @@ export default function SessionsView({
                 cursor: 'pointer',
               }}
             >
-              {(activeSession.anglesClimbed || []).includes(activeSession.boardAngle || 30)
-                ? `✓ ${activeSession.boardAngle || 30}° logged`
-                : `Log ${activeSession.boardAngle || 30}° as climbed`}
+              {(activeSession.anglesClimbed || []).includes(sessionAngle)
+                ? `✓ ${sessionAngle}° logged`
+                : `Log ${sessionAngle}° as climbed`}
             </button>
             {(activeSession.anglesClimbed || []).length > 0 && (
               <div style={{
