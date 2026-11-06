@@ -138,7 +138,7 @@ wall starts empty). Per-board boardRegion lives in `boards.specs.boardRegion`.
 | `src/components/BoardImageUpdateView.jsx` | ~1790 | Board-image wizard: upload → crop → align → fine-tune → confirm, with perspective warp |
 | `src/components/HoldEditorView.jsx` | ~810 | Individual hold polygon + metadata editor |
 | `src/components/HoldOverlay.jsx` | ~126 | SVG per-hold render for route view (outlines + labels) |
-| `src/components/RouteList.jsx` | ~1010 | Routes list: sort, filter (two-handle grade slider, video filters, setter search under Advanced), hide-sent, playlists + shared-playlist browse. Filters survive opening a route via `filterMemory`, a ref held in App, because this component unmounts while a route is open |
+| `src/components/RouteList.jsx` | ~1085 | Routes list: sort, filter (two-handle grade slider, video filters, setter search under Advanced), hide-sent, playlists + shared-playlist browse. Filters survive opening a route via `filterMemory`, a ref held in App, because this component unmounts while a route is open |
 | `src/components/GradeRange.jsx` | ~37 | One-bar, two-handle grade slider: two stacked native range inputs. CSS in `App.css` |
 | `src/components/VideoBadge.jsx` | ~29 | Camera badge for route cards and filters: blue public, yellow private |
 | `src/components/RouteCard.jsx` | ~182 | Route card (grade, angle, 4-state send, rating, missing-hold indicator) |
@@ -157,8 +157,8 @@ wall starts empty). Per-board boardRegion lives in `boards.specs.boardRegion`.
 | `src/components/SessionEditView.jsx` | ~886 | Edit a past session (sends, angles, times) |
 | `src/components/CommentsSection.jsx` | ~315 | Comment thread on viewRoute — fetch, post, like, flag, admin-delete |
 | `src/components/CommentItem.jsx` | ~292 | Single comment row — name/setter pill, like/flag/delete |
-| `src/components/RouteVideos.jsx` | ~520 | "Videos (n)" dropdown on the route view and edit form — play, make public/private; Change angle and Delete sit in a "⋯" menu (`VideoMenu`). Each video's row leads with its angle and has no date, and no name on your own. Keeps loading / failed / empty as three separate states |
-| `src/components/AddVideoButton.jsx` | ~270 | Record / choose sheet, 60-second check, consent pop-up with the angle slider (`AngleSlider`, also used by the Change angle editor). Portalled to `body` because the route carousel has a CSS transform |
+| `src/components/RouteVideos.jsx` | ~560 | "Videos (n)" dropdown on the route view and edit form — play, make public/private; Change angle and Delete sit in a "⋯" menu (`VideoMenu`). Each video's row leads with its angle and has no date, and no name on your own. Keeps loading / failed / empty as three separate states |
+| `src/components/AddVideoButton.jsx` | ~280 | Record / choose sheet, 60-second check, consent pop-up with the angle slider (`AngleSlider`, also used by the Change angle editor). Portalled to `body` because the route carousel has a CSS transform |
 | `src/components/VideoUploadPill.jsx` | ~110 | Floating upload status with Retry / Cancel |
 | `src/components/VideoStorageSettings.jsx` | ~200 | Admin dropdown in Settings — storage gauge and clean-up of leftover videos |
 | `src/components/GuidedCameraStep.jsx` | ~426 | Camera-guidance overlay for board-image capture |

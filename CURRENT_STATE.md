@@ -37,7 +37,10 @@
 
 ### Route videos (uploaded, not YouTube)
 - **Add a video** from the route view, the edit form, or while creating a route (uploads after Save). Record with the phone's own camera or choose a file. Limit 60 seconds.
-- **Consent pop-up** for every video, after it's picked, with the owner's exact wording. Cancel uploads nothing. The server refuses the upload without that wording and stores it on the row.
+- **Consent pop-up** for every video, after it's picked, with the owner's exact wording and a required "Angle climbed at" slider. Cancel uploads nothing. The server refuses the upload without that wording and stores it on the row.
+- **Each video's row** leads with its angle. Change angle and Delete sit in a "⋯" menu for the uploader and admins. A video with no angle shows an "Add angle" button to those same people.
+- **Camera icon on route cards:** blue public, yellow private, private wins on a route with both. YouTube links count as public. Admin mode shows every video on the wall; climbers see public ones and their own.
+- **Video filters:** Private + Public with counts for admins, "Has a video" for climbers. Filters stay on when you open a route and come back, so an admin can swipe through just the routes to review.
 - **Private until published:** only the uploader and that wall's admins can see a new video. In Admin mode a wall admin sees everyone's videos in the same dropdown and can make any one public to the wall's members, or private again.
 - **Shrunk on the phone** to H.264 720p at about 2 Mbps, so a clip is about 8 MB per 30 seconds and plays on every device. Location metadata is stripped. If shrinking fails or stalls for 30 seconds of visible time, the original uploads if it's under 50 MB.
 - **Uploads run in the background of the app** with a floating status pill, and resume after a signal drop while the app stays open.
@@ -86,7 +89,7 @@ The split/fail-open admin model is resolved server-side:
 ## Fragile / Risky Areas
 
 ### Route video uploads on a real iPhone (not yet checked)
-Shrinking is verified in Chromium and in Safari 18.2 on the Mac, but not yet on an iPhone. Check on a real phone: **Record video** opens the camera and comes back with the clip, a real iPhone clip shrinks and uploads, and it plays in the home-screen app and on another device. If shrinking doesn't work there, only clips already under 50 MB upload. Safari pauses shrinking while the page is hidden, so leaving the app mid-shrink stops it until you return.
+Shrinking is verified in Chromium and in Safari 18.2 on the Mac, but not yet on an iPhone. The owner reports uploads working well on their phone (2026-11-06), but the specifics haven't been confirmed one by one: **Record video** opens the camera and comes back with the clip, a real iPhone clip shrinks and uploads, and it plays in the home-screen app and on another device. The angle slider and two-handle grade slider haven't been dragged by touch on a real phone yet. If shrinking doesn't work there, only clips already under 50 MB upload. Safari pauses shrinking while the page is hidden, so leaving the app mid-shrink stops it until you return.
 
 ### Video storage on the Free plan
 1 GB total, 50 MB per file and 5 GB of downloads a month shared with the whole app, and going over can restrict the whole project. Uploads stop at 800 MB, but nothing limits downloads, so check the Supabase usage page if videos get popular. The next step up is Supabase Pro (from $25/month). The bucket isn't covered by `backup_tables.mjs`.
