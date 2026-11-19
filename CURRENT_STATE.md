@@ -24,7 +24,7 @@
 - **Community grade suggestions** — users suggest a headline and/or per-angle grade; the app derives a **consensus** and re-normalises it live when the viewer switches V ↔ Font.
 
 ### Route list
-- Sort (date / grade / rating, with direction toggle); filter (setter search, grade range incl. hidden angle-grades, min rating, hold types, styles); hide-sent toggle.
+- Sort (date / grade / rating, with direction toggle); filter (search by route name or setter, grade range incl. hidden angle-grades, min rating, hold types, styles); hide-sent toggle.
 - **Playlists** — create / rename / delete / add / remove, tile UI.
 - **Shared playlists** — publish a playlist publicly, browse others', subscribe (adds a private copy).
 - **Recent tile** — a pseudo-playlist after "All" listing the routes you logged (tried/sent/flashed) in your most recent session on the active wall, or the live one once it has a route. Derived read-only from session data; needs Start/Stop Session.

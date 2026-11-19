@@ -177,9 +177,12 @@ export default function RouteList({
   if (filterStyles.length > 0) filtered = filtered.filter(r =>
     filterStyles.every(s => r.styles?.includes(s))
   );
+  // One search box for route name or setter (kept as filterSetter so saved filters still load)
   if (filterSetter.trim()) {
     const q = filterSetter.trim().toLowerCase();
-    filtered = filtered.filter(r => r.setter && r.setter.toLowerCase().includes(q));
+    filtered = filtered.filter(r =>
+      (r.name || '').toLowerCase().includes(q) || (r.setter || '').toLowerCase().includes(q)
+    );
   }
   // Video filter. Skipped until the video list has loaded; the list area says "Loading videos…" meanwhile.
   if (videoFilterOn && routeVideoFlags) {
@@ -208,7 +211,7 @@ export default function RouteList({
   });
 
   const hasActiveFilters = activeFrom || activeTo || filterRatings.length > 0 || filterHoldTypes.length > 0 || filterStyles.length > 0 || showHiddenAngles || filterSetter.trim() || videoFilterOn;
-  // Setter, hold types and style live in the Advanced section: flag it when one of them is on
+  // Search, rating, hold types and style live in the Advanced section: flag it when one of them is on
   const advancedActive = !!filterSetter.trim() || filterRatings.length > 0 || filterHoldTypes.length > 0 || filterStyles.length > 0;
   // Video filter on but the video list hasn't loaded: the list can't be filtered honestly yet
   const videoUnloaded = videoFilterOn && routeVideoFlags === null;
@@ -773,14 +776,14 @@ export default function RouteList({
 
           {showAdvanced && (
             <>
-              {/* Setter filter */}
+              {/* Search: route name or setter */}
               <div style={{ marginTop: '12px', marginBottom: '10px' }}>
-                <div style={filterLabelStyle}>Setter</div>
+                <div style={filterLabelStyle}>Search</div>
                 <input
                   type="text"
                   value={filterSetter}
                   onChange={e => setFilterSetter(e.target.value)}
-                  placeholder="Search setter name..."
+                  placeholder="Route or setter name..."
                   style={{
                     width: '100%', padding: '7px 10px', borderRadius: '8px', boxSizing: 'border-box',
                     border: filterSetter.trim()
