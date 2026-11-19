@@ -43,7 +43,7 @@ export default function RouteList({
   const [showFilters, setShowFilters] = useState(false);
   // Open straight away when an Advanced filter is active, so none is ever hidden.
   const [showAdvanced, setShowAdvanced] = useState(
-    () => !!saved.filterSetter?.trim() || !!saved.filterRatings?.length || !!saved.filterHoldTypes?.length || !!saved.filterStyles?.length
+    () => !!saved.filterRatings?.length || !!saved.filterHoldTypes?.length || !!saved.filterStyles?.length
   );
   const [showSortMenu, setShowSortMenu] = useState(false);
   const [activePlaylist, setActivePlaylist] = useState(null);
@@ -210,9 +210,11 @@ export default function RouteList({
     return sortAsc ? cmp : -cmp;
   });
 
-  const hasActiveFilters = activeFrom || activeTo || filterRatings.length > 0 || filterHoldTypes.length > 0 || filterStyles.length > 0 || showHiddenAngles || filterSetter.trim() || videoFilterOn;
-  // Search, rating, hold types and style live in the Advanced section: flag it when one of them is on
-  const advancedActive = !!filterSetter.trim() || filterRatings.length > 0 || filterHoldTypes.length > 0 || filterStyles.length > 0;
+  // The search box sits above the Filter button, so it isn't counted as a filter
+  const hasActiveFilters = activeFrom || activeTo || filterRatings.length > 0 || filterHoldTypes.length > 0 || filterStyles.length > 0 || showHiddenAngles || videoFilterOn;
+  const searchActive = !!filterSetter.trim();
+  // Rating, hold types and style live in the Advanced section: flag it when one of them is on
+  const advancedActive = filterRatings.length > 0 || filterHoldTypes.length > 0 || filterStyles.length > 0;
   // Video filter on but the video list hasn't loaded: the list can't be filtered honestly yet
   const videoUnloaded = videoFilterOn && routeVideoFlags === null;
   // How many routes in the current view have each kind of video (admin buttons)
@@ -228,7 +230,6 @@ export default function RouteList({
   const clearFilters = () => {
     setFilterGradeFrom(''); setFilterGradeTo(''); setFilterRatings([]);
     setFilterHoldTypes([]); setFilterStyles([]); setShowHiddenAngles(false);
-    setFilterSetter('');
     setFilterVideoPrivate(false); setFilterVideoPublic(false); setFilterVideoAny(false);
   };
 
@@ -293,6 +294,34 @@ export default function RouteList({
             + New
           </button>
         </div>
+      </div>
+
+      {/* ── Search: route name or setter (kept as filterSetter so saved filters still load) ── */}
+      <div style={{ position: 'relative', marginBottom: '8px' }}>
+        <input
+          type="text"
+          value={filterSetter}
+          onChange={e => setFilterSetter(e.target.value)}
+          placeholder="Search routes or setters..."
+          aria-label="Search routes or setters"
+          style={{
+            width: '100%', padding: '8px 36px 8px 12px', borderRadius: '10px', boxSizing: 'border-box',
+            border: searchActive ? '1.5px solid var(--accent)' : '1.5px solid rgba(26,10,0,0.15)',
+            background: searchActive ? 'var(--accent-dim)' : 'var(--bg-input)',
+            // 16px stops iPhone Safari zooming the page when the box is tapped
+            color: 'var(--text-primary)', fontSize: '16px',
+          }}
+        />
+        {searchActive && (
+          <button
+            type="button" aria-label="Clear search" onClick={() => setFilterSetter('')}
+            style={{
+              position: 'absolute', right: '2px', top: '50%', transform: 'translateY(-50%)',
+              width: '36px', height: '36px', border: 'none', background: 'transparent',
+              color: 'var(--text-muted)', fontSize: '16px', cursor: 'pointer',
+            }}
+          >✕</button>
+        )}
       </div>
 
       {/* ── Control bar: Filter / Sort / Hide Sent ── */}
@@ -776,27 +805,8 @@ export default function RouteList({
 
           {showAdvanced && (
             <>
-              {/* Search: route name or setter */}
-              <div style={{ marginTop: '12px', marginBottom: '10px' }}>
-                <div style={filterLabelStyle}>Search</div>
-                <input
-                  type="text"
-                  value={filterSetter}
-                  onChange={e => setFilterSetter(e.target.value)}
-                  placeholder="Route or setter name..."
-                  style={{
-                    width: '100%', padding: '7px 10px', borderRadius: '8px', boxSizing: 'border-box',
-                    border: filterSetter.trim()
-                      ? '1.5px solid var(--accent)'
-                      : '1.5px solid rgba(26,10,0,0.15)',
-                    background: filterSetter.trim() ? 'var(--accent-dim)' : 'var(--bg-input)',
-                    color: 'var(--text-primary)', fontSize: '12px',
-                  }}
-                />
-              </div>
-
               {/* Rating filter — any mix, e.g. 3, 4 and 5 stars */}
-              <div style={{ marginBottom: '10px' }}>
+              <div style={{ marginTop: '12px', marginBottom: '10px' }}>
                 <div style={filterLabelStyle}>Rating</div>
                 <div style={{ display: 'flex', gap: '4px' }}>
                   {[1, 2, 3, 4, 5].map(r => {
@@ -872,7 +882,7 @@ export default function RouteList({
       )}
 
       {/* Filtered/sorted count (not while the video list is missing: the number would be wrong) */}
-      {(hasActiveFilters || hideSent) && !videoUnloaded && (
+      {(hasActiveFilters || searchActive || hideSent) && !videoUnloaded && (
         <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '8px', fontWeight: 600 }}>
           Showing {sorted.length} of {baseRoutes.length} routes
         </div>
